@@ -1,0 +1,33 @@
+package main
+
+import (
+	"flag"
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/urfave/negroni"
+)
+
+func main() {
+	listenAddr := flag.String("listen-addr", "localhost:8077", "Listen address")
+	flag.Parse()
+
+	r := mux.NewRouter().StrictSlash(true)
+	n := negroni.Classic()
+	r.Handle("/metrics", promhttp.Handler())
+
+	n.UseHandler(r)
+	server := http.Server{
+		Addr:         *listenAddr,
+		Handler:      n,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	}
+	log.Printf("Starting listen and server at %s", *listenAddr)
+	if err := server.ListenAndServe(); err != nil {
+		log.Fatalf("fail serve: %v", err)
+	}
+}
