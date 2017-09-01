@@ -22,6 +22,7 @@ func main() {
 	r := mux.NewRouter().StrictSlash(true)
 	n := negroni.New(negroni.NewRecovery(), negroni.NewLogger())
 	r.Handle("/metrics", promhttp.Handler())
+	r.HandleFunc("/healthcheck", healthcheck)
 	n.UseHandler(r)
 
 	server := http.Server{
