@@ -4,16 +4,21 @@ sudo: required
 addons:
   apt:
     packages:
-      - docker-ce
+    - docker-ce
 go:
-  - 1.9
+- 1.9
 jobs:
   fast_finish: true
   include:
-    - script: make test
-    - stage: lint
-      script:
-        - while true; do echo .; sleep 30; done & make lint
-    - stage: push to docker
-      script:
-        - make push
+  - script: make test
+  - stage: lint
+    script:
+    - while true; do echo .; sleep 30; done & make lint
+  - stage: push to docker
+    script:
+    - make push
+env:
+  global:
+  - secure: iXS4WxLwiaf0lbtRY/D5kLjvs5Vw/4YTMx+DDRxMM847X4zPVk4r1vEB0lI15uWFCvZSVO7weuI1AENLtYA+MdJHAdzQkFpLPgPpbMb4Rv/JD2PjMMbF7nKNuAwPpGrbh5+ag1OcZOyQydIubjRY3j7NdeUPwhnCs3E11duReYQPfPM28XGMP1L4qdD6ZjQ+iiAu3h7dBBwkbOoNAtauDSgm2SSQtcg6V4jL4Mn9ImjEO5I/kriXGAVhnsL5Ed8olKjJSlh3v22ukaETjlqQ420zDZGXvOEi6TnOIsrq1dg1BN0OKopHRrNoNhxCOq0QKi3KWfTj6AvHUGPPICbRuPyITSYhVCaB7k0Ez4rck/mp6oCyXx2HUPauHfAFZ9Z0EqA1NhHRrWDxCvl7WcueRq7U0d/c/zm6vRF2yr+MXKKaq0OvledQevby5NIX5l+L6k5lHXvtPkvOB6IW2/pX3mrn+bSDwKAlILXLHmr9dRvbxmpSwsJlS4lcMekvR3mYOo3HYUUFWOEefbMbQSOH9MLiA8Sd6xrV/59jsxBB5WiArBco67ZZ9kSD6QEgAnVNjVxgYlVrWFydskUletzDQUNXTxd44Oh+Yf0N+7zs4a+FrOUH1BO4/UyS9utAFFbmxFzpGjGIGOCcLdWvHq3ruAECTBb92kJkLPGoG4BHWh4=
+  - secure: IJSUoBXC5H1DKKZ4zqUgcQs9YwemT4izl0pOkr47QFIMrdqtTTI8tjQEyXSJ56C+GVCJcmeHXOlv3NQ6KdzDFsM8bmOhu15GHrv1RELkpVBdQpkicibUJGFtGwlt57VALWmDciqQtSjUiG+0rG+wzfbs/SN+4JW0kCWp1pTUpag7RrhEkFEdw+kKn66bZCBfIzUKRvFAJRmKEoLkmXagfRe7Xuyw6fXpkjPQo5O3VgdsjvwEhyKkTTQxRML0cT34ZJ0Nxp8H4Xmdkj0ScjQBudumsB1FedKpzT4aDqXB1O3u+UFDlFF1ftvCC+r1WwggUEfcQiEGvNpfbCLE8ycKpoZFqSShGb+fvusf6AWaAfHlFKfHYcuNDbyglrnzVI3FKWpOZIjZ6ylfMQ+BnYilpNhShgre0FPTPLwuINow9NpKFdZFoQUo5Gtrch3urPyHDzipMXUKE5GfIyHryZiJWDTZ6S2/ZI1+9YAA40pjPg0JVy9D2UMSVhAMCzRuhWaiGJBFhzDp/+TOv0h/siu1nwZDtiamH9Nghu1MbHtmPuZ8/F7m5NJyk9dkMercxNHW4owkHQjXy+FT0VS/QZ/a4Kxm4JY/f9AIkclRrihiLIVk6DIAE2KvjQWFt3fwPO7Um5O/t5eOzbs5DdOxduLGB3U/RZh93GO5yNRr6qpfjy0=
+  - secure: F6Fr67oQs2zCs+3wXhTkAbZbFIUxkVU2PAK8Dbh2V9LQ8+mGuJymNMhOLxOrhz0addk1dKpcWfk8bjFsaPpkFzz1nUxxbJjd/in1OCxjKdAYto4YuKlVJk+2WvCGaDgb3wQ6M50xOSPuwW26vE/xG73Vh4O+pL0Qu2+2l/GDQGM4kTGA6eo1LTKTZ3o43/JSZQCPBIlUhTtf5MxD+E0aSt4WwbGNTjdsiVltlK9AOTZT8JjBjJ5PwsLqPe/crplzuNCyzVxD9STcidlev7Pzh/oPWMVtDhyhVNoE3op1zSMuEgN+NjnUq79fKELLtYDxssMJB4jlC9e/VJdS2tFdaSL/dOR4xdWs5v1h/2pbbFqQDLEbg/LLmRUZ8WDMSvghGmMS+A9l6HambZHT4gq1fJjttzigRIgoqGm3qXTixjFumVhsOr7fmORgU70vUY0JkeZAm0vc6jfiEegA/87DbeKn1vgMl4Su9z3ZTy+jIZyMrXxrlKYMQxYxJ/SnYS4ph+1qr3fI2AtxKFhgPXZK7Ks66kwScuOiN8tBAtWzTROKwBQbygc1DWiQwGPZ2lbOTphCtzltAVySkOZQaWRY5gUC4xz2KKysrkUTRmXQWBVpf3bQ04NexL1IOi2HtMXjZWhhuzn9OCUGQTd3Fl9XTNb/J4FZVc6uzQd/VtKl2ok=
