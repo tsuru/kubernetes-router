@@ -16,6 +16,7 @@ jobs:
     - while true; do echo .; sleep 30; done & make lint
   - stage: push to docker
     script:
+    - docker login -e $DOCKER_EMAIL -u $DOCKER_USER -p $DOCKER_PASS
     - make push
 env:
   global:
