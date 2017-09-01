@@ -12,5 +12,9 @@ jobs:
     - stage: test
       script: make test
     - stage: lint
+      before_script:
+        - true
+      before_install:
+        - go env && pwd
       script:
         - while true; do echo .; sleep 30; done & make lint
