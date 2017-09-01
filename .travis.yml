@@ -3,7 +3,6 @@ install: true
 sudo: required
 go:
   - 1.9
-  - tip
 jobs:
   fast_finish: true
   include:
