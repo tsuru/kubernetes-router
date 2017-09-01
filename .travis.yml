@@ -1,6 +1,10 @@
 language: go
 install: true
 sudo: required
+addons:
+  apt:
+    packages:
+      - docker-ce
 go:
   - 1.9
 jobs:
