@@ -29,6 +29,6 @@ test:
 lint: 
 	go get -u github.com/alecthomas/gometalinter; \
 	gometalinter --install; \
-	go install  ./... \
-	go test -i ./... \
+	go install  ./...; \
+	go test -i ./...; \
 	gometalinter $(LINTER_ARGS) ./...; \
