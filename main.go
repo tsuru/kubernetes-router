@@ -16,16 +16,17 @@ func main() {
 	flag.Parse()
 
 	r := mux.NewRouter().StrictSlash(true)
-	n := negroni.Classic()
+	n := negroni.New(negroni.NewRecovery(), negroni.NewLogger())
 	r.Handle("/metrics", promhttp.Handler())
-
 	n.UseHandler(r)
+
 	server := http.Server{
 		Addr:         *listenAddr,
 		Handler:      n,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
+
 	log.Printf("Starting listen and server at %s", *listenAddr)
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("fail serve: %v", err)
