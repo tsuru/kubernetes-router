@@ -1,0 +1,37 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: ingress-router-deployment
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: ingress-router
+    spec:
+      containers:
+      - name: ingress-router
+        image: IMAGE
+        imagePullPolicy: Always
+        livenessProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8077
+            scheme: HTTP
+          timeoutSeconds: 5
+        ports:
+        - containerPort: 8077
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-router
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8077
+  selector:
+    app: ingress-router
