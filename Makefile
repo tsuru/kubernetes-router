@@ -17,6 +17,10 @@ build:
 build-docker:
 	docker build --rm -t $(IMAGE):$(TAG) .
 
+.PHONY: push
+push: build-docker
+	docker push $(IMAGE):$(TAG)
+
 .PHONY: test
 test:
 	go test ./...

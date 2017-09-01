@@ -10,3 +10,6 @@ jobs:
     - stage: lint
       script:
         - while true; do echo .; sleep 30; done & make lint
+    - stage: push to docker
+      script:
+        - make push
