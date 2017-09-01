@@ -16,7 +16,7 @@ import (
 )
 
 func main() {
-	listenAddr := flag.String("listen-addr", "localhost:8077", "Listen address")
+	listenAddr := flag.String("listen-addr", ":8077", "Listen address")
 	flag.Parse()
 
 	r := mux.NewRouter().StrictSlash(true)
