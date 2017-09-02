@@ -32,7 +32,7 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 	}
 
-	log.Printf("Starting listen and server at %s", *listenAddr)
+	log.Printf("Started listening and serving at %s", *listenAddr)
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("fail serve: %v", err)
 	}
