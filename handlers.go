@@ -7,6 +7,8 @@ package main
 import "net/http"
 
 func healthcheck(w http.ResponseWriter, req *http.Request) {
+	if _, err := w.Write([]byte("WORKING")); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("WORKING"))
 }
