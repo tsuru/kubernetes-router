@@ -17,32 +17,43 @@ import (
 )
 
 const (
-	servicePort = 8888
-
-	ingressNameFmt = "%s-ingress"
+	defaultServicePort = 8888
+	appLabel           = "tsuru.io/app-name"
+	processLabel       = "tsuru.io/app-process"
+	webProcessName     = "web"
 )
 
-var deletePropagation = metav1.DeletePropagationForeground
+type ErrNoService struct{ App, Process string }
+
+func (e ErrNoService) Error() string {
+	str := fmt.Sprintf("no service found for app %q", e.App)
+	if e.Process != "" {
+		str += fmt.Sprintf(" and process %q", e.Process)
+	}
+	return str
+}
 
 type IngressService struct {
 	Namespace string
 	client    kubernetes.Interface
 }
 
-func (k *IngressService) Create(name string) error {
+// Create creates an Ingress resource pointing to a service
+// with the same name as the App
+func (k *IngressService) Create(appName string) error {
 	client, err := k.ingressClient()
 	if err != nil {
 		return err
 	}
 	ingress := v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf(ingressNameFmt, name),
+			Name:      ingressName(appName),
 			Namespace: k.Namespace,
 		},
 		Spec: v1beta1.IngressSpec{
 			Backend: &v1beta1.IngressBackend{
-				ServiceName: name,
-				ServicePort: intstr.FromInt(servicePort),
+				ServiceName: appName,
+				ServicePort: intstr.FromInt(defaultServicePort),
 			},
 		},
 	}
@@ -50,16 +61,87 @@ func (k *IngressService) Create(name string) error {
 	return err
 }
 
-func (k *IngressService) Remove(name string) error {
+// Update updates an Ingress resource to point it to either
+// the only service or the one responsible for the process web
+func (k *IngressService) Update(appName string) error {
+	list, err := k.client.CoreV1().Services(k.Namespace).List(metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s", appLabel, appName),
+	})
+	if err != nil {
+		return err
+	}
+	if len(list.Items) == 0 {
+		return ErrNoService{App: appName}
+	}
+	service := list.Items[0]
+	var found bool
+	if len(list.Items) > 1 {
+		for i := range list.Items {
+			if list.Items[i].Labels[processLabel] == webProcessName {
+				service = list.Items[i]
+				found = true
+				break
+			}
+		}
+		if !found {
+			return ErrNoService{App: appName, Process: webProcessName}
+		}
+	}
 	client, err := k.ingressClient()
 	if err != nil {
 		return err
 	}
-	err = client.Delete(fmt.Sprintf(ingressNameFmt, name), &metav1.DeleteOptions{PropagationPolicy: &deletePropagation})
+	ingress, err := k.get(appName)
+	if err != nil {
+		return err
+	}
+	if ingress.Spec.Backend.ServiceName == service.Name {
+		return nil
+	}
+	ingress.Spec.Backend.ServiceName = service.Name
+	ingress.Spec.Backend.ServicePort = intstr.FromInt(int(service.Spec.Ports[0].Port))
+	_, err = client.Update(ingress)
+	return err
+}
+
+// Remove removes the Ingress resource associated with the app
+func (k *IngressService) Remove(appName string) error {
+	client, err := k.ingressClient()
+	if err != nil {
+		return err
+	}
+	deletePropagation := metav1.DeletePropagationForeground
+	err = client.Delete(ingressName(appName), &metav1.DeleteOptions{PropagationPolicy: &deletePropagation})
 	if k8sErrors.IsNotFound(err) {
 		return nil
 	}
 	return err
+}
+
+// GetAddr gets the address of the loadbalancer associated with
+// the app Ingress resource
+func (k *IngressService) GetAddr(appName string) (string, error) {
+	ingress, err := k.get(appName)
+	if err != nil {
+		return "", err
+	}
+	lbs := ingress.Status.LoadBalancer.Ingress
+	if len(lbs) == 0 {
+		return "", fmt.Errorf("No loadbalancer configured")
+	}
+	return ingress.Status.LoadBalancer.Ingress[0].IP, nil
+}
+
+func (k *IngressService) get(appName string) (*v1beta1.Ingress, error) {
+	client, err := k.ingressClient()
+	if err != nil {
+		return nil, err
+	}
+	ingress, err := client.Get(ingressName(appName), metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return ingress, nil
 }
 
 func (k *IngressService) getClient() (kubernetes.Interface, error) {
@@ -79,4 +161,8 @@ func (k *IngressService) ingressClient() (typedV1Beta1.IngressInterface, error) 
 		return nil, err
 	}
 	return client.ExtensionsV1beta1().Ingresses(k.Namespace), nil
+}
+
+func ingressName(appName string) string {
+	return appName + "-ingress"
 }
