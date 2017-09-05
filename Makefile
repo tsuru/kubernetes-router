@@ -24,7 +24,7 @@ push: build-docker
 
 .PHONY: test
 test:
-	go test ./... -race
+	go test ./... -race -cover
 
 .PHONY: lint
 lint: 
