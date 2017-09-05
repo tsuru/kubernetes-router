@@ -12,22 +12,25 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/urfave/negroni"
+	"github.com/tsuru/ingress-router/api"
+	"github.com/tsuru/ingress-router/kubernetes"
 )
 
 func main() {
 	listenAddr := flag.String("listen-addr", ":8077", "Listen address")
+	k8sNamespace := flag.String("k8s-namespace", "default", "Kubernetes namespace to create ingress resources")
 	flag.Parse()
 
+	routerAPI := api.RouterAPI{
+		IngressService: &kubernetes.IngressService{
+			Namespace: *k8sNamespace,
+		},
+	}
 	r := mux.NewRouter().StrictSlash(true)
-	n := negroni.New(negroni.NewRecovery(), negroni.NewLogger())
-	r.Handle("/metrics", promhttp.Handler())
-	r.HandleFunc("/healthcheck", healthcheck)
-	n.UseHandler(r)
-
+	routerAPI.Register(r)
 	server := http.Server{
 		Addr:         *listenAddr,
-		Handler:      n,
+		Handler:      r,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
@@ -36,4 +39,6 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("fail serve: %v", err)
 	}
+
+	r.Handle("/metrics", promhttp.Handler())
 }
