@@ -54,7 +54,7 @@ func TestGetBackend(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
 	}
-	if service.GetInvoked != true {
+	if !service.GetInvoked {
 		t.Errorf("Service Get function not invoked")
 	}
 	var data map[string]string
@@ -83,7 +83,7 @@ func TestAddBackend(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
 	}
-	if service.CreateInvoked != true {
+	if !service.CreateInvoked {
 		t.Errorf("Service Create function not invoked")
 	}
 }
@@ -104,7 +104,7 @@ func TestRemoveBackend(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
 	}
-	if service.RemoveInvoked != true {
+	if !service.RemoveInvoked {
 		t.Errorf("Service Remove function not invoked")
 	}
 }
@@ -125,8 +125,8 @@ func TestAddRoutes(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
 	}
-	if service.UpdateInvoked != true {
-		t.Errorf("Service Remove function not invoked")
+	if !service.UpdateInvoked {
+		t.Errorf("Service Update function not invoked")
 	}
 }
 
@@ -154,8 +154,8 @@ func TestSwap(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
 	}
-	if service.SwapInvoked != true {
-		t.Errorf("Service Remove function not invoked")
+	if !service.SwapInvoked {
+		t.Errorf("Service Swap function not invoked")
 	}
 }
 
