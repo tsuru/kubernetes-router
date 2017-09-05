@@ -42,7 +42,7 @@ func (e ErrAppSwapped) Error() string {
 
 type IngressService struct {
 	Namespace string
-	client    kubernetes.Interface
+	Client    kubernetes.Interface
 }
 
 // Create creates an Ingress resource pointing to a service
@@ -197,8 +197,8 @@ func (k *IngressService) get(appName string) (*v1beta1.Ingress, error) {
 }
 
 func (k *IngressService) getClient() (kubernetes.Interface, error) {
-	if k.client != nil {
-		return k.client, nil
+	if k.Client != nil {
+		return k.Client, nil
 	}
 	config, err := rest.InClusterConfig()
 	if err != nil {
