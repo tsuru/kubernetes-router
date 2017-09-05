@@ -6,19 +6,15 @@ package mock
 
 type IngressService struct {
 	CreateFn      func(string) error
-	CreateInvoked bool
-
 	RemoveFn      func(string) error
-	RemoveInvoked bool
-
 	UpdateFn      func(string) error
+	SwapFn        func(string, string) error
+	GetFn         func(string) (map[string]string, error)
+	CreateInvoked bool
+	RemoveInvoked bool
 	UpdateInvoked bool
-
-	SwapFn      func(string, string) error
-	SwapInvoked bool
-
-	GetFn      func(string) (map[string]string, error)
-	GetInvoked bool
+	SwapInvoked   bool
+	GetInvoked    bool
 }
 
 func (s *IngressService) Create(appName string) error {
