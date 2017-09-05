@@ -43,6 +43,7 @@ func (e ErrAppSwapped) Error() string {
 	return fmt.Sprintf("app %q currently swapped with %q", e.App, e.DstApp)
 }
 
+// IngressService manages ingresses in a Kubernetes cluster
 type IngressService struct {
 	Namespace string
 	Client    kubernetes.Interface
