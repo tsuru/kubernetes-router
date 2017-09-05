@@ -4,6 +4,8 @@
 
 package mock
 
+// IngressService is a ingress.Service mock implementation to be
+// used by tests
 type IngressService struct {
 	CreateFn      func(string) error
 	RemoveFn      func(string) error
@@ -17,26 +19,31 @@ type IngressService struct {
 	GetInvoked    bool
 }
 
+// Create calls CreateFn
 func (s *IngressService) Create(appName string) error {
 	s.CreateInvoked = true
 	return s.CreateFn(appName)
 }
 
+// Remove calls RemoveFn
 func (s *IngressService) Remove(appName string) error {
 	s.RemoveInvoked = true
 	return s.RemoveFn(appName)
 }
 
+// Update calls UpdateFn
 func (s *IngressService) Update(appName string) error {
 	s.UpdateInvoked = true
 	return s.UpdateFn(appName)
 }
 
+// Swap calls SwapFn
 func (s *IngressService) Swap(appSrc string, appDst string) error {
 	s.SwapInvoked = true
 	return s.SwapFn(appSrc, appDst)
 }
 
+// Get calls GetFn
 func (s *IngressService) Get(appName string) (map[string]string, error) {
 	s.GetInvoked = true
 	return s.GetFn(appName)

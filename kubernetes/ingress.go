@@ -24,6 +24,7 @@ const (
 	webProcessName     = "web"
 )
 
+// ErrNoService indicates that the app has no service running
 type ErrNoService struct{ App, Process string }
 
 func (e ErrNoService) Error() string {
@@ -34,6 +35,8 @@ func (e ErrNoService) Error() string {
 	return str
 }
 
+// ErrAppSwapped indicates when a operation cant be performed
+// because the app is swapped
 type ErrAppSwapped struct{ App, DstApp string }
 
 func (e ErrAppSwapped) Error() string {
@@ -116,6 +119,7 @@ func (k *IngressService) Update(appName string) error {
 	return err
 }
 
+// Swap swaps backend services of two applications ingresses
 func (k *IngressService) Swap(srcApp, dstApp string) error {
 	srcIngress, err := k.get(srcApp)
 	if err != nil {

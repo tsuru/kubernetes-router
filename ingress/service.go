@@ -4,6 +4,8 @@
 
 package ingress
 
+// Service implements the basic functionally needed to
+// manage ingresses.
 type Service interface {
 	Create(appName string) error
 	Remove(appName string) error
