@@ -20,6 +20,7 @@ const (
 	defaultServicePort = 8888
 	appLabel           = "tsuru.io/app-name"
 	processLabel       = "tsuru.io/app-process"
+	swapLabel          = "tsuru.io/swapped-with"
 	webProcessName     = "web"
 )
 
@@ -31,6 +32,12 @@ func (e ErrNoService) Error() string {
 		str += fmt.Sprintf(" and process %q", e.Process)
 	}
 	return str
+}
+
+type ErrAppSwapped struct{ App, DstApp string }
+
+func (e ErrAppSwapped) Error() string {
+	return fmt.Sprintf("app %q currently swapped with %q", e.App, e.DstApp)
 }
 
 type IngressService struct {
@@ -49,6 +56,7 @@ func (k *IngressService) Create(appName string) error {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ingressName(appName),
 			Namespace: k.Namespace,
+			Labels:    map[string]string{appLabel: appName},
 		},
 		Spec: v1beta1.IngressSpec{
 			Backend: &v1beta1.IngressBackend{
@@ -104,8 +112,48 @@ func (k *IngressService) Update(appName string) error {
 	return err
 }
 
+func (k *IngressService) Swap(srcApp, dstApp string) error {
+	srcIngress, err := k.get(srcApp)
+	if err != nil {
+		return err
+	}
+	dstIngress, err := k.get(dstApp)
+	if err != nil {
+		return err
+	}
+	swap(srcIngress, dstIngress)
+	client, err := k.ingressClient()
+	if err != nil {
+		return err
+	}
+	_, err = client.Update(srcIngress)
+	if err != nil {
+		return err
+	}
+	_, err = client.Update(dstIngress)
+	if err != nil {
+		swap(srcIngress, dstIngress)
+		_, errRollback := client.Update(srcIngress)
+		if errRollback != nil {
+			return fmt.Errorf("failed to rollback swap %v: %v", err, errRollback)
+		}
+		return err
+	}
+	return nil
+}
+
 // Remove removes the Ingress resource associated with the app
 func (k *IngressService) Remove(appName string) error {
+	ingress, err := k.get(appName)
+	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if dstApp, ok := ingress.Labels[swapLabel]; ok {
+		return ErrAppSwapped{App: appName, DstApp: dstApp}
+	}
 	client, err := k.ingressClient()
 	if err != nil {
 		return err
@@ -165,4 +213,16 @@ func (k *IngressService) ingressClient() (typedV1Beta1.IngressInterface, error) 
 
 func ingressName(appName string) string {
 	return appName + "-ingress"
+}
+
+func swap(srcIngress, dstIngress *v1beta1.Ingress) {
+	srcIngress.Spec.Backend.ServiceName, dstIngress.Spec.Backend.ServiceName = dstIngress.Spec.Backend.ServiceName, srcIngress.Spec.Backend.ServiceName
+	srcIngress.Spec.Backend.ServicePort, dstIngress.Spec.Backend.ServicePort = dstIngress.Spec.Backend.ServicePort, srcIngress.Spec.Backend.ServicePort
+	if srcIngress.Labels[swapLabel] == dstIngress.Labels[appLabel] {
+		delete(srcIngress.Labels, swapLabel)
+		delete(dstIngress.Labels, swapLabel)
+	} else {
+		srcIngress.Labels[swapLabel] = dstIngress.Labels[appLabel]
+		dstIngress.Labels[swapLabel] = srcIngress.Labels[appLabel]
+	}
 }

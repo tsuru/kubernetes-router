@@ -6,6 +6,7 @@ package kubernetes
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,20 +36,9 @@ func TestCreate(t *testing.T) {
 	if len(ingressList.Items) != 1 {
 		t.Errorf("Expected 1 item. Got %d.", len(ingressList.Items))
 	}
-	expectedIngress := v1beta1.Ingress{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-ingress",
-			Namespace: "default",
-		},
-		Spec: v1beta1.IngressSpec{
-			Backend: &v1beta1.IngressBackend{
-				ServiceName: "test",
-				ServicePort: intstr.FromInt(8888),
-			},
-		},
-	}
+	expectedIngress := defaultIngress("test")
 	if !reflect.DeepEqual(ingressList.Items[0], expectedIngress) {
-		t.Errorf("Expected %v. Got %v", expectedIngress.Spec, ingressList.Items[0].Spec)
+		t.Errorf("Expected %v. Got %v", expectedIngress, ingressList.Items[0])
 	}
 }
 
@@ -120,43 +110,120 @@ func TestUpdate(t *testing.T) {
 	}
 }
 
-func TestRemoveIgnoresNotFound(t *testing.T) {
+func TestSwap(t *testing.T) {
 	svc := createFakeService()
-	err := svc.Create("test")
+	err := svc.Create("test-blue")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
+	err = svc.Create("test-green")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	err = svc.Swap("test-blue", "test-green")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
 	ingressList, err := svc.client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	if len(ingressList.Items) != 1 {
-		t.Errorf("Expected 1 item. Got %d.", len(ingressList.Items))
+	sort.Slice(ingressList.Items, func(i, j int) bool {
+		return ingressList.Items[i].Name < ingressList.Items[j].Name
+	})
+	blueIng := defaultIngress("test-blue")
+	blueIng.Labels[swapLabel] = "test-green"
+	blueIng.Spec.Backend.ServiceName = "test-green"
+	greenIng := defaultIngress("test-green")
+	greenIng.Labels[swapLabel] = "test-blue"
+	greenIng.Spec.Backend.ServiceName = "test-blue"
+
+	if !reflect.DeepEqual(ingressList.Items, []v1beta1.Ingress{blueIng, greenIng}) {
+		t.Errorf("Expected %v. Got %v", []v1beta1.Ingress{blueIng, greenIng}, ingressList.Items)
 	}
-	err = svc.Remove("test")
+
+	err = svc.Swap("test-blue", "test-green")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
+
 	ingressList, err = svc.client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	if len(ingressList.Items) != 0 {
-		t.Errorf("Expected 0 items. Got %d.", len(ingressList.Items))
+	sort.Slice(ingressList.Items, func(i, j int) bool {
+		return ingressList.Items[i].Name < ingressList.Items[j].Name
+	})
+	delete(blueIng.Labels, swapLabel)
+	blueIng.Spec.Backend.ServiceName = "test-blue"
+	delete(greenIng.Labels, swapLabel)
+	greenIng.Spec.Backend.ServiceName = "test-green"
+
+	if !reflect.DeepEqual(ingressList.Items, []v1beta1.Ingress{blueIng, greenIng}) {
+		t.Errorf("Expected %v. Got %v", []v1beta1.Ingress{blueIng, greenIng}, ingressList.Items)
 	}
 }
 
 func TestRemove(t *testing.T) {
-	svc := createFakeService()
-	err := svc.Remove("test")
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
+	tt := []struct {
+		testName      string
+		remove        string
+		expectedErr   error
+		expectedCount int
+	}{
+		{"success", "test", nil, 2},
+		{"failSwapped", "blue", ErrAppSwapped{App: "blue", DstApp: "green"}, 3},
+		{"ignoresNotFound", "notfound", nil, 3},
 	}
-	ingressList, err := svc.client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
+	for _, tc := range tt {
+		tc := tc
+		t.Run(tc.testName, func(t *testing.T) {
+			svc := createFakeService()
+			err := svc.Create("test")
+			if err != nil {
+				t.Errorf("Expected err to be nil. Got %v.", err)
+			}
+			err = svc.Create("blue")
+			if err != nil {
+				t.Errorf("Expected err to be nil. Got %v.", err)
+			}
+			err = svc.Create("green")
+			if err != nil {
+				t.Errorf("Expected err to be nil. Got %v.", err)
+			}
+			err = svc.Swap("blue", "green")
+			if err != nil {
+				t.Errorf("Expected err to be nil. Got %v.", err)
+			}
+			err = svc.Remove(tc.remove)
+			if err != tc.expectedErr {
+				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
+			}
+			ingressList, err := svc.client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+			if err != nil {
+				t.Errorf("Expected err to be nil. Got %v.", err)
+			}
+			if len(ingressList.Items) != tc.expectedCount {
+				t.Errorf("Expected %d items. Got %d.", tc.expectedCount, len(ingressList.Items))
+			}
+		})
 	}
-	if len(ingressList.Items) != 0 {
-		t.Errorf("Expected 0 items. Got %d.", len(ingressList.Items))
+}
+
+func defaultIngress(name string) v1beta1.Ingress {
+	return v1beta1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name + "-ingress",
+			Namespace: "default",
+			Labels:    map[string]string{appLabel: name},
+		},
+		Spec: v1beta1.IngressSpec{
+			Backend: &v1beta1.IngressBackend{
+				ServiceName: name,
+				ServicePort: intstr.FromInt(8888),
+			},
+		},
 	}
 }
