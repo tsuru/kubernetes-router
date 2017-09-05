@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	typedV1Beta1 "k8s.io/client-go/kubernetes/typed/extensions/v1beta1"
+	apiv1 "k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/pkg/apis/extensions/v1beta1"
 	"k8s.io/client-go/rest"
 )
@@ -76,32 +77,9 @@ func (k *IngressService) Create(appName string) error {
 // Update updates an Ingress resource to point it to either
 // the only service or the one responsible for the process web
 func (k *IngressService) Update(appName string) error {
-	client, err := k.getClient()
+	service, err := k.getService(appName)
 	if err != nil {
 		return err
-	}
-	list, err := client.CoreV1().Services(k.Namespace).List(metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=%s", appLabel, appName),
-	})
-	if err != nil {
-		return err
-	}
-	if len(list.Items) == 0 {
-		return ErrNoService{App: appName}
-	}
-	service := list.Items[0]
-	var found bool
-	if len(list.Items) > 1 {
-		for i := range list.Items {
-			if list.Items[i].Labels[processLabel] == webProcessName {
-				service = list.Items[i]
-				found = true
-				break
-			}
-		}
-		if !found {
-			return ErrNoService{App: appName, Process: webProcessName}
-		}
 	}
 	ingressClient, err := k.ingressClient()
 	if err != nil {
@@ -187,6 +165,31 @@ func (k *IngressService) Get(appName string) (map[string]string, error) {
 		return nil, fmt.Errorf("No loadbalancer configured")
 	}
 	return map[string]string{"address": ingress.Status.LoadBalancer.Ingress[0].IP}, nil
+}
+
+func (k *IngressService) getService(appName string) (*apiv1.Service, error) {
+	client, err := k.getClient()
+	if err != nil {
+		return nil, err
+	}
+	list, err := client.CoreV1().Services(k.Namespace).List(metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s", appLabel, appName),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(list.Items) == 0 {
+		return nil, ErrNoService{App: appName}
+	}
+	if len(list.Items) == 1 {
+		return &list.Items[0], nil
+	}
+	for i := range list.Items {
+		if list.Items[i].Labels[processLabel] == webProcessName {
+			return &list.Items[i], nil
+		}
+	}
+	return nil, ErrNoService{App: appName, Process: webProcessName}
 }
 
 func (k *IngressService) get(appName string) (*v1beta1.Ingress, error) {
