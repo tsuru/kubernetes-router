@@ -13,10 +13,12 @@ import (
 	"github.com/tsuru/ingress-router/ingress"
 )
 
+// RouterAPI implements Tsuru HTTP router API
 type RouterAPI struct {
 	IngressService ingress.IngressService
 }
 
+// Register registers RouterAPI routes
 func (a *RouterAPI) Register(r *mux.Router) {
 	r.Handle("/backend/{name}", handler(a.getBackend)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}", handler(a.addBackend)).Methods(http.MethodPost)

@@ -8,6 +8,7 @@ import "net/http"
 
 type handler func(http.ResponseWriter, *http.Request) error
 
+// ServeHTTP serves an HTTP request
 func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	handleError(h(w, r), w, r)
 }
