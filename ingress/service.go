@@ -4,7 +4,7 @@
 
 package ingress
 
-type IngressService interface {
+type Service interface {
 	Create(appName string) error
 	Remove(appName string) error
 	Update(appName string) error
