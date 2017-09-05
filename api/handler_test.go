@@ -24,9 +24,7 @@ func TestHandler(t *testing.T) {
 	for _, tc := range tt {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			called := false
 			myHandler := func(w http.ResponseWriter, r *http.Request) error {
-				called = true
 				return tc.err
 			}
 			req := httptest.NewRequest(http.MethodGet, "http://localhost", nil)
