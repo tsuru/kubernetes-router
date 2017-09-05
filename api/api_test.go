@@ -22,7 +22,11 @@ func TestHealthcheckOK(t *testing.T) {
 	req := httptest.NewRequest("GET", "http://localhost", nil)
 	w := httptest.NewRecorder()
 
-	api.healthcheck(w, req)
+	err := api.healthcheck(w, req)
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v", err)
+	}
+
 	resp := w.Result()
 	body, _ := ioutil.ReadAll(resp.Body)
 
