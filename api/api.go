@@ -15,7 +15,7 @@ import (
 
 // RouterAPI implements Tsuru HTTP router API
 type RouterAPI struct {
-	IngressService ingress.IngressService
+	IngressService ingress.Service
 }
 
 // Register registers RouterAPI routes
