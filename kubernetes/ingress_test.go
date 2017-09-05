@@ -86,7 +86,7 @@ func TestUpdate(t *testing.T) {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
 			for i := range tc.services {
-				_, err := svc.Client.CoreV1().Services(svc.Namespace).Create(&tc.services[i])
+				_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(&tc.services[i])
 				if err != nil {
 					t.Errorf("Expected err to be nil. Got %v.", err)
 				}
