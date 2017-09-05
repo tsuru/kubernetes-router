@@ -72,7 +72,11 @@ func (k *IngressService) Create(appName string) error {
 // Update updates an Ingress resource to point it to either
 // the only service or the one responsible for the process web
 func (k *IngressService) Update(appName string) error {
-	list, err := k.client.CoreV1().Services(k.Namespace).List(metav1.ListOptions{
+	client, err := k.getClient()
+	if err != nil {
+		return err
+	}
+	list, err := client.CoreV1().Services(k.Namespace).List(metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("%s=%s", appLabel, appName),
 	})
 	if err != nil {
@@ -95,7 +99,7 @@ func (k *IngressService) Update(appName string) error {
 			return ErrNoService{App: appName, Process: webProcessName}
 		}
 	}
-	client, err := k.ingressClient()
+	ingressClient, err := k.ingressClient()
 	if err != nil {
 		return err
 	}
@@ -108,7 +112,7 @@ func (k *IngressService) Update(appName string) error {
 	}
 	ingress.Spec.Backend.ServiceName = service.Name
 	ingress.Spec.Backend.ServicePort = intstr.FromInt(int(service.Spec.Ports[0].Port))
-	_, err = client.Update(ingress)
+	_, err = ingressClient.Update(ingress)
 	return err
 }
 
@@ -166,18 +170,18 @@ func (k *IngressService) Remove(appName string) error {
 	return err
 }
 
-// GetAddr gets the address of the loadbalancer associated with
+// Get gets the address of the loadbalancer associated with
 // the app Ingress resource
-func (k *IngressService) GetAddr(appName string) (string, error) {
+func (k *IngressService) Get(appName string) (map[string]string, error) {
 	ingress, err := k.get(appName)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	lbs := ingress.Status.LoadBalancer.Ingress
 	if len(lbs) == 0 {
-		return "", fmt.Errorf("No loadbalancer configured")
+		return nil, fmt.Errorf("No loadbalancer configured")
 	}
-	return ingress.Status.LoadBalancer.Ingress[0].IP, nil
+	return map[string]string{"address": ingress.Status.LoadBalancer.Ingress[0].IP}, nil
 }
 
 func (k *IngressService) get(appName string) (*v1beta1.Ingress, error) {
