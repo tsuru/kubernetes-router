@@ -12,7 +12,7 @@ run: build
 
 .PHONY: build
 build:
-	go build -o $(BINARY)
+	go build -o $(BINARY) ./cmd/ingress
 
 .PHONY: build-docker
 build-docker:
