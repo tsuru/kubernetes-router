@@ -189,7 +189,7 @@ func TestGetRoutes(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v", err)
 	}
-	expected := map[string][]string{"addresses": []string{"localhost:8080"}}
+	expected := map[string][]string{"addresses": {"localhost:8080"}}
 	if !reflect.DeepEqual(data, expected) {
 		t.Errorf("Expected %v. Got %v", expected, data)
 	}
