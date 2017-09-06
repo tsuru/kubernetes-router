@@ -22,6 +22,8 @@ const (
 	appLabel           = "tsuru.io/app-name"
 	processLabel       = "tsuru.io/app-process"
 	swapLabel          = "tsuru.io/swapped-with"
+	appPoolLabel       = "tsuru.io/app-pool"
+	poolLabel          = "tsuru.io/pool"
 	webProcessName     = "web"
 )
 
@@ -151,6 +153,42 @@ func (k *IngressService) Remove(appName string) error {
 		return nil
 	}
 	return err
+}
+
+// Addresses return the addresses of every node on the same pool as the
+// app Service pool
+func (k *IngressService) Addresses(appName string) ([]string, error) {
+	service, err := k.getService(appName)
+	if err != nil {
+		return nil, err
+	}
+	var port int32
+	if len(service.Spec.Ports) > 0 {
+		port = service.Spec.Ports[0].NodePort
+	}
+	client, err := k.getClient()
+	if err != nil {
+		return nil, err
+	}
+	pool := service.Labels[appPoolLabel]
+	nodes, err := client.CoreV1().Nodes().List(metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s", poolLabel, pool),
+	})
+	if err != nil {
+		return nil, err
+	}
+	addresses := make([]string, len(nodes.Items))
+	for i := range nodes.Items {
+		addr := nodes.Items[i].Name
+		for _, a := range nodes.Items[i].Status.Addresses {
+			if a.Type == apiv1.NodeInternalIP {
+				addr = a.Address
+				break
+			}
+		}
+		addresses[i] = fmt.Sprintf("http://%s:%d", addr, port)
+	}
+	return addresses, nil
 }
 
 // Get gets the address of the loadbalancer associated with
