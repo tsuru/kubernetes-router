@@ -14,3 +14,7 @@ type Service interface {
 	Get(appName string) (map[string]string, error)
 	Addresses(appName string) ([]string, error)
 }
+
+type HealthcheckableService interface {
+	Healthcheck() error
+}

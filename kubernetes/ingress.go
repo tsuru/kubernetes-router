@@ -205,6 +205,15 @@ func (k *IngressService) Get(appName string) (map[string]string, error) {
 	return map[string]string{"address": ingress.Status.LoadBalancer.Ingress[0].IP}, nil
 }
 
+func (k *IngressService) Healthcheck() error {
+	client, err := k.ingressClient()
+	if err != nil {
+		return err
+	}
+	_, err = client.List(metav1.ListOptions{})
+	return err
+}
+
 func (k *IngressService) getService(appName string) (*apiv1.Service, error) {
 	client, err := k.getClient()
 	if err != nil {
