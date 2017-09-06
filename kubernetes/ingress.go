@@ -207,6 +207,7 @@ func (k *IngressService) Get(appName string) (map[string]string, error) {
 	return map[string]string{"address": ingress.Status.LoadBalancer.Ingress[0].IP}, nil
 }
 
+// Healthcheck uses the kubernetes client to check the connectivity
 func (k *IngressService) Healthcheck() error {
 	client, err := k.ingressClient()
 	if err != nil {
