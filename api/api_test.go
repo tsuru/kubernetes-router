@@ -163,6 +163,38 @@ func TestSwap(t *testing.T) {
 	}
 }
 
+func TestGetRoutes(t *testing.T) {
+	service := &mock.IngressService{}
+	r := mux.NewRouter()
+	api := RouterAPI{IngressService: service}
+	api.Register(r)
+
+	service.AddressesFn = func(app string) ([]string, error) {
+		return []string{"localhost:8080"}, nil
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/backend/myapp/routes", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
+	}
+	if !service.AddressesInvoked {
+		t.Errorf("Service Addresses function not invoked")
+	}
+	var data map[string][]string
+	err := json.Unmarshal(w.Body.Bytes(), &data)
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v", err)
+	}
+	expected := map[string][]string{"addresses": []string{"localhost:8080"}}
+	if !reflect.DeepEqual(data, expected) {
+		t.Errorf("Expected %v. Got %v", expected, data)
+	}
+}
+
 func testCalledWith(expected string, t *testing.T) func(string) error {
 	t.Helper()
 	return func(name string) error {
