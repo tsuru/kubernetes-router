@@ -15,6 +15,8 @@ type Service interface {
 	Addresses(appName string) ([]string, error)
 }
 
+// HealthcheckableService is a Service that implements
+// a way to check of its health
 type HealthcheckableService interface {
 	Healthcheck() error
 }
