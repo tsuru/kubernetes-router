@@ -7,6 +7,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -100,6 +101,11 @@ func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (a *RouterAPI) healthcheck(w http.ResponseWriter, req *http.Request) error {
+	if hc, ok := a.IngressService.(ingress.HealthcheckableService); ok {
+		if err := hc.Healthcheck(); err != nil {
+			return fmt.Errorf("failed to check IngressService: %v", err)
+		}
+	}
 	_, err := w.Write([]byte("WORKING"))
 	return err
 }
