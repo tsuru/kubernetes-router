@@ -8,6 +8,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"net/http/pprof"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -28,6 +29,20 @@ func main() {
 	}
 	r := mux.NewRouter().StrictSlash(true)
 	routerAPI.Register(r)
+
+	r.Handle("/metrics", promhttp.Handler())
+
+	r.HandleFunc("/debug/pprof/", pprof.Index)
+	r.HandleFunc("/debug/pprof/heap", pprof.Index)
+	r.HandleFunc("/debug/pprof/mutex", pprof.Index)
+	r.HandleFunc("/debug/pprof/goroutine", pprof.Index)
+	r.HandleFunc("/debug/pprof/threadcreate", pprof.Index)
+	r.HandleFunc("/debug/pprof/block", pprof.Index)
+	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	r.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
 	server := http.Server{
 		Addr:         *listenAddr,
 		Handler:      r,
@@ -39,6 +54,4 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("fail serve: %v", err)
 	}
-
-	r.Handle("/metrics", promhttp.Handler())
 }
