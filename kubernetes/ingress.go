@@ -6,6 +6,7 @@ package kubernetes
 
 import (
 	"fmt"
+	"time"
 
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,6 +50,7 @@ func (e ErrAppSwapped) Error() string {
 // IngressService manages ingresses in a Kubernetes cluster
 type IngressService struct {
 	Namespace string
+	Timeout   time.Duration
 	Client    kubernetes.Interface
 }
 
@@ -259,6 +261,7 @@ func (k *IngressService) getClient() (kubernetes.Interface, error) {
 	if err != nil {
 		return nil, err
 	}
+	config.Timeout = k.Timeout
 	return kubernetes.NewForConfig(config)
 }
 

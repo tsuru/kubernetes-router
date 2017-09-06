@@ -20,11 +20,13 @@ import (
 func main() {
 	listenAddr := flag.String("listen-addr", ":8077", "Listen address")
 	k8sNamespace := flag.String("k8s-namespace", "default", "Kubernetes namespace to create ingress resources")
+	k8sTimeout := flag.Duration("k8s-timeout", time.Second*10, "Kubernetes per-request timeout")
 	flag.Parse()
 
 	routerAPI := api.RouterAPI{
 		IngressService: &kubernetes.IngressService{
 			Namespace: *k8sNamespace,
+			Timeout:   *k8sTimeout,
 		},
 	}
 	r := mux.NewRouter().StrictSlash(true)
