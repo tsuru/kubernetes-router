@@ -12,4 +12,5 @@ type Service interface {
 	Update(appName string) error
 	Swap(appSrc, appDst string) error
 	Get(appName string) (map[string]string, error)
+	Addresses(appName string) ([]string, error)
 }
