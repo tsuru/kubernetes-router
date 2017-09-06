@@ -24,6 +24,7 @@ func (a *RouterAPI) Register(r *mux.Router) {
 	r.Handle("/backend/{name}", handler(a.addBackend)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}", handler(a.updateBackend)).Methods(http.MethodPut)
 	r.Handle("/backend/{name}", handler(a.removeBackend)).Methods(http.MethodDelete)
+	r.Handle("/backend/{name}/routes", handler(a.getRoutes)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}/routes", handler(a.addRoutes)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}/routes", handler(a.removeRoutes)).Methods(http.MethodDelete)
 	r.Handle("/backend/{name}/swap", handler(a.swap)).Methods(http.MethodPost)
@@ -72,6 +73,20 @@ func (a *RouterAPI) addRoutes(w http.ResponseWriter, r *http.Request) error {
 // removeRoutes is no-op
 func (a *RouterAPI) removeRoutes(w http.ResponseWriter, r *http.Request) error {
 	return nil
+}
+
+func (a *RouterAPI) getRoutes(w http.ResponseWriter, r *http.Request) error {
+	vars := mux.Vars(r)
+	name := vars["name"]
+	endpoints, err := a.IngressService.Addresses(name)
+	if err != nil {
+		return err
+	}
+	type resp struct {
+		Addresses []string `json:"addresses"`
+	}
+	response := resp{Addresses: endpoints}
+	return json.NewEncoder(w).Encode(response)
 }
 
 func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
