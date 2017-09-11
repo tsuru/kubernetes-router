@@ -6,7 +6,11 @@ package kubernetes
 
 import (
 	"fmt"
+	"net/http"
 	"time"
+
+
+	"k8s.io/client-go/transport"
 
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -263,6 +267,9 @@ func (k *IngressService) getClient() (kubernetes.Interface, error) {
 		return nil, err
 	}
 	config.Timeout = k.Timeout
+	config.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
+		return transport.DebugWrappers(rt)
+	}
 	return kubernetes.NewForConfig(config)
 }
 

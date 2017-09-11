@@ -21,6 +21,8 @@ spec:
             port: 8077
             scheme: HTTP
           timeoutSeconds: 5
+        command: ["./ingress-router"]
+        args: ["-logtostderr", "-v", "9"]
         ports:
         - containerPort: 8077
 ---
