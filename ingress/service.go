@@ -4,6 +4,12 @@
 
 package ingress
 
+import "errors"
+
+// ErrIngressAlreadyExists is the error returned by the service when
+// trying to create a service that already exists
+var ErrIngressAlreadyExists = errors.New("ingress already exists")
+
 // Service implements the basic functionally needed to
 // manage ingresses.
 type Service interface {

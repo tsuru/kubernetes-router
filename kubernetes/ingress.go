@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/tsuru/ingress-router/ingress"
 
 	"k8s.io/client-go/transport"
 
@@ -65,7 +66,7 @@ func (k *IngressService) Create(appName string) error {
 	if err != nil {
 		return err
 	}
-	ingress := v1beta1.Ingress{
+	i := v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ingressName(appName),
 			Namespace: k.Namespace,
@@ -78,7 +79,10 @@ func (k *IngressService) Create(appName string) error {
 			},
 		},
 	}
-	_, err = client.Create(&ingress)
+	_, err = client.Create(&i)
+	if k8sErrors.IsAlreadyExists(err) {
+		return ingress.ErrIngressAlreadyExists
+	}
 	return err
 }
 
