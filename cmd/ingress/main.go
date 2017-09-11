@@ -11,6 +11,8 @@ import (
 	"net/http/pprof"
 	"time"
 
+	"github.com/urfave/negroni"
+
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/tsuru/ingress-router/api"
@@ -45,9 +47,12 @@ func main() {
 	r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	r.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
+	n := negroni.New(negroni.NewLogger(), negroni.NewRecovery())
+	n.UseHandler(r)
+
 	server := http.Server{
 		Addr:         *listenAddr,
-		Handler:      r,
+		Handler:      n,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
