@@ -5,6 +5,7 @@
 package api
 
 import "net/http"
+import "github.com/tsuru/ingress-router/ingress"
 
 type handler func(http.ResponseWriter, *http.Request) error
 
@@ -15,6 +16,10 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func handleError(err error, w http.ResponseWriter, r *http.Request) {
 	if err != nil {
+		if err == ingress.ErrIngressAlreadyExists {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
