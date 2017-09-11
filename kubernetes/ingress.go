@@ -208,11 +208,12 @@ func (k *IngressService) Get(appName string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	var addr string
 	lbs := ingress.Status.LoadBalancer.Ingress
-	if len(lbs) == 0 {
-		return nil, fmt.Errorf("No loadbalancer configured")
+	if len(lbs) != 0 {
+		addr = lbs[0].IP
 	}
-	return map[string]string{"address": ingress.Status.LoadBalancer.Ingress[0].IP}, nil
+	return map[string]string{"address": addr}, nil
 }
 
 // Healthcheck uses the kubernetes client to check the connectivity
