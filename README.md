@@ -7,8 +7,8 @@ ingress resources on a kubernetes cluster. It expects to be run as a pod in the 
 
 - `-k8s-ingress-controller`: the name of the ingress controller that should use the ingress created by this router. This simply adds a label to the ingress resource that the controller should handle;
 - `-k8s-namespace`: the namespace on which the ingress resources should be created;
-- `k8s-timeout`: Per request kubernetes timeout;
-- `listen-addr`: The address on which this API should listen.
+- `-k8s-timeout`: Per request kubernetes timeout;
+- `-listen-addr`: The address on which this API should listen.
 
 This router expects to be run inside the kubernetes cluster.
 
