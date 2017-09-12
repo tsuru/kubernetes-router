@@ -10,8 +10,6 @@ ingress resources on a kubernetes cluster. It expects to be run as a pod in the 
 - `-k8s-timeout`: Per request kubernetes timeout;
 - `-listen-addr`: The address on which this API should listen.
 
-This router expects to be run inside the kubernetes cluster.
-
 ## Running locally with Tsuru and Minikube
 
 1. Setup tsuru + minikube (https://docs.tsuru.io/master/contributing/compose.html)
