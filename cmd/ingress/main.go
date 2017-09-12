@@ -25,6 +25,8 @@ func main() {
 	k8sTimeout := flag.Duration("k8s-timeout", time.Second*10, "Kubernetes per-request timeout")
 	flag.Parse()
 
+	flag.Lookup("logtostderr").Value.Set("true")
+
 	routerAPI := api.RouterAPI{
 		IngressService: &kubernetes.IngressService{
 			Namespace: *k8sNamespace,
