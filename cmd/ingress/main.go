@@ -26,7 +26,10 @@ func main() {
 	k8sIngressController := flag.String("k8s-ingress-controller", "", "Ingress controller name")
 	flag.Parse()
 
-	flag.Lookup("logtostderr").Value.Set("true")
+	err := flag.Lookup("logtostderr").Value.Set("true")
+	if err != nil {
+		log.Printf("failed to set log to stderr: %v\n", err)
+	}
 
 	routerAPI := api.RouterAPI{
 		IngressService: &kubernetes.IngressService{
