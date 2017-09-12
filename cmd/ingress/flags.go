@@ -10,8 +10,11 @@ import (
 	"strings"
 )
 
+// MapFlag wraps a map[string]string to be populated from
+// flags with KEY=VALUE format
 type MapFlag map[string]string
 
+// String prints the json representation
 func (f *MapFlag) String() string {
 	repr := *f
 	if repr == nil {
@@ -21,6 +24,7 @@ func (f *MapFlag) String() string {
 	return string(data)
 }
 
+// Set sets a value on the underlying map
 func (f *MapFlag) Set(val string) error {
 	parts := strings.SplitN(val, "=", 2)
 	if *f == nil {
