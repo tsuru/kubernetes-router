@@ -54,10 +54,11 @@ func (e ErrAppSwapped) Error() string {
 
 // IngressService manages ingresses in a Kubernetes cluster
 type IngressService struct {
-	Namespace string
-	Timeout   time.Duration
-	Client    kubernetes.Interface
-	Labels    map[string]string
+	Namespace   string
+	Timeout     time.Duration
+	Client      kubernetes.Interface
+	Labels      map[string]string
+	Annotations map[string]string
 }
 
 // Create creates an Ingress resource pointing to a service
@@ -69,9 +70,10 @@ func (k *IngressService) Create(appName string) error {
 	}
 	i := v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      ingressName(appName),
-			Namespace: k.Namespace,
-			Labels:    map[string]string{appLabel: appName},
+			Name:        ingressName(appName),
+			Namespace:   k.Namespace,
+			Labels:      map[string]string{appLabel: appName},
+			Annotations: make(map[string]string),
 		},
 		Spec: v1beta1.IngressSpec{
 			Backend: &v1beta1.IngressBackend{
@@ -82,6 +84,9 @@ func (k *IngressService) Create(appName string) error {
 	}
 	for k, v := range k.Labels {
 		i.ObjectMeta.Labels[k] = v
+	}
+	for k, v := range k.Annotations {
+		i.ObjectMeta.Annotations[k] = v
 	}
 	_, err = client.Create(&i)
 	if k8sErrors.IsAlreadyExists(err) {

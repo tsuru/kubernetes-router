@@ -29,6 +29,8 @@ func main() {
 	k8sTimeout := flag.Duration("k8s-timeout", time.Second*10, "Kubernetes per-request timeout")
 	k8sIngressLabels := &MapFlag{}
 	flag.Var(k8sIngressLabels, "k8s-ingress-labels", "Labels to be added to each ingress resource created. Expects KEY=VALUE format.")
+	k8sIngressAnnotations := &MapFlag{}
+	flag.Var(k8sIngressLabels, "k8s-ingress-annotations", "Annotations to be added to each ingress resource created. Expects KEY=VALUE format.")
 	flag.Parse()
 
 	err := flag.Lookup("logtostderr").Value.Set("true")
@@ -38,9 +40,10 @@ func main() {
 
 	routerAPI := api.RouterAPI{
 		IngressService: &kubernetes.IngressService{
-			Namespace: *k8sNamespace,
-			Timeout:   *k8sTimeout,
-			Labels:    *k8sIngressLabels,
+			Namespace:   *k8sNamespace,
+			Timeout:     *k8sTimeout,
+			Labels:      *k8sIngressLabels,
+			Annotations: *k8sIngressAnnotations,
 		},
 	}
 	r := mux.NewRouter().StrictSlash(true)

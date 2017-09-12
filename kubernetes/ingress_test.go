@@ -26,6 +26,7 @@ func createFakeService() IngressService {
 func TestCreate(t *testing.T) {
 	svc := createFakeService()
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Create("test")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
@@ -40,6 +41,8 @@ func TestCreate(t *testing.T) {
 	expectedIngress := defaultIngress("test")
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Annotations["ann1"] = "val1"
+	expectedIngress.Annotations["ann2"] = "val2"
 	if !reflect.DeepEqual(ingressList.Items[0], expectedIngress) {
 		t.Errorf("Expected %v. Got %v", expectedIngress, ingressList.Items[0])
 	}
@@ -257,9 +260,10 @@ func TestRemove(t *testing.T) {
 func defaultIngress(name string) v1beta1.Ingress {
 	return v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name + "-ingress",
-			Namespace: "default",
-			Labels:    map[string]string{appLabel: name},
+			Name:        name + "-ingress",
+			Namespace:   "default",
+			Labels:      map[string]string{appLabel: name},
+			Annotations: make(map[string]string),
 		},
 		Spec: v1beta1.IngressSpec{
 			Backend: &v1beta1.IngressBackend{
