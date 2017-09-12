@@ -25,6 +25,7 @@ func createFakeService() IngressService {
 
 func TestCreate(t *testing.T) {
 	svc := createFakeService()
+	svc.ControllerName = "my-controller"
 	err := svc.Create("test")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
@@ -37,6 +38,7 @@ func TestCreate(t *testing.T) {
 		t.Errorf("Expected 1 item. Got %d.", len(ingressList.Items))
 	}
 	expectedIngress := defaultIngress("test")
+	expectedIngress.Labels[controllerLabel] = "my-controller"
 	if !reflect.DeepEqual(ingressList.Items[0], expectedIngress) {
 		t.Errorf("Expected %v. Got %v", expectedIngress, ingressList.Items[0])
 	}
