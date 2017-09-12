@@ -5,10 +5,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net/http"
 	"net/http/pprof"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/urfave/negroni"
@@ -61,8 +65,24 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 	}
 
+	go handleSignals(&server)
+
 	log.Printf("Started listening and serving at %s", *listenAddr)
-	if err := server.ListenAndServe(); err != nil {
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("fail serve: %v", err)
 	}
+}
+
+func handleSignals(server *http.Server) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
+	sig := <-signals
+	log.Printf("Received %s. Terminating...", sig)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+	err := server.Shutdown(ctx)
+	if err != nil {
+		log.Fatalf("Error during server shutdown: %v", err)
+	}
+	log.Print("Server shutdown succeeded.")
 }
