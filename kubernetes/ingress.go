@@ -30,7 +30,6 @@ const (
 	swapLabel          = "tsuru.io/swapped-with"
 	appPoolLabel       = "tsuru.io/app-pool"
 	poolLabel          = "tsuru.io/pool"
-	controllerLabel    = "tsuru.io/ingress-controller"
 	webProcessName     = "web"
 )
 
@@ -55,10 +54,10 @@ func (e ErrAppSwapped) Error() string {
 
 // IngressService manages ingresses in a Kubernetes cluster
 type IngressService struct {
-	Namespace      string
-	Timeout        time.Duration
-	Client         kubernetes.Interface
-	ControllerName string
+	Namespace string
+	Timeout   time.Duration
+	Client    kubernetes.Interface
+	Labels    map[string]string
 }
 
 // Create creates an Ingress resource pointing to a service
@@ -81,8 +80,8 @@ func (k *IngressService) Create(appName string) error {
 			},
 		},
 	}
-	if k.ControllerName != "" {
-		i.ObjectMeta.Labels[controllerLabel] = k.ControllerName
+	for k, v := range k.Labels {
+		i.ObjectMeta.Labels[k] = v
 	}
 	_, err = client.Create(&i)
 	if k8sErrors.IsAlreadyExists(err) {
