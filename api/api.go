@@ -27,7 +27,7 @@ func (a *RouterAPI) Register(r *mux.Router) {
 	r.Handle("/backend/{name}", handler(a.removeBackend)).Methods(http.MethodDelete)
 	r.Handle("/backend/{name}/routes", handler(a.getRoutes)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}/routes", handler(a.addRoutes)).Methods(http.MethodPost)
-	r.Handle("/backend/{name}/routes", handler(a.removeRoutes)).Methods(http.MethodDelete)
+	r.Handle("/backend/{name}/routes/remove", handler(a.removeRoutes)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}/swap", handler(a.swap)).Methods(http.MethodPost)
 	r.Handle("/healthcheck", handler(a.healthcheck)).Methods(http.MethodGet)
 }
