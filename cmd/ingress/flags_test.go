@@ -11,9 +11,18 @@ import (
 
 func TestMapFlag(t *testing.T) {
 	var f MapFlag
-	f.Set("a=1")
-	f.Set("b=2")
-	f.Set("c=3")
+	err := f.Set("a=1")
+	if err != nil {
+		t.Fatalf("Expected nil. Got %v.", err)
+	}
+	err = f.Set("b=2")
+	if err != nil {
+		t.Fatalf("Expected nil. Got %v.", err)
+	}
+	err = f.Set("c=3")
+	if err != nil {
+		t.Fatalf("Expected nil. Got %v.", err)
+	}
 	expected := MapFlag{"a": "1", "b": "2", "c": "3"}
 	if !reflect.DeepEqual(f, expected) {
 		t.Fatalf("Expected %v. Got %v.", expected, f)
