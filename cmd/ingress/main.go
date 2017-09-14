@@ -30,7 +30,7 @@ func main() {
 	k8sIngressLabels := &MapFlag{}
 	flag.Var(k8sIngressLabels, "k8s-ingress-labels", "Labels to be added to each ingress resource created. Expects KEY=VALUE format.")
 	k8sIngressAnnotations := &MapFlag{}
-	flag.Var(k8sIngressLabels, "k8s-ingress-annotations", "Annotations to be added to each ingress resource created. Expects KEY=VALUE format.")
+	flag.Var(k8sIngressAnnotations, "k8s-ingress-annotations", "Annotations to be added to each ingress resource created. Expects KEY=VALUE format.")
 	flag.Parse()
 
 	err := flag.Lookup("logtostderr").Value.Set("true")
