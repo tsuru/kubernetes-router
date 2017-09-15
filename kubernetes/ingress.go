@@ -17,35 +17,6 @@ import (
 	"k8s.io/client-go/pkg/apis/extensions/v1beta1"
 )
 
-const (
-	defaultServicePort = 8888
-	appLabel           = "tsuru.io/app-name"
-	processLabel       = "tsuru.io/app-process"
-	swapLabel          = "tsuru.io/swapped-with"
-	appPoolLabel       = "tsuru.io/app-pool"
-	poolLabel          = "tsuru.io/pool"
-	webProcessName     = "web"
-)
-
-// ErrNoService indicates that the app has no service running
-type ErrNoService struct{ App, Process string }
-
-func (e ErrNoService) Error() string {
-	str := fmt.Sprintf("no service found for app %q", e.App)
-	if e.Process != "" {
-		str += fmt.Sprintf(" and process %q", e.Process)
-	}
-	return str
-}
-
-// ErrAppSwapped indicates when a operation cant be performed
-// because the app is swapped
-type ErrAppSwapped struct{ App, DstApp string }
-
-func (e ErrAppSwapped) Error() string {
-	return fmt.Sprintf("app %q currently swapped with %q", e.App, e.DstApp)
-}
-
 // IngressService manages ingresses in a Kubernetes cluster
 type IngressService struct {
 	*BaseService
@@ -164,42 +135,6 @@ func (k *IngressService) Remove(appName string) error {
 	return err
 }
 
-// Addresses return the addresses of every node on the same pool as the
-// app Service pool
-func (k *IngressService) Addresses(appName string) ([]string, error) {
-	service, err := k.getService(appName)
-	if err != nil {
-		return nil, err
-	}
-	var port int32
-	if len(service.Spec.Ports) > 0 {
-		port = service.Spec.Ports[0].NodePort
-	}
-	client, err := k.getClient()
-	if err != nil {
-		return nil, err
-	}
-	pool := service.Labels[appPoolLabel]
-	nodes, err := client.CoreV1().Nodes().List(metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=%s", poolLabel, pool),
-	})
-	if err != nil {
-		return nil, err
-	}
-	addresses := make([]string, len(nodes.Items))
-	for i := range nodes.Items {
-		addr := nodes.Items[i].Name
-		for _, a := range nodes.Items[i].Status.Addresses {
-			if a.Type == apiv1.NodeInternalIP {
-				addr = a.Address
-				break
-			}
-		}
-		addresses[i] = fmt.Sprintf("http://%s:%d", addr, port)
-	}
-	return addresses, nil
-}
-
 // Get gets the address of the loadbalancer associated with
 // the app Ingress resource
 func (k *IngressService) Get(appName string) (map[string]string, error) {
@@ -215,17 +150,27 @@ func (k *IngressService) Get(appName string) (map[string]string, error) {
 	return map[string]string{"address": addr}, nil
 }
 
-// Healthcheck uses the kubernetes client to check the connectivity
-func (k *IngressService) Healthcheck() error {
+func (k *IngressService) get(appName string) (*v1beta1.Ingress, error) {
 	client, err := k.ingressClient()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = client.List(metav1.ListOptions{})
-	return err
+	ingress, err := client.Get(ingressName(appName), metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return ingress, nil
 }
 
-func (k *IngressService) getService(appName string) (*apiv1.Service, error) {
+func (k *IngressService) ingressClient() (typedV1Beta1.IngressInterface, error) {
+	client, err := k.getClient()
+	if err != nil {
+		return nil, err
+	}
+	return client.ExtensionsV1beta1().Ingresses(k.Namespace), nil
+}
+
+func (k *BaseService) getService(appName string) (*apiv1.Service, error) {
 	client, err := k.getClient()
 	if err != nil {
 		return nil, err
@@ -248,26 +193,6 @@ func (k *IngressService) getService(appName string) (*apiv1.Service, error) {
 		}
 	}
 	return nil, ErrNoService{App: appName, Process: webProcessName}
-}
-
-func (k *IngressService) get(appName string) (*v1beta1.Ingress, error) {
-	client, err := k.ingressClient()
-	if err != nil {
-		return nil, err
-	}
-	ingress, err := client.Get(ingressName(appName), metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-	return ingress, nil
-}
-
-func (k *IngressService) ingressClient() (typedV1Beta1.IngressInterface, error) {
-	client, err := k.getClient()
-	if err != nil {
-		return nil, err
-	}
-	return client.ExtensionsV1beta1().Ingresses(k.Namespace), nil
 }
 
 func ingressName(appName string) string {
