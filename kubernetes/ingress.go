@@ -13,7 +13,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	typedV1Beta1 "k8s.io/client-go/kubernetes/typed/extensions/v1beta1"
-	apiv1 "k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/pkg/apis/extensions/v1beta1"
 )
 
@@ -59,7 +58,7 @@ func (k *IngressService) Create(appName string) error {
 // Update updates an Ingress resource to point it to either
 // the only service or the one responsible for the process web
 func (k *IngressService) Update(appName string) error {
-	service, err := k.getService(appName)
+	service, err := k.getWebService(appName)
 	if err != nil {
 		return err
 	}
@@ -168,31 +167,6 @@ func (k *IngressService) ingressClient() (typedV1Beta1.IngressInterface, error) 
 		return nil, err
 	}
 	return client.ExtensionsV1beta1().Ingresses(k.Namespace), nil
-}
-
-func (k *BaseService) getService(appName string) (*apiv1.Service, error) {
-	client, err := k.getClient()
-	if err != nil {
-		return nil, err
-	}
-	list, err := client.CoreV1().Services(k.Namespace).List(metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=%s", appLabel, appName),
-	})
-	if err != nil {
-		return nil, err
-	}
-	if len(list.Items) == 0 {
-		return nil, ErrNoService{App: appName}
-	}
-	if len(list.Items) == 1 {
-		return &list.Items[0], nil
-	}
-	for i := range list.Items {
-		if list.Items[i].Labels[processLabel] == webProcessName {
-			return &list.Items[i], nil
-		}
-	}
-	return nil, ErrNoService{App: appName, Process: webProcessName}
 }
 
 func ingressName(appName string) string {

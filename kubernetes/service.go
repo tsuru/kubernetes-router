@@ -52,7 +52,7 @@ type BaseService struct {
 // Addresses return the addresses of every node on the same pool as the
 // app Service pool
 func (k *BaseService) Addresses(appName string) ([]string, error) {
-	service, err := k.getService(appName)
+	service, err := k.getWebService(appName)
 	if err != nil {
 		return nil, err
 	}
@@ -108,4 +108,29 @@ func (k *BaseService) getClient() (kubernetes.Interface, error) {
 		return transport.DebugWrappers(rt)
 	}
 	return kubernetes.NewForConfig(config)
+}
+
+func (k *BaseService) getWebService(appName string) (*apiv1.Service, error) {
+	client, err := k.getClient()
+	if err != nil {
+		return nil, err
+	}
+	list, err := client.CoreV1().Services(k.Namespace).List(metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s", appLabel, appName),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(list.Items) == 0 {
+		return nil, ErrNoService{App: appName}
+	}
+	if len(list.Items) == 1 {
+		return &list.Items[0], nil
+	}
+	for i := range list.Items {
+		if list.Items[i].Labels[processLabel] == webProcessName {
+			return &list.Items[i], nil
+		}
+	}
+	return nil, ErrNoService{App: appName, Process: webProcessName}
 }
