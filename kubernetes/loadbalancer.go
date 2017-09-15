@@ -24,7 +24,3 @@ func (s *LBService) Swap(appSrc string, appDst string) error {
 func (s *LBService) Get(appName string) (map[string]string, error) {
 	panic("not implemented")
 }
-
-func (s *LBService) Addresses(appName string) ([]string, error) {
-	panic("not implemented")
-}
