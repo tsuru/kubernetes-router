@@ -18,8 +18,10 @@ import (
 
 func createFakeService() IngressService {
 	return IngressService{
-		Namespace: "default",
-		Client:    fake.NewSimpleClientset(),
+		BaseService: &BaseService{
+			Namespace: "default",
+			Client:    fake.NewSimpleClientset(),
+		},
 	}
 }
 

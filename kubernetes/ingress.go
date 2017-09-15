@@ -6,21 +6,15 @@ package kubernetes
 
 import (
 	"fmt"
-	"net/http"
-	"time"
 
 	"github.com/tsuru/ingress-router/ingress"
-
-	"k8s.io/client-go/transport"
 
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/client-go/kubernetes"
 	typedV1Beta1 "k8s.io/client-go/kubernetes/typed/extensions/v1beta1"
 	apiv1 "k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/pkg/apis/extensions/v1beta1"
-	"k8s.io/client-go/rest"
 )
 
 const (
@@ -54,11 +48,7 @@ func (e ErrAppSwapped) Error() string {
 
 // IngressService manages ingresses in a Kubernetes cluster
 type IngressService struct {
-	Namespace   string
-	Timeout     time.Duration
-	Client      kubernetes.Interface
-	Labels      map[string]string
-	Annotations map[string]string
+	*BaseService
 }
 
 // Create creates an Ingress resource pointing to a service
@@ -270,21 +260,6 @@ func (k *IngressService) get(appName string) (*v1beta1.Ingress, error) {
 		return nil, err
 	}
 	return ingress, nil
-}
-
-func (k *IngressService) getClient() (kubernetes.Interface, error) {
-	if k.Client != nil {
-		return k.Client, nil
-	}
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, err
-	}
-	config.Timeout = k.Timeout
-	config.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
-		return transport.DebugWrappers(rt)
-	}
-	return kubernetes.NewForConfig(config)
 }
 
 func (k *IngressService) ingressClient() (typedV1Beta1.IngressInterface, error) {

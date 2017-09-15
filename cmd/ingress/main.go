@@ -20,17 +20,19 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/tsuru/ingress-router/api"
+	"github.com/tsuru/ingress-router/ingress"
 	"github.com/tsuru/ingress-router/kubernetes"
 )
 
 func main() {
 	listenAddr := flag.String("listen-addr", ":8077", "Listen address")
-	k8sNamespace := flag.String("k8s-namespace", "default", "Kubernetes namespace to create ingress resources")
+	k8sNamespace := flag.String("k8s-namespace", "default", "Kubernetes namespace to create resources")
 	k8sTimeout := flag.Duration("k8s-timeout", time.Second*10, "Kubernetes per-request timeout")
-	k8sIngressLabels := &MapFlag{}
-	flag.Var(k8sIngressLabels, "k8s-ingress-labels", "Labels to be added to each ingress resource created. Expects KEY=VALUE format.")
-	k8sIngressAnnotations := &MapFlag{}
-	flag.Var(k8sIngressAnnotations, "k8s-ingress-annotations", "Annotations to be added to each ingress resource created. Expects KEY=VALUE format.")
+	k8sLabels := &MapFlag{}
+	flag.Var(k8sLabels, "k8s-labels", "Labels to be added to each resource created. Expects KEY=VALUE format.")
+	k8sAnnotations := &MapFlag{}
+	flag.Var(k8sAnnotations, "k8s-annotations", "Annotations to be added to each resource created. Expects KEY=VALUE format.")
+	ingressMode := flag.Bool("ingress-mode", false, "Creates ingress resources instead of LB services.")
 	flag.Parse()
 
 	err := flag.Lookup("logtostderr").Value.Set("true")
@@ -38,14 +40,18 @@ func main() {
 		log.Printf("failed to set log to stderr: %v\n", err)
 	}
 
-	routerAPI := api.RouterAPI{
-		IngressService: &kubernetes.IngressService{
-			Namespace:   *k8sNamespace,
-			Timeout:     *k8sTimeout,
-			Labels:      *k8sIngressLabels,
-			Annotations: *k8sIngressAnnotations,
-		},
+	base := &kubernetes.BaseService{
+		Namespace:   *k8sNamespace,
+		Timeout:     *k8sTimeout,
+		Labels:      *k8sLabels,
+		Annotations: *k8sAnnotations,
 	}
+	var service ingress.Service = &kubernetes.LBService{BaseService: base}
+	if *ingressMode {
+		service = &kubernetes.IngressService{BaseService: base}
+	}
+
+	routerAPI := api.RouterAPI{IngressService: service}
 	r := mux.NewRouter().StrictSlash(true)
 	routerAPI.Register(r)
 
