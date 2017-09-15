@@ -5,11 +5,12 @@ ingress resources on a kubernetes cluster. It expects to be run as a pod in the 
 
 ## Flags
 
-- `-k8s-ingress-labels`: Labels to be added to each ingress resource created, expects the format KEY=VALUE;
-- `-k8s-ingress-annotations`: Annotations to be added to each ingress resource created, expects the format KEY=VALUE;
-- `-k8s-namespace`: the namespace on which the ingress resources should be created;
+- `-k8s-labels`: Labels to be added to each resource created, expects the format KEY=VALUE;
+- `-k8s-annotations`: Annotations to be added to each resource created, expects the format KEY=VALUE;
+- `-k8s-namespace`: the namespace on which the resources should be created;
 - `-k8s-timeout`: Per request kubernetes timeout;
 - `-listen-addr`: The address on which this API should listen.
+- `-ingress-mode`: Create ingresses instead of LoadBalancer services.
 
 ## Running locally with Tsuru and Minikube
 
