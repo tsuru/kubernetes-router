@@ -39,7 +39,7 @@ func TestHealthcheckOK(t *testing.T) {
 }
 
 func TestGetBackend(t *testing.T) {
-	service := &mock.IngressService{}
+	service := &mock.RouterService{}
 	r := mux.NewRouter()
 	api := RouterAPI{IngressService: service}
 	api.Register(r)
@@ -72,7 +72,7 @@ func TestGetBackend(t *testing.T) {
 }
 
 func TestAddBackend(t *testing.T) {
-	service := &mock.IngressService{}
+	service := &mock.RouterService{}
 	r := mux.NewRouter()
 	api := RouterAPI{IngressService: service}
 	api.Register(r)
@@ -93,7 +93,7 @@ func TestAddBackend(t *testing.T) {
 }
 
 func TestRemoveBackend(t *testing.T) {
-	service := &mock.IngressService{}
+	service := &mock.RouterService{}
 	r := mux.NewRouter()
 	api := RouterAPI{IngressService: service}
 	api.Register(r)
@@ -114,7 +114,7 @@ func TestRemoveBackend(t *testing.T) {
 }
 
 func TestAddRoutes(t *testing.T) {
-	service := &mock.IngressService{}
+	service := &mock.RouterService{}
 	r := mux.NewRouter()
 	api := RouterAPI{IngressService: service}
 	api.Register(r)
@@ -135,7 +135,7 @@ func TestAddRoutes(t *testing.T) {
 }
 
 func TestSwap(t *testing.T) {
-	service := &mock.IngressService{}
+	service := &mock.RouterService{}
 	r := mux.NewRouter()
 	api := RouterAPI{IngressService: service}
 	api.Register(r)
@@ -164,7 +164,7 @@ func TestSwap(t *testing.T) {
 }
 
 func TestGetRoutes(t *testing.T) {
-	service := &mock.IngressService{}
+	service := &mock.RouterService{}
 	r := mux.NewRouter()
 	api := RouterAPI{IngressService: service}
 	api.Register(r)
