@@ -45,7 +45,7 @@ func (e ErrAppSwapped) Error() string {
 	return fmt.Sprintf("app %q currently swapped with %q", e.App, e.DstApp)
 }
 
-// BaseService has the base functionaly needed by router.Service implementations
+// BaseService has the base functionality needed by router.Service implementations
 // targeting kubernetes
 type BaseService struct {
 	Namespace   string

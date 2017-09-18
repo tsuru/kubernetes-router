@@ -7,11 +7,11 @@ package kubernetes
 import (
 	"fmt"
 	"reflect"
-	"sort"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/pkg/api/v1"
 )
@@ -25,15 +25,17 @@ func createFakeLBService() LBService {
 	}
 }
 
-func defaultService(app string) v1.Service {
-	return v1.Service{
+func defaultService(app string, labels, annotations, selector map[string]string) v1.Service {
+	svc := v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceName(app),
-			Namespace: "default",
-			Labels:    map[string]string{appLabel: app, managedServiceLabel: "true"},
+			Name:        serviceName(app),
+			Namespace:   "default",
+			Labels:      map[string]string{appLabel: app, managedServiceLabel: "true"},
+			Annotations: annotations,
 		},
 		Spec: v1.ServiceSpec{
-			Type: v1.ServiceTypeLoadBalancer,
+			Selector: selector,
+			Type:     v1.ServiceTypeLoadBalancer,
 			Ports: []v1.ServicePort{
 				{
 					Protocol:   "TCP",
@@ -43,6 +45,10 @@ func defaultService(app string) v1.Service {
 			},
 		},
 	}
+	for k, v := range labels {
+		svc.ObjectMeta.Labels[k] = v
+	}
+	return svc
 }
 
 func TestLBCreate(t *testing.T) {
@@ -60,9 +66,7 @@ func TestLBCreate(t *testing.T) {
 	if len(serviceList.Items) != 1 {
 		t.Errorf("Expected 1 item. Got %d.", len(serviceList.Items))
 	}
-	expectedService := defaultService("test")
-	expectedService.Labels["label"] = "labelval"
-	expectedService.Annotations = map[string]string{"annotation": "annval"}
+	expectedService := defaultService("test", svc.Labels, svc.Annotations, nil)
 	if !reflect.DeepEqual(serviceList.Items[0], expectedService) {
 		t.Errorf("Expected %v. Got %v", expectedService, serviceList.Items[0])
 	}
@@ -182,34 +186,13 @@ func TestLBUpdate(t *testing.T) {
 
 func TestLBSwap(t *testing.T) {
 	svc := createFakeLBService()
-	err := svc.Create("test-blue")
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-	err = svc.Create("test-green")
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
 
 	for _, n := range []string{"blue", "green"} {
-		webService := &v1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      n + "-web",
-				Namespace: "default",
-				Labels:    map[string]string{appLabel: "test-" + n},
-			},
-			Spec: v1.ServiceSpec{
-				Selector: map[string]string{"app": n},
-				Ports: []v1.ServicePort{
-					{
-						Protocol:   "TCP",
-						Port:       int32(defaultServicePort),
-						TargetPort: intstr.FromInt(defaultServicePort),
-					},
-				},
-			},
+		err := svc.Create("test-" + n)
+		if err != nil {
+			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
-		_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(webService)
+		err = createWebService(n, svc.Client)
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -219,51 +202,50 @@ func TestLBSwap(t *testing.T) {
 		}
 	}
 
-	err = svc.Swap("test-blue", "test-green")
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
+	blueSvc := defaultService("test-blue", map[string]string{swapLabel: "test-green"}, nil, map[string]string{"app": "green"})
+	greenSvc := defaultService("test-green", map[string]string{swapLabel: "test-blue"}, nil, map[string]string{"app": "blue"})
 
-	serviceList, err := svc.Client.CoreV1().Services(svc.Namespace).List(metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=true", managedServiceLabel),
-	})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-	sort.Slice(serviceList.Items, func(i, j int) bool {
-		return serviceList.Items[i].Name < serviceList.Items[j].Name
-	})
-	blueSvc := defaultService("test-blue")
-	blueSvc.Labels[swapLabel] = "test-green"
-	blueSvc.Spec.Selector = map[string]string{"app": "green"}
-	greenSvc := defaultService("test-green")
-	greenSvc.Labels[swapLabel] = "test-blue"
-	greenSvc.Spec.Selector = map[string]string{"app": "blue"}
+	i := 1
+	for i <= 2 {
+		err := svc.Swap("test-blue", "test-green")
+		if err != nil {
+			t.Errorf("Iteration %d: Expected err to be nil. Got %v.", i, err)
+		}
+		serviceList, err := svc.Client.CoreV1().Services(svc.Namespace).List(metav1.ListOptions{
+			LabelSelector: fmt.Sprintf("%s=true", managedServiceLabel),
+		})
+		if err != nil {
+			t.Errorf("Iteration %d: Expected err to be nil. Got %v.", i, err)
+		}
+		if !reflect.DeepEqual(serviceList.Items, []v1.Service{blueSvc, greenSvc}) {
+			t.Errorf("Iteration %d: Expected %+v. \nGot %+v", i, []v1.Service{blueSvc, greenSvc}, serviceList.Items)
+		}
 
-	if !reflect.DeepEqual(serviceList.Items, []v1.Service{blueSvc, greenSvc}) {
-		t.Errorf("Expected %+v. \nGot %+v", []v1.Service{blueSvc, greenSvc}, serviceList.Items)
-	}
+		blueSvc = defaultService("test-blue", nil, nil, map[string]string{"app": "blue"})
+		greenSvc = defaultService("test-green", nil, nil, map[string]string{"app": "green"})
 
-	err = svc.Swap("test-blue", "test-green")
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
+		i++
 	}
+}
 
-	serviceList, err = svc.Client.CoreV1().Services(svc.Namespace).List(metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=true", managedServiceLabel),
-	})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
+func createWebService(app string, client kubernetes.Interface) error {
+	webService := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      app + "-web",
+			Namespace: "default",
+			Labels:    map[string]string{appLabel: "test-" + app},
+		},
+		Spec: v1.ServiceSpec{
+			Selector: map[string]string{"app": app},
+			Ports: []v1.ServicePort{
+				{
+					Protocol:   "TCP",
+					Port:       int32(defaultServicePort),
+					TargetPort: intstr.FromInt(defaultServicePort),
+				},
+			},
+		},
 	}
-	sort.Slice(serviceList.Items, func(i, j int) bool {
-		return serviceList.Items[i].Name < serviceList.Items[j].Name
-	})
-	delete(blueSvc.Labels, swapLabel)
-	blueSvc.Spec.Selector = map[string]string{"app": "blue"}
-	delete(greenSvc.Labels, swapLabel)
-	greenSvc.Spec.Selector = map[string]string{"app": "green"}
-
-	if !reflect.DeepEqual(serviceList.Items, []v1.Service{blueSvc, greenSvc}) {
-		t.Errorf("Expected %v. Got %v", []v1.Service{blueSvc, greenSvc}, serviceList.Items)
-	}
+	_, err := client.CoreV1().Services("default").Create(webService)
+	return err
 }
