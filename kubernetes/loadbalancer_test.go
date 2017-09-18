@@ -5,7 +5,9 @@
 package kubernetes
 
 import (
+	"fmt"
 	"reflect"
+	"sort"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,10 +28,9 @@ func createFakeLBService() LBService {
 func defaultService(app string) v1.Service {
 	return v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        serviceName(app),
-			Namespace:   "default",
-			Labels:      map[string]string{appLabel: app, managedServiceLabel: "true"},
-			Annotations: make(map[string]string),
+			Name:      serviceName(app),
+			Namespace: "default",
+			Labels:    map[string]string{appLabel: app, managedServiceLabel: "true"},
 		},
 		Spec: v1.ServiceSpec{
 			Type: v1.ServiceTypeLoadBalancer,
@@ -61,7 +62,7 @@ func TestLBCreate(t *testing.T) {
 	}
 	expectedService := defaultService("test")
 	expectedService.Labels["label"] = "labelval"
-	expectedService.Annotations["annotation"] = "annval"
+	expectedService.Annotations = map[string]string{"annotation": "annval"}
 	if !reflect.DeepEqual(serviceList.Items[0], expectedService) {
 		t.Errorf("Expected %v. Got %v", expectedService, serviceList.Items[0])
 	}
@@ -176,5 +177,93 @@ func TestLBUpdate(t *testing.T) {
 				t.Errorf("Expected %v. Got %v", tc.expectedSelector, service.Spec.Selector)
 			}
 		})
+	}
+}
+
+func TestLBSwap(t *testing.T) {
+	svc := createFakeLBService()
+	err := svc.Create("test-blue")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.Create("test-green")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	for _, n := range []string{"blue", "green"} {
+		webService := &v1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      n + "-web",
+				Namespace: "default",
+				Labels:    map[string]string{appLabel: "test-" + n},
+			},
+			Spec: v1.ServiceSpec{
+				Selector: map[string]string{"app": n},
+				Ports: []v1.ServicePort{
+					{
+						Protocol:   "TCP",
+						Port:       int32(defaultServicePort),
+						TargetPort: intstr.FromInt(defaultServicePort),
+					},
+				},
+			},
+		}
+		_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(webService)
+		if err != nil {
+			t.Errorf("Expected err to be nil. Got %v.", err)
+		}
+		err = svc.Update("test-" + n)
+		if err != nil {
+			t.Errorf("Expected err to be nil. Got %v.", err)
+		}
+	}
+
+	err = svc.Swap("test-blue", "test-green")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	serviceList, err := svc.Client.CoreV1().Services(svc.Namespace).List(metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=true", managedServiceLabel),
+	})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	sort.Slice(serviceList.Items, func(i, j int) bool {
+		return serviceList.Items[i].Name < serviceList.Items[j].Name
+	})
+	blueSvc := defaultService("test-blue")
+	blueSvc.Labels[swapLabel] = "test-green"
+	blueSvc.Spec.Selector = map[string]string{"app": "green"}
+	greenSvc := defaultService("test-green")
+	greenSvc.Labels[swapLabel] = "test-blue"
+	greenSvc.Spec.Selector = map[string]string{"app": "blue"}
+
+	if !reflect.DeepEqual(serviceList.Items, []v1.Service{blueSvc, greenSvc}) {
+		t.Errorf("Expected %+v. \nGot %+v", []v1.Service{blueSvc, greenSvc}, serviceList.Items)
+	}
+
+	err = svc.Swap("test-blue", "test-green")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	serviceList, err = svc.Client.CoreV1().Services(svc.Namespace).List(metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=true", managedServiceLabel),
+	})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	sort.Slice(serviceList.Items, func(i, j int) bool {
+		return serviceList.Items[i].Name < serviceList.Items[j].Name
+	})
+	delete(blueSvc.Labels, swapLabel)
+	blueSvc.Spec.Selector = map[string]string{"app": "blue"}
+	delete(greenSvc.Labels, swapLabel)
+	greenSvc.Spec.Selector = map[string]string{"app": "green"}
+
+	if !reflect.DeepEqual(serviceList.Items, []v1.Service{blueSvc, greenSvc}) {
+		t.Errorf("Expected %v. Got %v", []v1.Service{blueSvc, greenSvc}, serviceList.Items)
 	}
 }
