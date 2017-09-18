@@ -1,7 +1,7 @@
 apiVersion: extensions/v1beta1
 kind: Deployment
 metadata:
-  name: ingress-router-deployment
+  name: kubernetes-router-deployment
 spec:
   replicas: 1
   strategy:
@@ -9,10 +9,10 @@ spec:
   template:
     metadata:
       labels:
-        app: ingress-router
+        app: kubernetes-router
     spec:
       containers:
-      - name: ingress-router
+      - name: kubernetes-router
         image: IMAGE
         imagePullPolicy: Always
         livenessProbe:
@@ -21,7 +21,7 @@ spec:
             port: 8077
             scheme: HTTP
           timeoutSeconds: 5
-        command: ["./ingress-router"]
+        command: ["./kubernetes-router"]
         args: ["-v", "3"]
         ports:
         - containerPort: 8077
@@ -29,11 +29,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ingress-router
+  name: kubernetes-router
 spec:
   type: LoadBalancer
   ports:
   - port: 80
     targetPort: 8077
   selector:
-    app: ingress-router
+    app: kubernetes-router
