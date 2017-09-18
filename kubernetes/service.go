@@ -1,3 +1,7 @@
+// Copyright 2017 tsuru authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package kubernetes
 
 import (
@@ -116,7 +120,7 @@ func (k *BaseService) getWebService(appName string) (*apiv1.Service, error) {
 		return nil, err
 	}
 	list, err := client.CoreV1().Services(k.Namespace).List(metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=%s", appLabel, appName),
+		LabelSelector: fmt.Sprintf("%s=%s,%s!=%s", appLabel, appName, managedServiceLabel, "true"),
 	})
 	if err != nil {
 		return nil, err

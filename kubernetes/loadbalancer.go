@@ -1,3 +1,7 @@
+// Copyright 2017 tsuru authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package kubernetes
 
 import (
@@ -9,6 +13,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/pkg/api/v1"
 )
+
+// managedServiceLabel is added to every service created by the router
+const managedServiceLabel = "tsuru.io/router-lb"
 
 // LBService manages LoadBalancer services
 type LBService struct {
@@ -25,7 +32,7 @@ func (s *LBService) Create(appName string) error {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        serviceName(appName),
 			Namespace:   s.Namespace,
-			Labels:      map[string]string{appLabel: appName},
+			Labels:      map[string]string{appLabel: appName, managedServiceLabel: "true"},
 			Annotations: s.Annotations,
 		},
 		Spec: v1.ServiceSpec{
@@ -109,6 +116,7 @@ func (s *LBService) Update(appName string) error {
 	return err
 }
 
+// Swap swaps the two LB services selectors
 func (s *LBService) Swap(appSrc string, appDst string) error {
 	srcServ, err := s.getLBService(appSrc)
 	if err != nil {
