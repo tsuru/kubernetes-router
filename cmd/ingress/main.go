@@ -20,8 +20,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/tsuru/ingress-router/api"
-	"github.com/tsuru/ingress-router/ingress"
 	"github.com/tsuru/ingress-router/kubernetes"
+	"github.com/tsuru/ingress-router/router"
 )
 
 func main() {
@@ -46,7 +46,7 @@ func main() {
 		Labels:      *k8sLabels,
 		Annotations: *k8sAnnotations,
 	}
-	var service ingress.Service = &kubernetes.LBService{BaseService: base}
+	var service router.Service = &kubernetes.LBService{BaseService: base}
 	if *ingressMode {
 		service = &kubernetes.IngressService{BaseService: base}
 	}

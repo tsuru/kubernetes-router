@@ -11,12 +11,12 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/tsuru/ingress-router/ingress"
+	"github.com/tsuru/ingress-router/router"
 )
 
 // RouterAPI implements Tsuru HTTP router API
 type RouterAPI struct {
-	IngressService ingress.Service
+	IngressService router.Service
 }
 
 // Register registers RouterAPI routes
@@ -101,7 +101,7 @@ func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (a *RouterAPI) healthcheck(w http.ResponseWriter, req *http.Request) error {
-	if hc, ok := a.IngressService.(ingress.HealthcheckableService); ok {
+	if hc, ok := a.IngressService.(router.HealthcheckableService); ok {
 		if err := hc.Healthcheck(); err != nil {
 			return fmt.Errorf("failed to check IngressService: %v", err)
 		}
