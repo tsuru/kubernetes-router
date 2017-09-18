@@ -7,7 +7,7 @@ package kubernetes
 import (
 	"fmt"
 
-	"github.com/tsuru/ingress-router/ingress"
+	"github.com/tsuru/ingress-router/router"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -51,7 +51,7 @@ func (s *LBService) Create(appName string) error {
 	}
 	_, err = client.CoreV1().Services(s.Namespace).Create(service)
 	if k8sErrors.IsAlreadyExists(err) {
-		return ingress.ErrIngressAlreadyExists
+		return router.ErrIngressAlreadyExists
 	}
 	return err
 }
