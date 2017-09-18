@@ -62,10 +62,10 @@ func (s *LBService) Remove(appName string) error {
 		}
 		return err
 	}
-	if dstApp, ok := service.Labels[swapLabel]; ok {
+	if dstApp, swapped := s.BaseService.isSwapped(service.ObjectMeta); swapped {
 		return ErrAppSwapped{App: appName, DstApp: dstApp}
 	}
-	err = client.CoreV1().Services(s.Namespace).Delete(serviceName(appName), &metav1.DeleteOptions{})
+	err = client.CoreV1().Services(s.Namespace).Delete(service.Name, &metav1.DeleteOptions{})
 	if k8sErrors.IsNotFound(err) {
 		return nil
 	}
@@ -110,7 +110,32 @@ func (s *LBService) Update(appName string) error {
 }
 
 func (s *LBService) Swap(appSrc string, appDst string) error {
-	panic("not implemented")
+	srcServ, err := s.getLBService(appSrc)
+	if err != nil {
+		return err
+	}
+	dstServ, err := s.getLBService(appDst)
+	if err != nil {
+		return err
+	}
+	s.swap(srcServ, dstServ)
+	client, err := s.getClient()
+	if err != nil {
+		return err
+	}
+	_, err = client.CoreV1().Services(s.Namespace).Update(srcServ)
+	if err != nil {
+		return err
+	}
+	_, err = client.CoreV1().Services(s.Namespace).Update(dstServ)
+	if err != nil {
+		s.swap(srcServ, dstServ)
+		_, errRollback := client.CoreV1().Services(s.Namespace).Update(srcServ)
+		if errRollback != nil {
+			return fmt.Errorf("failed to rollback swap %v: %v", err, errRollback)
+		}
+	}
+	return err
 }
 
 // Get returns the LoadBalancer IP
@@ -133,6 +158,11 @@ func (s *LBService) getLBService(appName string) (*v1.Service, error) {
 		return nil, err
 	}
 	return client.CoreV1().Services(s.Namespace).Get(serviceName(appName), metav1.GetOptions{})
+}
+
+func (s *LBService) swap(srcServ, dstServ *v1.Service) {
+	srcServ.Spec.Selector, dstServ.Spec.Selector = dstServ.Spec.Selector, srcServ.Spec.Selector
+	s.BaseService.swap(&srcServ.ObjectMeta, &dstServ.ObjectMeta)
 }
 
 func serviceName(app string) string {

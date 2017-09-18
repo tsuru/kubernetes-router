@@ -89,7 +89,7 @@ func (k *IngressService) Swap(srcApp, dstApp string) error {
 	if err != nil {
 		return err
 	}
-	swap(srcIngress, dstIngress)
+	k.swap(srcIngress, dstIngress)
 	client, err := k.ingressClient()
 	if err != nil {
 		return err
@@ -100,14 +100,13 @@ func (k *IngressService) Swap(srcApp, dstApp string) error {
 	}
 	_, err = client.Update(dstIngress)
 	if err != nil {
-		swap(srcIngress, dstIngress)
+		k.swap(srcIngress, dstIngress)
 		_, errRollback := client.Update(srcIngress)
 		if errRollback != nil {
 			return fmt.Errorf("failed to rollback swap %v: %v", err, errRollback)
 		}
-		return err
 	}
-	return nil
+	return err
 }
 
 // Remove removes the Ingress resource associated with the app
@@ -119,7 +118,7 @@ func (k *IngressService) Remove(appName string) error {
 		}
 		return err
 	}
-	if dstApp, ok := ingress.Labels[swapLabel]; ok {
+	if dstApp, swapped := k.BaseService.isSwapped(ingress.ObjectMeta); swapped {
 		return ErrAppSwapped{App: appName, DstApp: dstApp}
 	}
 	client, err := k.ingressClient()
@@ -173,14 +172,8 @@ func ingressName(appName string) string {
 	return appName + "-ingress"
 }
 
-func swap(srcIngress, dstIngress *v1beta1.Ingress) {
+func (k *IngressService) swap(srcIngress, dstIngress *v1beta1.Ingress) {
 	srcIngress.Spec.Backend.ServiceName, dstIngress.Spec.Backend.ServiceName = dstIngress.Spec.Backend.ServiceName, srcIngress.Spec.Backend.ServiceName
 	srcIngress.Spec.Backend.ServicePort, dstIngress.Spec.Backend.ServicePort = dstIngress.Spec.Backend.ServicePort, srcIngress.Spec.Backend.ServicePort
-	if srcIngress.Labels[swapLabel] == dstIngress.Labels[appLabel] {
-		delete(srcIngress.Labels, swapLabel)
-		delete(dstIngress.Labels, swapLabel)
-	} else {
-		srcIngress.Labels[swapLabel] = dstIngress.Labels[appLabel]
-		dstIngress.Labels[swapLabel] = srcIngress.Labels[appLabel]
-	}
+	k.BaseService.swap(&srcIngress.ObjectMeta, &dstIngress.ObjectMeta)
 }
