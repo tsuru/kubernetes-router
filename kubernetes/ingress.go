@@ -7,7 +7,7 @@ package kubernetes
 import (
 	"fmt"
 
-	"github.com/tsuru/ingress-router/router"
+	"github.com/tsuru/kubernetes-router/router"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"

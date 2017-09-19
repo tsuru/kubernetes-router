@@ -14,7 +14,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/tsuru/ingress-router/router/mock"
+	"github.com/tsuru/kubernetes-router/router/mock"
 )
 
 func TestHealthcheckOK(t *testing.T) {

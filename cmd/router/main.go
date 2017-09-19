@@ -19,9 +19,9 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/tsuru/ingress-router/api"
-	"github.com/tsuru/ingress-router/kubernetes"
-	"github.com/tsuru/ingress-router/router"
+	"github.com/tsuru/kubernetes-router/api"
+	"github.com/tsuru/kubernetes-router/kubernetes"
+	"github.com/tsuru/kubernetes-router/router"
 )
 
 func main() {

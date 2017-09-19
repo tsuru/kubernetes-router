@@ -7,7 +7,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/tsuru/ingress-router/router"
+	"github.com/tsuru/kubernetes-router/router"
 )
 
 type handler func(http.ResponseWriter, *http.Request) error

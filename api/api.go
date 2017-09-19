@@ -11,7 +11,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/tsuru/ingress-router/router"
+	"github.com/tsuru/kubernetes-router/router"
 )
 
 // RouterAPI implements Tsuru HTTP router API
