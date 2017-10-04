@@ -39,7 +39,7 @@ func defaultService(app string, labels, annotations, selector map[string]string)
 			Ports: []v1.ServicePort{
 				{
 					Protocol:   "TCP",
-					Port:       int32(defaultServicePort),
+					Port:       int32(defaultLBPort),
 					TargetPort: intstr.FromInt(defaultServicePort),
 				},
 			},
@@ -240,7 +240,7 @@ func createWebService(app string, client kubernetes.Interface) error {
 			Ports: []v1.ServicePort{
 				{
 					Protocol:   "TCP",
-					Port:       int32(defaultServicePort),
+					Port:       int32(defaultLBPort),
 					TargetPort: intstr.FromInt(defaultServicePort),
 				},
 			},
