@@ -17,13 +17,21 @@ import (
 // managedServiceLabel is added to every service created by the router
 const managedServiceLabel = "tsuru.io/router-lb"
 
+// defaultLBPort is the default exposed port to the LB
+const defaultLBPort = 80
+
 // LBService manages LoadBalancer services
 type LBService struct {
 	*BaseService
+	Port int
 }
 
 // Create creates a LoadBalancer type service without any selectors
 func (s *LBService) Create(appName string) error {
+	port := s.Port
+	if port == 0 {
+		port = defaultLBPort
+	}
 	client, err := s.getClient()
 	if err != nil {
 		return err
@@ -40,7 +48,7 @@ func (s *LBService) Create(appName string) error {
 			Ports: []v1.ServicePort{
 				{
 					Protocol:   "TCP",
-					Port:       int32(defaultServicePort),
+					Port:       int32(port),
 					TargetPort: intstr.FromInt(defaultServicePort),
 				},
 			},
