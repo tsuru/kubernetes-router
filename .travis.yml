@@ -17,7 +17,7 @@ jobs:
   - stage: push to docker
     script:
     - docker login -u $DOCKER_USER -p $DOCKER_PASS
-    - make push
+    - if [ -n "$TRAVIS_TAG" ]; then make TAG=$TRAVIS_TAG push; else make push; fi
 env:
   global:
   - secure: iXS4WxLwiaf0lbtRY/D5kLjvs5Vw/4YTMx+DDRxMM847X4zPVk4r1vEB0lI15uWFCvZSVO7weuI1AENLtYA+MdJHAdzQkFpLPgPpbMb4Rv/JD2PjMMbF7nKNuAwPpGrbh5+ag1OcZOyQydIubjRY3j7NdeUPwhnCs3E11duReYQPfPM28XGMP1L4qdD6ZjQ+iiAu3h7dBBwkbOoNAtauDSgm2SSQtcg6V4jL4Mn9ImjEO5I/kriXGAVhnsL5Ed8olKjJSlh3v22ukaETjlqQ420zDZGXvOEi6TnOIsrq1dg1BN0OKopHRrNoNhxCOq0QKi3KWfTj6AvHUGPPICbRuPyITSYhVCaB7k0Ez4rck/mp6oCyXx2HUPauHfAFZ9Z0EqA1NhHRrWDxCvl7WcueRq7U0d/c/zm6vRF2yr+MXKKaq0OvledQevby5NIX5l+L6k5lHXvtPkvOB6IW2/pX3mrn+bSDwKAlILXLHmr9dRvbxmpSwsJlS4lcMekvR3mYOo3HYUUFWOEefbMbQSOH9MLiA8Sd6xrV/59jsxBB5WiArBco67ZZ9kSD6QEgAnVNjVxgYlVrWFydskUletzDQUNXTxd44Oh+Yf0N+7zs4a+FrOUH1BO4/UyS9utAFFbmxFzpGjGIGOCcLdWvHq3ruAECTBb92kJkLPGoG4BHWh4=
