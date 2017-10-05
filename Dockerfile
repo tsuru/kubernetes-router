@@ -7,4 +7,7 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 COPY --from=builder /go/src/github.com/tsuru/kubernetes-router/kubernetes-router .
+
+EXPOSE 8077
+
 CMD ["./kubernetes-router"]  
