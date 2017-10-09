@@ -166,6 +166,10 @@ func (s *LBService) Get(appName string) (map[string]string, error) {
 	lbs := service.Status.LoadBalancer.Ingress
 	if len(lbs) != 0 {
 		addr = lbs[0].IP
+		ports := service.Spec.Ports
+		if len(ports) != 0 {
+			addr = fmt.Sprintf("%s:%d", addr, ports[0].Port)
+		}
 	}
 	return map[string]string{"address": addr}, nil
 }
