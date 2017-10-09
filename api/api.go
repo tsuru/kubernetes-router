@@ -20,7 +20,8 @@ type RouterAPI struct {
 }
 
 // Register registers RouterAPI routes
-func (a *RouterAPI) Register(r *mux.Router) {
+func (a *RouterAPI) Routes() *mux.Router {
+	r := mux.NewRouter()
 	r.Handle("/backend/{name}", handler(a.getBackend)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}", handler(a.addBackend)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}", handler(a.updateBackend)).Methods(http.MethodPut)
@@ -29,7 +30,7 @@ func (a *RouterAPI) Register(r *mux.Router) {
 	r.Handle("/backend/{name}/routes", handler(a.addRoutes)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}/routes/remove", handler(a.removeRoutes)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}/swap", handler(a.swap)).Methods(http.MethodPost)
-	r.Handle("/healthcheck", handler(a.healthcheck)).Methods(http.MethodGet)
+	return r
 }
 
 // getBackend returns the address for the load balancer registered in
@@ -100,12 +101,13 @@ func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
 	return a.IngressService.Swap(name, target)
 }
 
-func (a *RouterAPI) healthcheck(w http.ResponseWriter, req *http.Request) error {
+// Healthcheck checks the health of the service
+func (a *RouterAPI) Healthcheck(w http.ResponseWriter, req *http.Request) {
 	if hc, ok := a.IngressService.(router.HealthcheckableService); ok {
 		if err := hc.Healthcheck(); err != nil {
-			return fmt.Errorf("failed to check IngressService: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf("failed to check IngressService: %v", err)))
 		}
 	}
-	_, err := w.Write([]byte("WORKING"))
-	return err
+	w.Write([]byte("WORKING"))
 }

@@ -54,8 +54,16 @@ func main() {
 
 	routerAPI := api.RouterAPI{IngressService: service}
 	r := mux.NewRouter().StrictSlash(true)
-	routerAPI.Register(r)
+	apiRoutes := routerAPI.Routes()
 
+	r.PathPrefix("/api").Handler(negroni.New(
+		api.AuthMiddleware{
+			User: os.Getenv("ROUTER_API_USER"),
+			Pass: os.Getenv("ROUTER_API_PASSWORD"),
+		},
+		negroni.Wrap(apiRoutes),
+	))
+	r.HandleFunc("/healthcheck", routerAPI.Healthcheck)
 	r.Handle("/metrics", promhttp.Handler())
 
 	r.HandleFunc("/debug/pprof/", pprof.Index)

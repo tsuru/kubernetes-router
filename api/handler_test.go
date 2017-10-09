@@ -43,3 +43,32 @@ func TestHandler(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthHandler(t *testing.T) {
+	h := AuthMiddleware{"user", "god"}
+	tt := []struct {
+		name           string
+		user           string
+		password       string
+		expectedStatus int
+	}{
+		{"rightCredentials", "user", "god", http.StatusOK},
+		{"wrongCredentials", "bla", "wrong", http.StatusUnauthorized},
+	}
+	for _, tc := range tt {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "http://localhost", nil)
+			req.SetBasicAuth(tc.user, tc.password)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req, func(http.ResponseWriter, *http.Request) {
+			})
+
+			response := w.Result()
+
+			if response.StatusCode != tc.expectedStatus {
+				t.Errorf("Expected status %d. Got %d", tc.expectedStatus, response.StatusCode)
+			}
+		})
+	}
+}

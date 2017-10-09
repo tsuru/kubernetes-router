@@ -12,8 +12,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gorilla/mux"
-
 	"github.com/tsuru/kubernetes-router/router/mock"
 )
 
@@ -22,10 +20,7 @@ func TestHealthcheckOK(t *testing.T) {
 	req := httptest.NewRequest("GET", "http://localhost", nil)
 	w := httptest.NewRecorder()
 
-	err := api.healthcheck(w, req)
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v", err)
-	}
+	api.Healthcheck(w, req)
 
 	resp := w.Result()
 	body, _ := ioutil.ReadAll(resp.Body)
@@ -40,9 +35,8 @@ func TestHealthcheckOK(t *testing.T) {
 
 func TestGetBackend(t *testing.T) {
 	service := &mock.RouterService{}
-	r := mux.NewRouter()
 	api := RouterAPI{IngressService: service}
-	api.Register(r)
+	r := api.Routes()
 	expected := map[string]string{"data": "myapp"}
 	service.GetFn = func(name string) (map[string]string, error) {
 		if name != "myapp" {
@@ -73,9 +67,8 @@ func TestGetBackend(t *testing.T) {
 
 func TestAddBackend(t *testing.T) {
 	service := &mock.RouterService{}
-	r := mux.NewRouter()
 	api := RouterAPI{IngressService: service}
-	api.Register(r)
+	r := api.Routes()
 
 	service.CreateFn = testCalledWith("myapp", t)
 
@@ -94,9 +87,8 @@ func TestAddBackend(t *testing.T) {
 
 func TestRemoveBackend(t *testing.T) {
 	service := &mock.RouterService{}
-	r := mux.NewRouter()
 	api := RouterAPI{IngressService: service}
-	api.Register(r)
+	r := api.Routes()
 
 	service.RemoveFn = testCalledWith("myapp", t)
 
@@ -115,9 +107,8 @@ func TestRemoveBackend(t *testing.T) {
 
 func TestAddRoutes(t *testing.T) {
 	service := &mock.RouterService{}
-	r := mux.NewRouter()
 	api := RouterAPI{IngressService: service}
-	api.Register(r)
+	r := api.Routes()
 
 	service.UpdateFn = testCalledWith("myapp", t)
 
@@ -136,9 +127,8 @@ func TestAddRoutes(t *testing.T) {
 
 func TestSwap(t *testing.T) {
 	service := &mock.RouterService{}
-	r := mux.NewRouter()
 	api := RouterAPI{IngressService: service}
-	api.Register(r)
+	r := api.Routes()
 
 	service.SwapFn = func(app, dst string) error {
 		if app != "myapp" {
@@ -165,9 +155,8 @@ func TestSwap(t *testing.T) {
 
 func TestGetRoutes(t *testing.T) {
 	service := &mock.RouterService{}
-	r := mux.NewRouter()
 	api := RouterAPI{IngressService: service}
-	api.Register(r)
+	r := api.Routes()
 
 	service.AddressesFn = func(app string) ([]string, error) {
 		return []string{"localhost:8080"}, nil
