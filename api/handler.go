@@ -26,3 +26,23 @@ func handleError(err error, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
+
+type AuthMiddleware struct {
+	User string
+	Pass string
+}
+
+func (h AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	if h.User == "" && h.Pass == "" {
+		next(w, r)
+		return
+	}
+	rUser, rPass, _ := r.BasicAuth()
+
+	if rUser != h.User || rPass != h.Pass {
+		w.Header().Set("WWW-Authenticate", "Basic realm=\"Authorization Required\"")
+		http.Error(w, "Not Authorized", http.StatusUnauthorized)
+		return
+	}
+	next(w, r)
+}
