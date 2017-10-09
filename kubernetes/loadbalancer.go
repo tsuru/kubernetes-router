@@ -28,9 +28,8 @@ type LBService struct {
 
 // Create creates a LoadBalancer type service without any selectors
 func (s *LBService) Create(appName string) error {
-	port := s.Port
-	if port == 0 {
-		port = defaultLBPort
+	if s.Port == 0 {
+		s.Port = defaultLBPort
 	}
 	client, err := s.getClient()
 	if err != nil {
@@ -48,7 +47,7 @@ func (s *LBService) Create(appName string) error {
 			Ports: []v1.ServicePort{
 				{
 					Protocol:   "TCP",
-					Port:       int32(port),
+					Port:       int32(s.Port),
 					TargetPort: intstr.FromInt(defaultServicePort),
 				},
 			},
@@ -90,6 +89,9 @@ func (s *LBService) Remove(appName string) error {
 // Update updates the LoadBalancer service copying the web service
 // labels, selectors, annotations and ports
 func (s *LBService) Update(appName string) error {
+	if s.Port == 0 {
+		s.Port = defaultLBPort
+	}
 	webService, err := s.getWebService(appName)
 	if err != nil {
 		return err
@@ -112,7 +114,7 @@ func (s *LBService) Update(appName string) error {
 	}
 	lbService.Spec.Selector = webService.Spec.Selector
 	for i, p := range webService.Spec.Ports {
-		lbService.Spec.Ports[i].Port = p.Port
+		lbService.Spec.Ports[i].Port = int32(s.Port)
 		lbService.Spec.Ports[i].Protocol = p.Protocol
 		lbService.Spec.Ports[i].TargetPort = p.TargetPort
 	}
