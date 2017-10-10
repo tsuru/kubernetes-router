@@ -12,6 +12,10 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 - `-listen-addr`: The address on which this API should listen.
 - `-ingress-mode`: Create ingresses instead of LoadBalancer services.
 
+## Envs
+
+- `ROUTER_API_USER`/`ROUTER_API_PASSWORD`: Basic auth user and password to be checked for every request to the router API. Optional.
+
 ## Running locally with Tsuru and Minikube
 
 1. Setup tsuru + minikube (https://docs.tsuru.io/master/contributing/compose.html)
