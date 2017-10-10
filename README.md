@@ -11,6 +11,8 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 - `-k8s-timeout`: Per request kubernetes timeout;
 - `-listen-addr`: The address on which this API should listen.
 - `-ingress-mode`: Create ingresses instead of LoadBalancer services.
+- `key-file`: Path to private key used to serve https requests
+- `cert-file`: Path to certificate used to serve https requests
 
 ## Envs
 
