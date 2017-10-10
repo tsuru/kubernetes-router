@@ -54,14 +54,13 @@ func main() {
 
 	routerAPI := api.RouterAPI{IngressService: service}
 	r := mux.NewRouter().StrictSlash(true)
-	apiRoutes := routerAPI.Routes()
 
 	r.PathPrefix("/api").Handler(negroni.New(
 		api.AuthMiddleware{
 			User: os.Getenv("ROUTER_API_USER"),
 			Pass: os.Getenv("ROUTER_API_PASSWORD"),
 		},
-		negroni.Wrap(apiRoutes),
+		negroni.Wrap(routerAPI.Routes()),
 	))
 	r.HandleFunc("/healthcheck", routerAPI.Healthcheck)
 	r.Handle("/metrics", promhttp.Handler())

@@ -27,11 +27,13 @@ func handleError(err error, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// AuthMiddleware is an http.Handler with Basic Auth
 type AuthMiddleware struct {
 	User string
 	Pass string
 }
 
+// ServeHTTP serves an HTTP request with Basic Auth
 func (h AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	if h.User == "" && h.Pass == "" {
 		next(w, r)
