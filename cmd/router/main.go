@@ -34,6 +34,9 @@ func main() {
 	flag.Var(k8sAnnotations, "k8s-annotations", "Annotations to be added to each resource created. Expects KEY=VALUE format.")
 	ingressMode := flag.Bool("ingress-mode", false, "Creates ingress resources instead of LB services.")
 	loadBalancerPort := flag.Int("loadbalancer-port", 80, "Port to be used when creating the load balancer service.")
+
+	certFile := flag.String("cert-file", "", "Path to certificate used to serve https requests")
+	keyFile := flag.String("key-file", "", "Path to private key used to serve https requests")
 	flag.Parse()
 
 	err := flag.Lookup("logtostderr").Value.Set("true")
@@ -88,6 +91,13 @@ func main() {
 
 	go handleSignals(&server)
 
+	if *keyFile != "" && *certFile != "" {
+		log.Printf("Started listening and serving TLS at %s", *listenAddr)
+		if err := server.ListenAndServeTLS(*certFile, *keyFile); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("fail serve: %v", err)
+		}
+		return
+	}
 	log.Printf("Started listening and serving at %s", *listenAddr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("fail serve: %v", err)
