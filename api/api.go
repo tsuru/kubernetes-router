@@ -11,7 +11,6 @@ import (
 	"net/http"
 
 	"github.com/golang/glog"
-
 	"github.com/gorilla/mux"
 	"github.com/tsuru/kubernetes-router/router"
 )
@@ -105,13 +104,17 @@ func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
 
 // Healthcheck checks the health of the service
 func (a *RouterAPI) Healthcheck(w http.ResponseWriter, req *http.Request) {
+	var err error
+	defer func() {
+		if err != nil {
+			glog.Errorf("failed to write healthcheck: %v", err)
+		}
+	}()
 	if hc, ok := a.IngressService.(router.HealthcheckableService); ok {
-		if err := hc.Healthcheck(); err != nil {
+		if err = hc.Healthcheck(); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(fmt.Sprintf("failed to check IngressService: %v", err)))
+			_, err = w.Write([]byte(fmt.Sprintf("failed to check IngressService: %v", err)))
 		}
 	}
-	if _, err := w.Write([]byte("WORKING")); err != nil {
-		glog.Errorf("failed to write healthcheck: %v", err)
-	}
+	_, err = w.Write([]byte("WORKING"))
 }
