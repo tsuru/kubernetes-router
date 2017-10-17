@@ -22,7 +22,7 @@ type RouterAPI struct {
 
 // Routes returns an mux for the API routes
 func (a *RouterAPI) Routes() *mux.Router {
-	r := mux.NewRouter()
+	r := mux.NewRouter().PathPrefix("/api").Subrouter()
 	r.Handle("/backend/{name}", handler(a.getBackend)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}", handler(a.addBackend)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}", handler(a.updateBackend)).Methods(http.MethodPut)
