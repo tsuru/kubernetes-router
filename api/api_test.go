@@ -44,7 +44,7 @@ func TestGetBackend(t *testing.T) {
 		}
 		return expected, nil
 	}
-	req := httptest.NewRequest(http.MethodGet, "http://localhost/backend/myapp", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -72,7 +72,7 @@ func TestAddBackend(t *testing.T) {
 
 	service.CreateFn = testCalledWith("myapp", t)
 
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/backend/myapp", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -92,7 +92,7 @@ func TestRemoveBackend(t *testing.T) {
 
 	service.RemoveFn = testCalledWith("myapp", t)
 
-	req := httptest.NewRequest(http.MethodDelete, "http://localhost/backend/myapp", nil)
+	req := httptest.NewRequest(http.MethodDelete, "http://localhost/api/backend/myapp", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -112,7 +112,7 @@ func TestAddRoutes(t *testing.T) {
 
 	service.UpdateFn = testCalledWith("myapp", t)
 
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/backend/myapp/routes", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/routes", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -140,7 +140,7 @@ func TestSwap(t *testing.T) {
 		return nil
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/backend/myapp/swap?target=otherapp", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/swap?target=otherapp", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -162,7 +162,7 @@ func TestGetRoutes(t *testing.T) {
 		return []string{"localhost:8080"}, nil
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "http://localhost/backend/myapp/routes", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp/routes", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
