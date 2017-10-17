@@ -114,6 +114,7 @@ func (a *RouterAPI) Healthcheck(w http.ResponseWriter, req *http.Request) {
 		if err = hc.Healthcheck(); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, err = w.Write([]byte(fmt.Sprintf("failed to check IngressService: %v", err)))
+			return
 		}
 	}
 	_, err = w.Write([]byte("WORKING"))
