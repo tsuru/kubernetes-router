@@ -55,7 +55,7 @@ func TestLBCreate(t *testing.T) {
 	svc := createFakeLBService()
 	svc.Labels = map[string]string{"label": "labelval"}
 	svc.Annotations = map[string]string{"annotation": "annval"}
-	err := svc.Create("test")
+	err := svc.Create("test", map[string]string{"additional-label": "value"})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -66,6 +66,7 @@ func TestLBCreate(t *testing.T) {
 	if len(serviceList.Items) != 1 {
 		t.Errorf("Expected 1 item. Got %d.", len(serviceList.Items))
 	}
+	svc.Labels["additional-label"] = "value"
 	expectedService := defaultService("test", svc.Labels, svc.Annotations, nil)
 	if !reflect.DeepEqual(serviceList.Items[0], expectedService) {
 		t.Errorf("Expected %v. Got %v", expectedService, serviceList.Items[0])
@@ -87,15 +88,15 @@ func TestLBRemove(t *testing.T) {
 		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			svc := createFakeLBService()
-			err := svc.Create("test")
+			err := svc.Create("test", nil)
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Create("blue")
+			err = svc.Create("blue", nil)
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Create("green")
+			err = svc.Create("green", nil)
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
@@ -158,7 +159,7 @@ func TestLBUpdate(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			svc := createFakeLBService()
-			err := svc.Create("test")
+			err := svc.Create("test", nil)
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
@@ -188,7 +189,7 @@ func TestLBSwap(t *testing.T) {
 	svc := createFakeLBService()
 
 	for _, n := range []string{"blue", "green"} {
-		err := svc.Create("test-" + n)
+		err := svc.Create("test-"+n, nil)
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}

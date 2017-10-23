@@ -22,7 +22,7 @@ type IngressService struct {
 
 // Create creates an Ingress resource pointing to a service
 // with the same name as the App
-func (k *IngressService) Create(appName string) error {
+func (k *IngressService) Create(appName string, labels map[string]string) error {
 	client, err := k.ingressClient()
 	if err != nil {
 		return err
@@ -42,6 +42,9 @@ func (k *IngressService) Create(appName string) error {
 		},
 	}
 	for k, v := range k.Labels {
+		i.ObjectMeta.Labels[k] = v
+	}
+	for k, v := range labels {
 		i.ObjectMeta.Labels[k] = v
 	}
 	for k, v := range k.Annotations {
@@ -68,9 +71,6 @@ func (k *IngressService) Update(appName string) error {
 	ingress, err := k.get(appName)
 	if err != nil {
 		return err
-	}
-	if ingress.Spec.Backend.ServiceName == service.Name {
-		return nil
 	}
 	ingress.Spec.Backend.ServiceName = service.Name
 	ingress.Spec.Backend.ServicePort = intstr.FromInt(int(service.Spec.Ports[0].Port))

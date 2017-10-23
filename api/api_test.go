@@ -71,9 +71,19 @@ func TestAddBackend(t *testing.T) {
 	api := RouterAPI{IngressService: service}
 	r := api.Routes()
 
-	service.CreateFn = testCalledWith("myapp", t)
+	service.CreateFn = func(name string, labels map[string]string) error {
+		if name != "myapp" {
+			t.Errorf("Expected myapp. Got %s", name)
+		}
+		if labels["tsuru.io/app-pool"] != "mypool" {
+			t.Errorf("Expected %v. Got %v.", map[string]string{"tsuru.io/app-pool": "mypool"}, labels)
+		}
+		return nil
+	}
 
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp", nil)
+	reqData, _ := json.Marshal(map[string]string{"tsuru.io/app-pool": "mypool"})
+	body := bytes.NewReader(reqData)
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp", body)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
@@ -191,8 +201,8 @@ func TestGetRoutes(t *testing.T) {
 func testCalledWith(expected string, t *testing.T) func(string) error {
 	t.Helper()
 	return func(name string) error {
-		if name != "myapp" {
-			t.Errorf("Expected myapp. Got %s", name)
+		if name != expected {
+			t.Errorf("Expected %s. Got %s", expected, name)
 		}
 		return nil
 	}

@@ -27,7 +27,7 @@ type LBService struct {
 }
 
 // Create creates a LoadBalancer type service without any selectors
-func (s *LBService) Create(appName string) error {
+func (s *LBService) Create(appName string, labels map[string]string) error {
 	if s.Port == 0 {
 		s.Port = defaultLBPort
 	}
@@ -54,6 +54,9 @@ func (s *LBService) Create(appName string) error {
 		},
 	}
 	for k, v := range s.Labels {
+		service.ObjectMeta.Labels[k] = v
+	}
+	for k, v := range labels {
 		service.ObjectMeta.Labels[k] = v
 	}
 	_, err = client.CoreV1().Services(s.Namespace).Create(service)

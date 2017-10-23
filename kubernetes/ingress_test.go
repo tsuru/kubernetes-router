@@ -29,7 +29,7 @@ func TestCreate(t *testing.T) {
 	svc := createFakeService()
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
-	err := svc.Create("test")
+	err := svc.Create("test", map[string]string{"additional-label": "value"})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -43,6 +43,7 @@ func TestCreate(t *testing.T) {
 	expectedIngress := defaultIngress("test")
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Labels["additional-label"] = "value"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	if !reflect.DeepEqual(ingressList.Items[0], expectedIngress) {
@@ -89,7 +90,7 @@ func TestUpdate(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			svc := createFakeService()
-			err := svc.Create("test")
+			err := svc.Create("test", nil)
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
@@ -120,11 +121,11 @@ func TestUpdate(t *testing.T) {
 
 func TestSwap(t *testing.T) {
 	svc := createFakeService()
-	err := svc.Create("test-blue")
+	err := svc.Create("test-blue", nil)
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Create("test-green")
+	err = svc.Create("test-green", nil)
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -189,15 +190,15 @@ func TestRemove(t *testing.T) {
 		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			svc := createFakeService()
-			err := svc.Create("test")
+			err := svc.Create("test", nil)
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Create("blue")
+			err = svc.Create("blue", nil)
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Create("green")
+			err = svc.Create("green", nil)
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}

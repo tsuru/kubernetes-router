@@ -7,7 +7,7 @@ package mock
 // RouterService is a router.Service mock implementation to be
 // used by tests
 type RouterService struct {
-	CreateFn         func(string) error
+	CreateFn         func(string, map[string]string) error
 	RemoveFn         func(string) error
 	UpdateFn         func(string) error
 	SwapFn           func(string, string) error
@@ -22,9 +22,9 @@ type RouterService struct {
 }
 
 // Create calls CreateFn
-func (s *RouterService) Create(appName string) error {
+func (s *RouterService) Create(appName string, labels map[string]string) error {
 	s.CreateInvoked = true
-	return s.CreateFn(appName)
+	return s.CreateFn(appName, labels)
 }
 
 // Remove calls RemoveFn

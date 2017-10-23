@@ -29,7 +29,7 @@ func TestAddresses(t *testing.T) {
 		Status: apiv1.NodeStatus{Addresses: []apiv1.NodeAddress{{Type: apiv1.NodeInternalIP, Address: "192.168.10.1"}}},
 	}
 	svc := createFakeService()
-	err := svc.Create("test")
+	err := svc.Create("test", nil)
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}

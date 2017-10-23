@@ -13,7 +13,7 @@ var ErrIngressAlreadyExists = errors.New("ingress already exists")
 // Service implements the basic functionally needed to
 // manage ingresses.
 type Service interface {
-	Create(appName string) error
+	Create(appName string, labels map[string]string) error
 	Remove(appName string) error
 	Update(appName string) error
 	Swap(appSrc, appDst string) error
