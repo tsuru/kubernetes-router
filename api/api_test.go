@@ -5,6 +5,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
@@ -140,7 +141,10 @@ func TestSwap(t *testing.T) {
 		return nil
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/swap?target=otherapp", nil)
+	data, _ := json.Marshal(map[string]string{"Target": "otherapp"})
+	body := bytes.NewReader(data)
+
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/swap", body)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)

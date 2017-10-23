@@ -10,6 +10,15 @@ import (
 	"github.com/tsuru/kubernetes-router/router"
 )
 
+type httpError struct {
+	Body   string
+	Status int
+}
+
+func (h httpError) Error() string {
+	return h.Body
+}
+
 type handler func(http.ResponseWriter, *http.Request) error
 
 // ServeHTTP serves an HTTP request
@@ -19,6 +28,10 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func handleError(err error, w http.ResponseWriter, r *http.Request) {
 	if err != nil {
+		if httpErr, ok := err.(httpError); ok {
+			http.Error(w, httpErr.Error(), httpErr.Status)
+			return
+		}
 		if err == router.ErrIngressAlreadyExists {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return

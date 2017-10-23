@@ -95,11 +95,18 @@ func (a *RouterAPI) getRoutes(w http.ResponseWriter, r *http.Request) error {
 func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	name := vars["name"]
-	target := r.FormValue("target")
-	if target == "" {
-		return errors.New("invalid target")
+	type swapReq struct {
+		Target string
 	}
-	return a.IngressService.Swap(name, target)
+	var req swapReq
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		return errors.New("error parsing request")
+	}
+	if req.Target == "" {
+		return httpError{Body: "empty target", Status: http.StatusBadRequest}
+	}
+	return a.IngressService.Swap(name, req.Target)
 }
 
 // Healthcheck checks the health of the service
