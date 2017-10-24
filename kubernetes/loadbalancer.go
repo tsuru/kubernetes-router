@@ -95,11 +95,14 @@ func (s *LBService) Update(appName string) error {
 	if s.Port == 0 {
 		s.Port = defaultLBPort
 	}
-	webService, err := s.getWebService(appName)
+	lbService, err := s.getLBService(appName)
 	if err != nil {
 		return err
 	}
-	lbService, err := s.getLBService(appName)
+	if swappedApp, ok := lbService.Labels[swapLabel]; ok {
+		appName = swappedApp
+	}
+	webService, err := s.getWebService(appName)
 	if err != nil {
 		return err
 	}

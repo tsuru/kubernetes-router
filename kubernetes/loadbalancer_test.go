@@ -185,6 +185,40 @@ func TestLBUpdate(t *testing.T) {
 	}
 }
 
+func TestLBUpdateSwapped(t *testing.T) {
+	svc := createFakeLBService()
+	for _, n := range []string{"blue", "green"} {
+		err := svc.Create("test-"+n, nil)
+		if err != nil {
+			t.Errorf("Expected err to be nil. Got %v.", err)
+		}
+		err = createWebService(n, svc.Client)
+		if err != nil {
+			t.Errorf("Expected err to be nil. Got %v.", err)
+		}
+		err = svc.Update("test-" + n)
+		if err != nil {
+			t.Errorf("Expected err to be nil. Got %v.", err)
+		}
+	}
+	err := svc.Swap("test-blue", "test-green")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.Update("test-blue")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	service, err := svc.Client.CoreV1().Services(svc.Namespace).Get(serviceName("test-blue"), metav1.GetOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	expectedSelector := map[string]string{"app": "green"}
+	if !reflect.DeepEqual(service.Spec.Selector, expectedSelector) {
+		t.Errorf("Expected %v. Got %v", expectedSelector, service.Spec.Selector)
+	}
+}
+
 func TestLBSwap(t *testing.T) {
 	svc := createFakeLBService()
 
