@@ -38,8 +38,15 @@ func defaultService(app string, labels, annotations, selector map[string]string)
 			Type:     v1.ServiceTypeLoadBalancer,
 			Ports: []v1.ServicePort{
 				{
+					Name:       "port-80",
 					Protocol:   "TCP",
-					Port:       int32(defaultLBPort),
+					Port:       int32(defaultLBPorts[0]),
+					TargetPort: intstr.FromInt(defaultServicePort),
+				},
+				{
+					Name:       "port-443",
+					Protocol:   "TCP",
+					Port:       int32(defaultLBPorts[1]),
 					TargetPort: intstr.FromInt(defaultServicePort),
 				},
 			},
@@ -275,7 +282,7 @@ func createWebService(app string, client kubernetes.Interface) error {
 			Ports: []v1.ServicePort{
 				{
 					Protocol:   "TCP",
-					Port:       int32(defaultLBPort),
+					Port:       int32(defaultLBPorts[0]),
 					TargetPort: intstr.FromInt(defaultServicePort),
 				},
 			},

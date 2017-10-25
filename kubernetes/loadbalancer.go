@@ -17,19 +17,19 @@ import (
 // managedServiceLabel is added to every service created by the router
 const managedServiceLabel = "tsuru.io/router-lb"
 
-// defaultLBPort is the default exposed port to the LB
-const defaultLBPort = 80
+// defaultLBPort is the default exposed ports to the LB
+var defaultLBPorts = []int{80, 443}
 
 // LBService manages LoadBalancer services
 type LBService struct {
 	*BaseService
-	Port int
+	Ports []int
 }
 
 // Create creates a LoadBalancer type service without any selectors
 func (s *LBService) Create(appName string, labels map[string]string) error {
-	if s.Port == 0 {
-		s.Port = defaultLBPort
+	if len(s.Ports) == 0 {
+		s.Ports = defaultLBPorts
 	}
 	client, err := s.getClient()
 	if err != nil {
@@ -44,14 +44,15 @@ func (s *LBService) Create(appName string, labels map[string]string) error {
 		},
 		Spec: v1.ServiceSpec{
 			Type: v1.ServiceTypeLoadBalancer,
-			Ports: []v1.ServicePort{
-				{
-					Protocol:   "TCP",
-					Port:       int32(s.Port),
-					TargetPort: intstr.FromInt(defaultServicePort),
-				},
-			},
 		},
+	}
+	for i := range s.Ports {
+		service.Spec.Ports = append(service.Spec.Ports, v1.ServicePort{
+			Name:       fmt.Sprintf("port-%d", s.Ports[i]),
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(s.Ports[i]),
+			TargetPort: intstr.FromInt(defaultServicePort),
+		})
 	}
 	for k, v := range s.Labels {
 		service.ObjectMeta.Labels[k] = v
@@ -92,8 +93,8 @@ func (s *LBService) Remove(appName string) error {
 // Update updates the LoadBalancer service copying the web service
 // labels, selectors, annotations and ports
 func (s *LBService) Update(appName string) error {
-	if s.Port == 0 {
-		s.Port = defaultLBPort
+	if len(s.Ports) == 0 {
+		s.Ports = defaultLBPorts
 	}
 	lbService, err := s.getLBService(appName)
 	if err != nil {
@@ -119,11 +120,6 @@ func (s *LBService) Update(appName string) error {
 		lbService.Annotations[k] = v
 	}
 	lbService.Spec.Selector = webService.Spec.Selector
-	for i, p := range webService.Spec.Ports {
-		lbService.Spec.Ports[i].Port = int32(s.Port)
-		lbService.Spec.Ports[i].Protocol = p.Protocol
-		lbService.Spec.Ports[i].TargetPort = p.TargetPort
-	}
 	client, err := s.getClient()
 	if err != nil {
 		return err

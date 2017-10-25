@@ -33,7 +33,6 @@ func main() {
 	k8sAnnotations := &MapFlag{}
 	flag.Var(k8sAnnotations, "k8s-annotations", "Annotations to be added to each resource created. Expects KEY=VALUE format.")
 	ingressMode := flag.Bool("ingress-mode", false, "Creates ingress resources instead of LB services.")
-	loadBalancerPort := flag.Int("loadbalancer-port", 80, "Port to be used when creating the load balancer service.")
 
 	certFile := flag.String("cert-file", "", "Path to certificate used to serve https requests")
 	keyFile := flag.String("key-file", "", "Path to private key used to serve https requests")
@@ -50,7 +49,7 @@ func main() {
 		Labels:      *k8sLabels,
 		Annotations: *k8sAnnotations,
 	}
-	var service router.Service = &kubernetes.LBService{BaseService: base, Port: *loadBalancerPort}
+	var service router.Service = &kubernetes.LBService{BaseService: base}
 	if *ingressMode {
 		service = &kubernetes.IngressService{BaseService: base}
 	}
