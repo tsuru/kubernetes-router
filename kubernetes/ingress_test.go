@@ -9,6 +9,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/tsuru/kubernetes-router/router"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
@@ -29,7 +30,7 @@ func TestCreate(t *testing.T) {
 	svc := createFakeService()
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
-	err := svc.Create("test", nil)
+	err := svc.Create("test", router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -89,7 +90,7 @@ func TestUpdate(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			svc := createFakeService()
-			err := svc.Create("test", nil)
+			err := svc.Create("test", router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
@@ -100,7 +101,7 @@ func TestUpdate(t *testing.T) {
 				}
 			}
 
-			err = svc.Update("test", nil)
+			err = svc.Update("test", router.Opts{})
 			if err != tc.expectedErr {
 				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
 			}
@@ -120,11 +121,11 @@ func TestUpdate(t *testing.T) {
 
 func TestSwap(t *testing.T) {
 	svc := createFakeService()
-	err := svc.Create("test-blue", nil)
+	err := svc.Create("test-blue", router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Create("test-green", nil)
+	err = svc.Create("test-green", router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -189,15 +190,15 @@ func TestRemove(t *testing.T) {
 		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			svc := createFakeService()
-			err := svc.Create("test", nil)
+			err := svc.Create("test", router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Create("blue", nil)
+			err = svc.Create("blue", router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Create("green", nil)
+			err = svc.Create("green", router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}

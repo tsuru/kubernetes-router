@@ -72,7 +72,7 @@ func TestAddBackend(t *testing.T) {
 	api := RouterAPI{IngressService: service}
 	r := api.Routes()
 
-	service.CreateFn = func(name string, opts *router.RouterOpts) error {
+	service.CreateFn = func(name string, opts router.Opts) error {
 		if name != "myapp" {
 			t.Errorf("Expected myapp. Got %s", name)
 		}
@@ -125,7 +125,7 @@ func TestAddRoutes(t *testing.T) {
 	api := RouterAPI{IngressService: service}
 	r := api.Routes()
 
-	service.UpdateFn = func(name string, opts *router.RouterOpts) error {
+	service.UpdateFn = func(name string, opts router.Opts) error {
 		if name != "myapp" {
 			t.Errorf("Expected myapp. Got %s", name)
 		}

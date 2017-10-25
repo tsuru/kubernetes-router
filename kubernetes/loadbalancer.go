@@ -27,10 +27,7 @@ type LBService struct {
 }
 
 // Create creates a LoadBalancer type service without any selectors
-func (s *LBService) Create(appName string, opts *router.RouterOpts) error {
-	if opts == nil {
-		opts = &router.RouterOpts{}
-	}
+func (s *LBService) Create(appName string, opts router.Opts) error {
 	port, _ := strconv.Atoi(opts.ExposedPort)
 	if port == 0 {
 		port = defaultLBPort
@@ -95,14 +92,7 @@ func (s *LBService) Remove(appName string) error {
 
 // Update updates the LoadBalancer service copying the web service
 // labels, selectors, annotations and ports
-func (s *LBService) Update(appName string, opts *router.RouterOpts) error {
-	if opts == nil {
-		opts = &router.RouterOpts{}
-	}
-	port, _ := strconv.Atoi(opts.ExposedPort)
-	if port == 0 {
-		port = defaultLBPort
-	}
+func (s *LBService) Update(appName string, opts router.Opts) error {
 	lbService, err := s.getLBService(appName)
 	if err != nil {
 		return err
@@ -127,7 +117,6 @@ func (s *LBService) Update(appName string, opts *router.RouterOpts) error {
 		lbService.Annotations[k] = v
 	}
 	lbService.Spec.Selector = webService.Spec.Selector
-	lbService.Spec.Ports[0].Port = int32(port)
 	client, err := s.getClient()
 	if err != nil {
 		return err

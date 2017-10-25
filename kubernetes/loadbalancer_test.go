@@ -61,7 +61,7 @@ func TestLBCreate(t *testing.T) {
 	svc := createFakeLBService()
 	svc.Labels = map[string]string{"label": "labelval"}
 	svc.Annotations = map[string]string{"annotation": "annval"}
-	err := svc.Create("test", &router.RouterOpts{Pool: "mypool"})
+	err := svc.Create("test", router.Opts{Pool: "mypool"})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -94,15 +94,15 @@ func TestLBRemove(t *testing.T) {
 		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			svc := createFakeLBService()
-			err := svc.Create("test", nil)
+			err := svc.Create("test", router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Create("blue", nil)
+			err = svc.Create("blue", router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Create("green", nil)
+			err = svc.Create("green", router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
@@ -165,7 +165,7 @@ func TestLBUpdate(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			svc := createFakeLBService()
-			err := svc.Create("test", nil)
+			err := svc.Create("test", router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
@@ -176,7 +176,7 @@ func TestLBUpdate(t *testing.T) {
 				}
 			}
 
-			err = svc.Update("test", nil)
+			err = svc.Update("test", router.Opts{})
 			if err != tc.expectedErr {
 				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
 			}
@@ -194,7 +194,7 @@ func TestLBUpdate(t *testing.T) {
 func TestLBUpdateSwapped(t *testing.T) {
 	svc := createFakeLBService()
 	for _, n := range []string{"blue", "green"} {
-		err := svc.Create("test-"+n, nil)
+		err := svc.Create("test-"+n, router.Opts{})
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -202,7 +202,7 @@ func TestLBUpdateSwapped(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
-		err = svc.Update("test-"+n, nil)
+		err = svc.Update("test-"+n, router.Opts{})
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -211,7 +211,7 @@ func TestLBUpdateSwapped(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Update("test-blue", nil)
+	err = svc.Update("test-blue", router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -229,7 +229,7 @@ func TestLBSwap(t *testing.T) {
 	svc := createFakeLBService()
 
 	for _, n := range []string{"blue", "green"} {
-		err := svc.Create("test-"+n, nil)
+		err := svc.Create("test-"+n, router.Opts{})
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -237,7 +237,7 @@ func TestLBSwap(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
-		err = svc.Update("test-"+n, nil)
+		err = svc.Update("test-"+n, router.Opts{})
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}

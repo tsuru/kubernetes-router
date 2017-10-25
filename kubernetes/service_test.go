@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/tsuru/kubernetes-router/router"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	apiv1 "k8s.io/client-go/pkg/api/v1"
@@ -29,7 +30,7 @@ func TestAddresses(t *testing.T) {
 		Status: apiv1.NodeStatus{Addresses: []apiv1.NodeAddress{{Type: apiv1.NodeInternalIP, Address: "192.168.10.1"}}},
 	}
 	svc := createFakeService()
-	err := svc.Create("test", nil)
+	err := svc.Create("test", router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}

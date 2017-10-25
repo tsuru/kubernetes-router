@@ -13,15 +13,16 @@ var ErrIngressAlreadyExists = errors.New("ingress already exists")
 // Service implements the basic functionally needed to
 // manage ingresses.
 type Service interface {
-	Create(appName string, opts *RouterOpts) error
+	Create(appName string, opts Opts) error
 	Remove(appName string) error
-	Update(appName string, opts *RouterOpts) error
+	Update(appName string, opts Opts) error
 	Swap(appSrc, appDst string) error
 	Get(appName string) (map[string]string, error)
 	Addresses(appName string) ([]string, error)
 }
 
-type RouterOpts struct {
+// Opts used when creating/updating routers
+type Opts struct {
 	Pool        string `json:"tsuru.io/app-pool"`
 	ExposedPort string `json:"exposedPort"`
 }

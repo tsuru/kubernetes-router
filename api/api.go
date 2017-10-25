@@ -15,10 +15,6 @@ import (
 	"github.com/tsuru/kubernetes-router/router"
 )
 
-const (
-	poolRouterOpts = "tsuru.io/app-pool"
-)
-
 // RouterAPI implements Tsuru HTTP router API
 type RouterAPI struct {
 	IngressService router.Service
@@ -55,9 +51,12 @@ func (a *RouterAPI) getBackend(w http.ResponseWriter, r *http.Request) error {
 func (a *RouterAPI) addBackend(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	name := vars["name"]
-	routerOpts := router.RouterOpts{}
-	json.NewDecoder(r.Body).Decode(&routerOpts)
-	return a.IngressService.Create(name, &routerOpts)
+	routerOpts := router.Opts{}
+	err := json.NewDecoder(r.Body).Decode(&routerOpts)
+	if err != nil {
+		return err
+	}
+	return a.IngressService.Create(name, routerOpts)
 }
 
 // updateBackend is no-op
@@ -76,9 +75,7 @@ func (a *RouterAPI) removeBackend(w http.ResponseWriter, r *http.Request) error 
 func (a *RouterAPI) addRoutes(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	name := vars["name"]
-	routerOpts := router.RouterOpts{}
-	json.NewDecoder(r.Body).Decode(&routerOpts)
-	return a.IngressService.Update(name, &routerOpts)
+	return a.IngressService.Update(name, router.Opts{})
 }
 
 // removeRoutes is no-op

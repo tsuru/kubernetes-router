@@ -22,7 +22,7 @@ type IngressService struct {
 
 // Create creates an Ingress resource pointing to a service
 // with the same name as the App
-func (k *IngressService) Create(appName string, _ *router.RouterOpts) error {
+func (k *IngressService) Create(appName string, _ router.Opts) error {
 	client, err := k.ingressClient()
 	if err != nil {
 		return err
@@ -56,7 +56,7 @@ func (k *IngressService) Create(appName string, _ *router.RouterOpts) error {
 
 // Update updates an Ingress resource to point it to either
 // the only service or the one responsible for the process web
-func (k *IngressService) Update(appName string, _ *router.RouterOpts) error {
+func (k *IngressService) Update(appName string, _ router.Opts) error {
 	service, err := k.getWebService(appName)
 	if err != nil {
 		return err
