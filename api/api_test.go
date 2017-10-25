@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/tsuru/kubernetes-router/router"
 	"github.com/tsuru/kubernetes-router/router/mock"
 )
 
@@ -71,17 +72,20 @@ func TestAddBackend(t *testing.T) {
 	api := RouterAPI{IngressService: service}
 	r := api.Routes()
 
-	service.CreateFn = func(name string, labels map[string]string) error {
+	service.CreateFn = func(name string, opts *router.RouterOpts) error {
 		if name != "myapp" {
 			t.Errorf("Expected myapp. Got %s", name)
 		}
-		if labels["tsuru.io/app-pool"] != "mypool" {
-			t.Errorf("Expected %v. Got %v.", map[string]string{"tsuru.io/app-pool": "mypool"}, labels)
+		if opts.Pool != "mypool" {
+			t.Errorf("Expected mypool. Got %v.", opts.Pool)
+		}
+		if opts.ExposedPort != "443" {
+			t.Errorf("Expected 443. Got %v.", opts.ExposedPort)
 		}
 		return nil
 	}
 
-	reqData, _ := json.Marshal(map[string]string{"tsuru.io/app-pool": "mypool"})
+	reqData, _ := json.Marshal(map[string]string{"tsuru.io/app-pool": "mypool", "exposedPort": "443"})
 	body := bytes.NewReader(reqData)
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp", body)
 	w := httptest.NewRecorder()
@@ -121,7 +125,12 @@ func TestAddRoutes(t *testing.T) {
 	api := RouterAPI{IngressService: service}
 	r := api.Routes()
 
-	service.UpdateFn = testCalledWith("myapp", t)
+	service.UpdateFn = func(name string, opts *router.RouterOpts) error {
+		if name != "myapp" {
+			t.Errorf("Expected myapp. Got %s", name)
+		}
+		return nil
+	}
 
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/routes", nil)
 	w := httptest.NewRecorder()

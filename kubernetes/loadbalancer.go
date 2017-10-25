@@ -6,6 +6,7 @@ package kubernetes
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/tsuru/kubernetes-router/router"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -17,19 +18,22 @@ import (
 // managedServiceLabel is added to every service created by the router
 const managedServiceLabel = "tsuru.io/router-lb"
 
-// defaultLBPort is the default exposed ports to the LB
-var defaultLBPorts = []int{80, 443}
+// defaultLBPort is the default exposed port to the LB
+var defaultLBPort = 80
 
 // LBService manages LoadBalancer services
 type LBService struct {
 	*BaseService
-	Ports []int
 }
 
 // Create creates a LoadBalancer type service without any selectors
-func (s *LBService) Create(appName string, labels map[string]string) error {
-	if len(s.Ports) == 0 {
-		s.Ports = defaultLBPorts
+func (s *LBService) Create(appName string, opts *router.RouterOpts) error {
+	if opts == nil {
+		opts = &router.RouterOpts{}
+	}
+	port, _ := strconv.Atoi(opts.ExposedPort)
+	if port == 0 {
+		port = defaultLBPort
 	}
 	client, err := s.getClient()
 	if err != nil {
@@ -37,27 +41,26 @@ func (s *LBService) Create(appName string, labels map[string]string) error {
 	}
 	service := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        serviceName(appName),
-			Namespace:   s.Namespace,
-			Labels:      map[string]string{appLabel: appName, managedServiceLabel: "true"},
+			Name:      serviceName(appName),
+			Namespace: s.Namespace,
+			Labels: map[string]string{
+				appLabel:            appName,
+				managedServiceLabel: "true",
+				appPoolLabel:        opts.Pool,
+			},
 			Annotations: s.Annotations,
 		},
 		Spec: v1.ServiceSpec{
 			Type: v1.ServiceTypeLoadBalancer,
+			Ports: []v1.ServicePort{{
+				Name:       fmt.Sprintf("port-%d", port),
+				Protocol:   v1.ProtocolTCP,
+				Port:       int32(port),
+				TargetPort: intstr.FromInt(defaultServicePort),
+			}},
 		},
 	}
-	for i := range s.Ports {
-		service.Spec.Ports = append(service.Spec.Ports, v1.ServicePort{
-			Name:       fmt.Sprintf("port-%d", s.Ports[i]),
-			Protocol:   v1.ProtocolTCP,
-			Port:       int32(s.Ports[i]),
-			TargetPort: intstr.FromInt(defaultServicePort),
-		})
-	}
 	for k, v := range s.Labels {
-		service.ObjectMeta.Labels[k] = v
-	}
-	for k, v := range labels {
 		service.ObjectMeta.Labels[k] = v
 	}
 	_, err = client.CoreV1().Services(s.Namespace).Create(service)
@@ -92,9 +95,13 @@ func (s *LBService) Remove(appName string) error {
 
 // Update updates the LoadBalancer service copying the web service
 // labels, selectors, annotations and ports
-func (s *LBService) Update(appName string) error {
-	if len(s.Ports) == 0 {
-		s.Ports = defaultLBPorts
+func (s *LBService) Update(appName string, opts *router.RouterOpts) error {
+	if opts == nil {
+		opts = &router.RouterOpts{}
+	}
+	port, _ := strconv.Atoi(opts.ExposedPort)
+	if port == 0 {
+		port = defaultLBPort
 	}
 	lbService, err := s.getLBService(appName)
 	if err != nil {
@@ -120,6 +127,7 @@ func (s *LBService) Update(appName string) error {
 		lbService.Annotations[k] = v
 	}
 	lbService.Spec.Selector = webService.Spec.Selector
+	lbService.Spec.Ports[0].Port = int32(port)
 	client, err := s.getClient()
 	if err != nil {
 		return err

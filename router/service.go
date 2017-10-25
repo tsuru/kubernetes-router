@@ -13,12 +13,17 @@ var ErrIngressAlreadyExists = errors.New("ingress already exists")
 // Service implements the basic functionally needed to
 // manage ingresses.
 type Service interface {
-	Create(appName string, labels map[string]string) error
+	Create(appName string, opts *RouterOpts) error
 	Remove(appName string) error
-	Update(appName string) error
+	Update(appName string, opts *RouterOpts) error
 	Swap(appSrc, appDst string) error
 	Get(appName string) (map[string]string, error)
 	Addresses(appName string) ([]string, error)
+}
+
+type RouterOpts struct {
+	Pool        string `json:"tsuru.io/app-pool"`
+	ExposedPort string `json:"exposedPort"`
 }
 
 // HealthcheckableService is a Service that implements

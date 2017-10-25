@@ -4,12 +4,14 @@
 
 package mock
 
+import "github.com/tsuru/kubernetes-router/router"
+
 // RouterService is a router.Service mock implementation to be
 // used by tests
 type RouterService struct {
-	CreateFn         func(string, map[string]string) error
+	CreateFn         func(string, *router.RouterOpts) error
 	RemoveFn         func(string) error
-	UpdateFn         func(string) error
+	UpdateFn         func(string, *router.RouterOpts) error
 	SwapFn           func(string, string) error
 	GetFn            func(string) (map[string]string, error)
 	AddressesFn      func(string) ([]string, error)
@@ -22,9 +24,9 @@ type RouterService struct {
 }
 
 // Create calls CreateFn
-func (s *RouterService) Create(appName string, labels map[string]string) error {
+func (s *RouterService) Create(appName string, opts *router.RouterOpts) error {
 	s.CreateInvoked = true
-	return s.CreateFn(appName, labels)
+	return s.CreateFn(appName, opts)
 }
 
 // Remove calls RemoveFn
@@ -34,9 +36,9 @@ func (s *RouterService) Remove(appName string) error {
 }
 
 // Update calls UpdateFn
-func (s *RouterService) Update(appName string) error {
+func (s *RouterService) Update(appName string, opts *router.RouterOpts) error {
 	s.UpdateInvoked = true
-	return s.UpdateFn(appName)
+	return s.UpdateFn(appName, opts)
 }
 
 // Swap calls SwapFn

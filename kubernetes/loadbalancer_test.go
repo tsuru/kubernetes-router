@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/tsuru/kubernetes-router/router"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
@@ -28,9 +29,13 @@ func createFakeLBService() LBService {
 func defaultService(app string, labels, annotations, selector map[string]string) v1.Service {
 	svc := v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        serviceName(app),
-			Namespace:   "default",
-			Labels:      map[string]string{appLabel: app, managedServiceLabel: "true"},
+			Name:      serviceName(app),
+			Namespace: "default",
+			Labels: map[string]string{
+				appLabel:            app,
+				managedServiceLabel: "true",
+				appPoolLabel:        "",
+			},
 			Annotations: annotations,
 		},
 		Spec: v1.ServiceSpec{
@@ -38,15 +43,9 @@ func defaultService(app string, labels, annotations, selector map[string]string)
 			Type:     v1.ServiceTypeLoadBalancer,
 			Ports: []v1.ServicePort{
 				{
-					Name:       "port-80",
+					Name:       fmt.Sprintf("port-%d", defaultLBPort),
 					Protocol:   "TCP",
-					Port:       int32(defaultLBPorts[0]),
-					TargetPort: intstr.FromInt(defaultServicePort),
-				},
-				{
-					Name:       "port-443",
-					Protocol:   "TCP",
-					Port:       int32(defaultLBPorts[1]),
+					Port:       int32(defaultLBPort),
 					TargetPort: intstr.FromInt(defaultServicePort),
 				},
 			},
@@ -62,7 +61,7 @@ func TestLBCreate(t *testing.T) {
 	svc := createFakeLBService()
 	svc.Labels = map[string]string{"label": "labelval"}
 	svc.Annotations = map[string]string{"annotation": "annval"}
-	err := svc.Create("test", map[string]string{"additional-label": "value"})
+	err := svc.Create("test", &router.RouterOpts{Pool: "mypool"})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -73,7 +72,7 @@ func TestLBCreate(t *testing.T) {
 	if len(serviceList.Items) != 1 {
 		t.Errorf("Expected 1 item. Got %d.", len(serviceList.Items))
 	}
-	svc.Labels["additional-label"] = "value"
+	svc.Labels[appPoolLabel] = "mypool"
 	expectedService := defaultService("test", svc.Labels, svc.Annotations, nil)
 	if !reflect.DeepEqual(serviceList.Items[0], expectedService) {
 		t.Errorf("Expected %v. Got %v", expectedService, serviceList.Items[0])
@@ -177,7 +176,7 @@ func TestLBUpdate(t *testing.T) {
 				}
 			}
 
-			err = svc.Update("test")
+			err = svc.Update("test", nil)
 			if err != tc.expectedErr {
 				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
 			}
@@ -203,7 +202,7 @@ func TestLBUpdateSwapped(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
-		err = svc.Update("test-" + n)
+		err = svc.Update("test-"+n, nil)
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -212,7 +211,7 @@ func TestLBUpdateSwapped(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Update("test-blue")
+	err = svc.Update("test-blue", nil)
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -238,7 +237,7 @@ func TestLBSwap(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
-		err = svc.Update("test-" + n)
+		err = svc.Update("test-"+n, nil)
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -282,7 +281,7 @@ func createWebService(app string, client kubernetes.Interface) error {
 			Ports: []v1.ServicePort{
 				{
 					Protocol:   "TCP",
-					Port:       int32(defaultLBPorts[0]),
+					Port:       int32(defaultLBPort),
 					TargetPort: intstr.FromInt(defaultServicePort),
 				},
 			},
