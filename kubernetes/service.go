@@ -153,5 +153,5 @@ func (k *BaseService) swap(src, dst *metav1.ObjectMeta) {
 
 func (k *BaseService) isSwapped(obj metav1.ObjectMeta) (string, bool) {
 	target, swapped := obj.Labels[swapLabel]
-	return target, swapped
+	return target, swapped && target != obj.Labels[appLabel]
 }

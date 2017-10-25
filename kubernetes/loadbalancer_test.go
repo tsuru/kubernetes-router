@@ -245,7 +245,7 @@ func TestLBSwap(t *testing.T) {
 
 	blueSvc := defaultService("test-blue", map[string]string{swapLabel: "test-green"}, nil, map[string]string{"app": "green"})
 	greenSvc := defaultService("test-green", map[string]string{swapLabel: "test-blue"}, nil, map[string]string{"app": "blue"})
-
+	isSwapped := true
 	i := 1
 	for i <= 2 {
 		err := svc.Swap("test-blue", "test-green")
@@ -261,10 +261,14 @@ func TestLBSwap(t *testing.T) {
 		if !reflect.DeepEqual(serviceList.Items, []v1.Service{blueSvc, greenSvc}) {
 			t.Errorf("Iteration %d: Expected %+v. \nGot %+v", i, []v1.Service{blueSvc, greenSvc}, serviceList.Items)
 		}
+		if _, swapped := svc.BaseService.isSwapped(blueSvc.ObjectMeta); swapped != isSwapped {
+			t.Errorf("Iteration %d: Expected isSwapped to be %v. Got %v", i, isSwapped, swapped)
+		}
 
 		blueSvc = defaultService("test-blue", nil, nil, map[string]string{"app": "blue"})
 		greenSvc = defaultService("test-green", nil, nil, map[string]string{"app": "green"})
 
+		isSwapped = !isSwapped
 		i++
 	}
 }
