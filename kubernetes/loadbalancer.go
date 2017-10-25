@@ -97,8 +97,8 @@ func (s *LBService) Update(appName string, opts router.Opts) error {
 	if err != nil {
 		return err
 	}
-	if swappedApp, isSwapped := s.isSwapped(lbService.ObjectMeta); isSwapped {
-		appName = swappedApp
+	if _, isSwapped := s.isSwapped(lbService.ObjectMeta); isSwapped {
+		return nil
 	}
 	webService, err := s.getWebService(appName)
 	if err != nil {
