@@ -265,8 +265,8 @@ func TestLBSwap(t *testing.T) {
 			t.Errorf("Iteration %d: Expected isSwapped to be %v. Got %v", i, isSwapped, swapped)
 		}
 
-		blueSvc = defaultService("test-blue", nil, nil, map[string]string{"app": "blue"})
-		greenSvc = defaultService("test-green", nil, nil, map[string]string{"app": "green"})
+		blueSvc = defaultService("test-blue", map[string]string{swapLabel: ""}, nil, map[string]string{"app": "blue"})
+		greenSvc = defaultService("test-green", map[string]string{swapLabel: ""}, nil, map[string]string{"app": "green"})
 
 		isSwapped = !isSwapped
 		i++

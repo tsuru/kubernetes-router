@@ -143,8 +143,8 @@ func (k *BaseService) getWebService(appName string) (*apiv1.Service, error) {
 
 func (k *BaseService) swap(src, dst *metav1.ObjectMeta) {
 	if src.Labels[swapLabel] == dst.Labels[appLabel] {
-		delete(src.Labels, swapLabel)
-		delete(dst.Labels, swapLabel)
+		src.Labels[swapLabel] = ""
+		dst.Labels[swapLabel] = ""
 	} else {
 		src.Labels[swapLabel] = dst.Labels[appLabel]
 		dst.Labels[swapLabel] = src.Labels[appLabel]
@@ -152,6 +152,6 @@ func (k *BaseService) swap(src, dst *metav1.ObjectMeta) {
 }
 
 func (k *BaseService) isSwapped(obj metav1.ObjectMeta) (string, bool) {
-	target, swapped := obj.Labels[swapLabel]
-	return target, swapped && target != obj.Labels[appLabel]
+	target, _ := obj.Labels[swapLabel]
+	return target, target != ""
 }

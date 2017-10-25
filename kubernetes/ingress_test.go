@@ -165,9 +165,9 @@ func TestSwap(t *testing.T) {
 	sort.Slice(ingressList.Items, func(i, j int) bool {
 		return ingressList.Items[i].Name < ingressList.Items[j].Name
 	})
-	delete(blueIng.Labels, swapLabel)
+	blueIng.Labels[swapLabel] = ""
 	blueIng.Spec.Backend.ServiceName = "test-blue"
-	delete(greenIng.Labels, swapLabel)
+	greenIng.Labels[swapLabel] = ""
 	greenIng.Spec.Backend.ServiceName = "test-green"
 
 	if !reflect.DeepEqual(ingressList.Items, []v1beta1.Ingress{blueIng, greenIng}) {
