@@ -24,7 +24,7 @@ type Service interface {
 // Opts used when creating/updating routers
 type Opts struct {
 	Pool        string `json:"tsuru.io/app-pool"`
-	ExposedPort string `json:"exposedPort"`
+	ExposedPort string `json:"exposed-port"`
 }
 
 // HealthcheckableService is a Service that implements

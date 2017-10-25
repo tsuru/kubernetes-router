@@ -85,7 +85,7 @@ func TestAddBackend(t *testing.T) {
 		return nil
 	}
 
-	reqData, _ := json.Marshal(map[string]string{"tsuru.io/app-pool": "mypool", "exposedPort": "443"})
+	reqData, _ := json.Marshal(map[string]string{"tsuru.io/app-pool": "mypool", "exposed-port": "443"})
 	body := bytes.NewReader(reqData)
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp", body)
 	w := httptest.NewRecorder()
