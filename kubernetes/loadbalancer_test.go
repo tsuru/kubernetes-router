@@ -50,6 +50,13 @@ func defaultService(app string, labels, annotations, selector map[string]string)
 				},
 			},
 		},
+		Status: v1.ServiceStatus{
+			LoadBalancer: v1.LoadBalancerStatus{
+				Ingress: []v1.LoadBalancerIngress{
+					{IP: "127.0.0.1"},
+				},
+			},
+		},
 	}
 	for k, v := range labels {
 		svc.ObjectMeta.Labels[k] = v
@@ -65,6 +72,7 @@ func TestLBCreate(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
+	setIP(t, svc, "test")
 	serviceList, err := svc.Client.CoreV1().Services(svc.Namespace).List(metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
@@ -98,14 +106,17 @@ func TestLBRemove(t *testing.T) {
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
+			setIP(t, svc, "test")
 			err = svc.Create("blue", router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
+			setIP(t, svc, "blue")
 			err = svc.Create("green", router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
+			setIP(t, svc, "green")
 			err = svc.Swap("blue", "green")
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
@@ -169,6 +180,7 @@ func TestLBUpdate(t *testing.T) {
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
+			setIP(t, svc, "test")
 			for i := range tc.services {
 				_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(&tc.services[i])
 				if err != nil {
@@ -198,6 +210,7 @@ func TestLBUpdateSwapped(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
+		setIP(t, svc, "test-"+n)
 		err = createWebService(n, svc.Client)
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
@@ -233,6 +246,7 @@ func TestLBSwap(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
+		setIP(t, svc, "test-"+n)
 		err = createWebService(n, svc.Client)
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
@@ -273,6 +287,31 @@ func TestLBSwap(t *testing.T) {
 	}
 }
 
+func TestLBUpdateSwapWithouIPFails(t *testing.T) {
+	svc := createFakeLBService()
+	err := svc.Create("test", router.Opts{Pool: "mypool"})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.Update("test", router.Opts{})
+	if err != ErrLoadBalancerNotReady {
+		t.Fatalf("Expected err to be %v. Got %v.", ErrLoadBalancerNotReady, err)
+	}
+	err = svc.Create("test2", router.Opts{Pool: "mypool"})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.Swap("test", "test2")
+	if err != ErrLoadBalancerNotReady {
+		t.Fatalf("Expected err to be %v. Got %v.", ErrLoadBalancerNotReady, err)
+	}
+	setIP(t, svc, "test")
+	err = svc.Swap("test", "test2")
+	if err != ErrLoadBalancerNotReady {
+		t.Fatalf("Expected err to be %v. Got %v.", ErrLoadBalancerNotReady, err)
+	}
+}
+
 func createWebService(app string, client kubernetes.Interface) error {
 	webService := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -293,4 +332,16 @@ func createWebService(app string, client kubernetes.Interface) error {
 	}
 	_, err := client.CoreV1().Services("default").Create(webService)
 	return err
+}
+
+func setIP(t *testing.T, svc LBService, appName string) {
+	service, err := svc.Client.CoreV1().Services(svc.Namespace).Get(serviceName(appName), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Expected err to be nil. Got %v", err)
+	}
+	service.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{{IP: "127.0.0.1"}}
+	_, err = svc.Client.CoreV1().Services(svc.Namespace).Update(service)
+	if err != nil {
+		t.Fatalf("Expected err to be nil. Got %v", err)
+	}
 }

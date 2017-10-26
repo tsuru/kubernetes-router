@@ -5,6 +5,7 @@
 package kubernetes
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -18,8 +19,12 @@ import (
 // managedServiceLabel is added to every service created by the router
 const managedServiceLabel = "tsuru.io/router-lb"
 
-// defaultLBPort is the default exposed port to the LB
-var defaultLBPort = 80
+var (
+	// defaultLBPort is the default exposed port to the LB
+	defaultLBPort = 80
+
+	ErrLoadBalancerNotReady = errors.New("load balancer is not ready")
+)
 
 // LBService manages LoadBalancer services
 type LBService struct {
@@ -97,6 +102,9 @@ func (s *LBService) Update(appName string, opts router.Opts) error {
 	if err != nil {
 		return err
 	}
+	if !isReady(lbService) {
+		return ErrLoadBalancerNotReady
+	}
 	if _, isSwapped := s.isSwapped(lbService.ObjectMeta); isSwapped {
 		return nil
 	}
@@ -131,9 +139,15 @@ func (s *LBService) Swap(appSrc string, appDst string) error {
 	if err != nil {
 		return err
 	}
+	if !isReady(srcServ) {
+		return ErrLoadBalancerNotReady
+	}
 	dstServ, err := s.getLBService(appDst)
 	if err != nil {
 		return err
+	}
+	if !isReady(dstServ) {
+		return ErrLoadBalancerNotReady
 	}
 	s.swap(srcServ, dstServ)
 	client, err := s.getClient()
@@ -188,4 +202,11 @@ func (s *LBService) swap(srcServ, dstServ *v1.Service) {
 
 func serviceName(app string) string {
 	return fmt.Sprintf("%s-router-lb", app)
+}
+
+func isReady(service *v1.Service) bool {
+	if len(service.Status.LoadBalancer.Ingress) == 0 {
+		return false
+	}
+	return service.Status.LoadBalancer.Ingress[0].IP != ""
 }
