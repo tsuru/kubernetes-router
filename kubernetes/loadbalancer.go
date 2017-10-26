@@ -23,6 +23,7 @@ var (
 	// defaultLBPort is the default exposed port to the LB
 	defaultLBPort = 80
 
+	// ErrLoadBalancerNotReady is returned when a given LB has no IP
 	ErrLoadBalancerNotReady = errors.New("load balancer is not ready")
 )
 
