@@ -31,6 +31,8 @@ type Opts struct {
 	AdditionalOpts map[string]string
 }
 
+// UnmarshalJSON unmarshals Opts from a byte array parsing known fields
+// and adding all other string fields to AdditionalOpts
 func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 	m := make(map[string]interface{})
 
