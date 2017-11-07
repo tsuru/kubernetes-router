@@ -9,10 +9,11 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 - `-k8s-annotations`: Annotations to be added to each resource created, expects the format KEY=VALUE;
 - `-k8s-namespace`: the namespace on which the resources should be created;
 - `-k8s-timeout`: Per request kubernetes timeout;
-- `-listen-addr`: The address on which this API should listen.
-- `-ingress-mode`: Create ingresses instead of LoadBalancer services.
-- `key-file`: Path to private key used to serve https requests
-- `cert-file`: Path to certificate used to serve https requests
+- `-listen-addr`: The address on which this API should listen;
+- `-ingress-mode`: Create ingresses instead of LoadBalancer services;
+- `-key-file`: Path to private key used to serve https requests;
+- `-cert-file`: Path to certificate used to serve https requests;
+- `-opts-to-label`: Router opts to be parsed and turned into service labels, expects the format KEY=VALUE.
 
 ## Envs
 
