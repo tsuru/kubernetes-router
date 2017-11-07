@@ -36,6 +36,10 @@ func main() {
 
 	certFile := flag.String("cert-file", "", "Path to certificate used to serve https requests")
 	keyFile := flag.String("key-file", "", "Path to private key used to serve https requests")
+
+	optsToLabels := &MapFlag{}
+	flag.Var(optsToLabels, "opts-to-label", "Mapping between router options and service labels. Expects KEY=VALUE format.")
+
 	flag.Parse()
 
 	err := flag.Lookup("logtostderr").Value.Set("true")
@@ -49,7 +53,7 @@ func main() {
 		Labels:      *k8sLabels,
 		Annotations: *k8sAnnotations,
 	}
-	var service router.Service = &kubernetes.LBService{BaseService: base}
+	var service router.Service = &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels}
 	if *ingressMode {
 		service = &kubernetes.IngressService{BaseService: base}
 	}

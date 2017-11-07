@@ -23,6 +23,7 @@ func createFakeLBService() LBService {
 			Namespace: "default",
 			Client:    fake.NewSimpleClientset(),
 		},
+		OptsAsLabels: make(map[string]string),
 	}
 }
 
@@ -68,7 +69,8 @@ func TestLBCreate(t *testing.T) {
 	svc := createFakeLBService()
 	svc.Labels = map[string]string{"label": "labelval"}
 	svc.Annotations = map[string]string{"annotation": "annval"}
-	err := svc.Create("test", router.Opts{Pool: "mypool"})
+	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
+	err := svc.Create("test", router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -81,6 +83,7 @@ func TestLBCreate(t *testing.T) {
 		t.Errorf("Expected 1 item. Got %d.", len(serviceList.Items))
 	}
 	svc.Labels[appPoolLabel] = "mypool"
+	svc.Labels["my-opt-as-label"] = "value"
 	expectedService := defaultService("test", svc.Labels, svc.Annotations, nil)
 	if !reflect.DeepEqual(serviceList.Items[0], expectedService) {
 		t.Errorf("Expected %v. Got %v", expectedService, serviceList.Items[0])

@@ -30,6 +30,9 @@ var (
 // LBService manages LoadBalancer services
 type LBService struct {
 	*BaseService
+
+	// OptsAsLabels maps router additional options to labels to be set on the service
+	OptsAsLabels map[string]string
 }
 
 // Create creates a LoadBalancer type service without any selectors
@@ -65,6 +68,11 @@ func (s *LBService) Create(appName string, opts router.Opts) error {
 	}
 	for k, v := range s.Labels {
 		service.ObjectMeta.Labels[k] = v
+	}
+	for k, l := range s.OptsAsLabels {
+		if v, ok := opts.AdditionalOpts[k]; ok {
+			service.ObjectMeta.Labels[l] = v
+		}
 	}
 	_, err = client.CoreV1().Services(s.Namespace).Create(service)
 	if k8sErrors.IsAlreadyExists(err) {

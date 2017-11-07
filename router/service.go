@@ -4,7 +4,10 @@
 
 package router
 
-import "errors"
+import (
+	"encoding/json"
+	"errors"
+)
 
 // ErrIngressAlreadyExists is the error returned by the service when
 // trying to create a service that already exists
@@ -23,8 +26,38 @@ type Service interface {
 
 // Opts used when creating/updating routers
 type Opts struct {
-	Pool        string `json:"tsuru.io/app-pool"`
-	ExposedPort string `json:"exposed-port"`
+	Pool           string
+	ExposedPort    string
+	AdditionalOpts map[string]string
+}
+
+func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
+	m := make(map[string]interface{})
+
+	if err = json.Unmarshal(bs, &m); err != nil {
+		return err
+	}
+
+	if o.AdditionalOpts == nil {
+		o.AdditionalOpts = make(map[string]string)
+	}
+
+	for k, v := range m {
+		strV, ok := v.(string)
+		if !ok {
+			continue
+		}
+		switch k {
+		case "tsuru.io/app-pool":
+			o.Pool = strV
+		case "exposed-port":
+			o.ExposedPort = strV
+		default:
+			o.AdditionalOpts[k] = strV
+		}
+	}
+
+	return err
 }
 
 // HealthcheckableService is a Service that implements

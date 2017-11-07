@@ -82,10 +82,14 @@ func TestAddBackend(t *testing.T) {
 		if opts.ExposedPort != "443" {
 			t.Errorf("Expected 443. Got %v.", opts.ExposedPort)
 		}
+		expectedAdditional := map[string]string{"custom": "val"}
+		if !reflect.DeepEqual(opts.AdditionalOpts, expectedAdditional) {
+			t.Errorf("Expect %v. Got %v", expectedAdditional, opts.AdditionalOpts)
+		}
 		return nil
 	}
 
-	reqData, _ := json.Marshal(map[string]string{"tsuru.io/app-pool": "mypool", "exposed-port": "443"})
+	reqData, _ := json.Marshal(map[string]string{"tsuru.io/app-pool": "mypool", "exposed-port": "443", "custom": "val"})
 	body := bytes.NewReader(reqData)
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp", body)
 	w := httptest.NewRecorder()
