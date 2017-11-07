@@ -192,6 +192,9 @@ func (s *LBService) Get(appName string) (map[string]string, error) {
 		if len(ports) != 0 {
 			addr = fmt.Sprintf("%s:%d", addr, ports[0].Port)
 		}
+		if lbs[0].Hostname != "" {
+			addr = lbs[0].Hostname
+		}
 	}
 	return map[string]string{"address": addr}, nil
 }
