@@ -16,9 +16,6 @@ import (
 	"k8s.io/client-go/pkg/api/v1"
 )
 
-// managedServiceLabel is added to every service created by the router
-const managedServiceLabel = "tsuru.io/router-lb"
-
 var (
 	// defaultLBPort is the default exposed port to the LB
 	defaultLBPort = 80

@@ -17,6 +17,11 @@ import (
 )
 
 const (
+	// managedServiceLabel is added to every service created by the router
+	managedServiceLabel = "tsuru.io/router-lb"
+
+	headlessServiceLabel = "tsuru.io/is-headless-service"
+
 	defaultServicePort = 8888
 	appLabel           = "tsuru.io/app-name"
 	processLabel       = "tsuru.io/app-process"
@@ -122,7 +127,7 @@ func (k *BaseService) getWebService(appName string) (*apiv1.Service, error) {
 		return nil, err
 	}
 	list, err := client.CoreV1().Services(k.Namespace).List(metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=%s,%s!=%s", appLabel, appName, managedServiceLabel, "true"),
+		LabelSelector: fmt.Sprintf("%s=%s,%s!=%s,%s!=%s", appLabel, appName, managedServiceLabel, "true", headlessServiceLabel, "true"),
 	})
 	if err != nil {
 		return nil, err
