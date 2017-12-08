@@ -20,7 +20,10 @@ func (f *MapFlag) String() string {
 	if repr == nil {
 		repr = MapFlag{}
 	}
-	data, _ := json.Marshal(repr)
+	data, err := json.Marshal(repr)
+	if err != nil {
+		panic(err)
+	}
 	return string(data)
 }
 
