@@ -88,8 +88,17 @@ func (k *IngressNginxService) Create(appName string, routerOpts router.Opts) err
 		} else {
 			i.ObjectMeta.Annotations[k] = v
 		}
-
 	}
+	if routerOpts.KubeLego {
+		i.Spec.TLS = []v1beta1.IngressTLS{
+			{
+				Hosts:      []string{i.Spec.Rules[0].Host},
+				SecretName: secretName(appName),
+			},
+		}
+		i.ObjectMeta.Annotations["kubernetes.io/tls-acme"] = "true"
+	}
+
 	_, err = client.Create(&i)
 	if k8sErrors.IsAlreadyExists(err) {
 		return router.ErrIngressAlreadyExists
