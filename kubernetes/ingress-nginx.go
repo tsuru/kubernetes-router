@@ -29,45 +29,44 @@ var (
 // IngressNginxService manages ingresses in a Kubernetes cluster that uses ingress-nginx
 type IngressNginxService struct {
 	*BaseService
+	DefaultDomain string
 }
 
 // Create creates an Ingress resource pointing to a service
 // with the same name as the App
 func (k *IngressNginxService) Create(appName string, routerOpts router.Opts) error {
 	var spec v1beta1.IngressSpec
+	var vhost string
 	client, err := k.ingressClient()
 	if err != nil {
 		return err
 	}
 	if len(routerOpts.Domain) > 0 {
-		spec = v1beta1.IngressSpec{
-			Rules: []v1beta1.IngressRule{
-				{
-					Host: routerOpts.Domain,
-					IngressRuleValue: v1beta1.IngressRuleValue{
-						HTTP: &v1beta1.HTTPIngressRuleValue{
-							Paths: []v1beta1.HTTPIngressPath{
-								{
-									Path: routerOpts.Route,
-									Backend: v1beta1.IngressBackend{
-										ServiceName: appName,
-										ServicePort: intstr.FromInt(defaultServicePort),
-									},
+		vhost = routerOpts.Domain
+	} else {
+		vhost = fmt.Sprintf("%v.%v", appName, k.DefaultDomain)
+	}
+	spec = v1beta1.IngressSpec{
+		Rules: []v1beta1.IngressRule{
+			{
+				Host: vhost,
+				IngressRuleValue: v1beta1.IngressRuleValue{
+					HTTP: &v1beta1.HTTPIngressRuleValue{
+						Paths: []v1beta1.HTTPIngressPath{
+							{
+								Path: routerOpts.Route,
+								Backend: v1beta1.IngressBackend{
+									ServiceName: appName,
+									ServicePort: intstr.FromInt(defaultServicePort),
 								},
 							},
 						},
 					},
 				},
 			},
-		}
-	} else {
-		spec = v1beta1.IngressSpec{
-			Backend: &v1beta1.IngressBackend{
-				ServiceName: appName,
-				ServicePort: intstr.FromInt(defaultServicePort),
-			},
-		}
+		},
 	}
+
 	i := v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        ingressName(appName),
@@ -113,8 +112,8 @@ func (k *IngressNginxService) Update(appName string, _ router.Opts) error {
 	if err != nil {
 		return err
 	}
-	ingress.Spec.Backend.ServiceName = service.Name
-	ingress.Spec.Backend.ServicePort = intstr.FromInt(int(service.Spec.Ports[0].Port))
+	ingress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName = service.Name
+	ingress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServicePort = intstr.FromInt(int(service.Spec.Ports[0].Port))
 	_, err = ingressClient.Update(ingress)
 	return err
 }
@@ -176,16 +175,12 @@ func (k *IngressNginxService) Remove(appName string) error {
 // Get gets the address of the loadbalancer associated with
 // the app Ingress resource
 func (k *IngressNginxService) Get(appName string) (map[string]string, error) {
-	ingress, err := k.get(appName)
+	_, err := k.get(appName)
 	if err != nil {
 		return nil, err
 	}
-	var addr string
-	lbs := ingress.Status.LoadBalancer.Ingress
-	if len(lbs) != 0 {
-		addr = lbs[0].IP
-	}
-	return map[string]string{"address": addr}, nil
+
+	return map[string]string{"address": fmt.Sprintf("%v.%v", appName, k.DefaultDomain)}, nil
 }
 
 func (k *IngressNginxService) get(appName string) (*v1beta1.Ingress, error) {
