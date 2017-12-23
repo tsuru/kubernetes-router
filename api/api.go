@@ -242,7 +242,7 @@ func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 	_, ok := a.IngressService.(router.ServiceTLS)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
-		_, err = w.Write([]byte(fmt.Sprintf("No TLS Capabilites")))
+		_, err = w.Write([]byte(fmt.Sprintf("No TLS Capabilities")))
 		return err
 	}
 	_, err = w.Write([]byte("OK"))
@@ -255,7 +255,7 @@ func (a *RouterAPI) supportCNAME(w http.ResponseWriter, r *http.Request) error {
 	_, ok := a.IngressService.(router.ServiceCNAME)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
-		_, err = w.Write([]byte(fmt.Sprintf("No CNAME Capabilites")))
+		_, err = w.Write([]byte(fmt.Sprintf("No CNAME Capabilities")))
 		return err
 	}
 	_, err = w.Write([]byte("OK"))
