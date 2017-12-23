@@ -23,18 +23,6 @@ import (
 	"github.com/tsuru/kubernetes-router/kubernetes"
 )
 
-// RunningMode specifies the mode of creation ingress/loadbalancer
-type RunningMode int
-
-const (
-	// LOADBALANCER if we are creating Loadbalancers
-	LOADBALANCER RunningMode = 0 + iota
-	// INGRESS if we are creating ingress
-	INGRESS
-	// INGRESSNGINX if we are creating ingress with support to ingress-nginx
-	INGRESSNGINX
-)
-
 func main() {
 	listenAddr := flag.String("listen-addr", ":8077", "Listen address")
 	k8sNamespace := flag.String("k8s-namespace", "default", "Kubernetes namespace to create resources")
@@ -45,6 +33,7 @@ func main() {
 	flag.Var(k8sAnnotations, "k8s-annotations", "Annotations to be added to each resource created. Expects KEY=VALUE format.")
 	ingressMode := flag.Bool("ingress-mode", false, "Creates ingress resources instead of LB services.")
 	ingressNginxMode := flag.Bool("ingressnginx-mode", false, "Creates ingress resources to use with ingress-nginx.")
+	ingressDefaultDomain := flag.String("ingress-domain", "local", "Default domain to be used on created vhosts")
 
 	certFile := flag.String("cert-file", "", "Path to certificate used to serve https requests")
 	keyFile := flag.String("key-file", "", "Path to private key used to serve https requests")
@@ -68,14 +57,14 @@ func main() {
 		Labels:      *k8sLabels,
 		Annotations: *k8sAnnotations,
 	}
-	runningMode := LOADBALANCER
+
+	routerAPI := api.RouterAPI{IngressService: &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels}}
 	if *ingressMode {
-		runningMode = INGRESS
+		routerAPI = api.RouterAPI{IngressService: &kubernetes.IngressService{BaseService: base}}
 	}
 	if *ingressNginxMode {
-		runningMode = INGRESSNGINX
+		routerAPI = api.RouterAPI{IngressService: &kubernetes.IngressNginxService{BaseService: base, DefaultDomain: *ingressDefaultDomain}}
 	}
-	routerAPI := getRouterAPI(runningMode, base, optsToLabels)
 
 	r := mux.NewRouter().StrictSlash(true)
 
@@ -137,15 +126,4 @@ func handleSignals(server *http.Server) {
 		log.Fatalf("Error during server shutdown: %v", err)
 	}
 	log.Print("Server shutdown succeeded.")
-}
-
-func getRouterAPI(ingressMode RunningMode, base *kubernetes.BaseService, optsToLabels *MapFlag) api.RouterAPI {
-	switch ingressMode {
-	case INGRESS:
-		return api.RouterAPI{IngressService: &kubernetes.IngressService{BaseService: base}}
-	case INGRESSNGINX:
-		return api.RouterAPI{IngressService: &kubernetes.IngressNginxService{BaseService: base}}
-	default:
-		return api.RouterAPI{IngressService: &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels}}
-	}
 }
