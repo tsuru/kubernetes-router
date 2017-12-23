@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
+	"strings"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
@@ -31,6 +33,17 @@ func (a *RouterAPI) Routes() *mux.Router {
 	r.Handle("/backend/{name}/routes", handler(a.addRoutes)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}/routes/remove", handler(a.removeRoutes)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}/swap", handler(a.swap)).Methods(http.MethodPost)
+	// TLS
+	r.Handle("/backend/{name}/certificate/{certname}", handler(a.addCertificate)).Methods(http.MethodPut)
+	r.Handle("/backend/{name}/certificate/{certname}", handler(a.getCertificate)).Methods(http.MethodGet)
+	r.Handle("/backend/{name}/certificate/{certname}", handler(a.removeCertificate)).Methods(http.MethodDelete)
+	// CNAME
+	r.Handle("/backend/{name}/cname/{cname}", handler(a.setCname)).Methods(http.MethodPost)
+	r.Handle("/backend/{name}/cname", handler(a.getCnames)).Methods(http.MethodGet)
+	r.Handle("/backend/{name}/cname/{cname}", handler(a.unsetCname)).Methods(http.MethodDelete)
+	// Supports
+	r.Handle("/support/tls", handler(a.supportTLS)).Methods(http.MethodGet)
+	r.Handle("/support/cname", handler(a.supportCNAME)).Methods(http.MethodGet)
 	return r
 }
 
@@ -55,6 +68,9 @@ func (a *RouterAPI) addBackend(w http.ResponseWriter, r *http.Request) error {
 	err := json.NewDecoder(r.Body).Decode(&routerOpts)
 	if err != nil {
 		return err
+	}
+	if len(routerOpts.Domain) > 0 && len(routerOpts.Route) == 0 {
+		routerOpts.Route = "/"
 	}
 	return a.IngressService.Create(name, routerOpts)
 }
@@ -130,4 +146,118 @@ func (a *RouterAPI) Healthcheck(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	_, err = w.Write([]byte("WORKING"))
+}
+
+// addCertificate Add certificate to app
+func (a *RouterAPI) addCertificate(w http.ResponseWriter, r *http.Request) error {
+	vars := mux.Vars(r)
+	name := vars["name"]
+	certName := vars["certname"]
+	log.Printf("Adding on %s certificate %s", name, certName)
+	cert := router.CertData{}
+	err := json.NewDecoder(r.Body).Decode(&cert)
+	if err != nil {
+		return err
+	}
+	return a.IngressService.(router.ServiceTLS).AddCertificate(name, certName, cert)
+}
+
+// getCertificate Return certificate for app
+func (a *RouterAPI) getCertificate(w http.ResponseWriter, r *http.Request) error {
+	vars := mux.Vars(r)
+	name := vars["name"]
+	certName := vars["certname"]
+	log.Printf("Getting certificate %s from %s", certName, name)
+	cert, err := a.IngressService.(router.ServiceTLS).GetCertificate(name, certName)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return err
+	}
+	b, err := json.Marshal(&cert)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(b)
+	return err
+}
+
+// removeCertificate Delete certificate for app
+func (a *RouterAPI) removeCertificate(w http.ResponseWriter, r *http.Request) error {
+	vars := mux.Vars(r)
+	name := vars["name"]
+	certName := vars["certname"]
+	log.Printf("Removing certificate %s from %s", certName, name)
+	err := a.IngressService.(router.ServiceTLS).RemoveCertificate(name, certName)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+	}
+	return err
+}
+
+// setCname Add CNAME to app
+func (a *RouterAPI) setCname(w http.ResponseWriter, r *http.Request) error {
+	vars := mux.Vars(r)
+	name := vars["name"]
+	cname := vars["cname"]
+	log.Printf("Adding on %s CNAME %s", name, cname)
+	err := a.IngressService.(router.ServiceCNAME).SetCname(name, cname)
+	if err != nil {
+		if strings.Contains(err.Error(), "exists") {
+			w.WriteHeader(http.StatusConflict)
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}
+	return err
+}
+
+// getCnames Return CNAMEs for app
+func (a *RouterAPI) getCnames(w http.ResponseWriter, r *http.Request) error {
+	vars := mux.Vars(r)
+	name := vars["name"]
+	log.Printf("Getting CNAMEs from %s", name)
+	cnames, err := a.IngressService.(router.ServiceCNAME).GetCnames(name)
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(&cnames)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(b)
+	return err
+}
+
+// unsetCname Delete CNAME for app
+func (a *RouterAPI) unsetCname(w http.ResponseWriter, r *http.Request) error {
+	vars := mux.Vars(r)
+	name := vars["name"]
+	cname := vars["cname"]
+	log.Printf("Removing CNAME %s from %s", cname, name)
+	return a.IngressService.(router.ServiceCNAME).UnsetCname(name, cname)
+}
+
+// Check for TLS Support
+func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
+	var err error
+	_, ok := a.IngressService.(router.ServiceTLS)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		_, err = w.Write([]byte(fmt.Sprintf("No TLS Capabilites")))
+		return err
+	}
+	_, err = w.Write([]byte("OK"))
+	return err
+}
+
+// Check for CNAME Support
+func (a *RouterAPI) supportCNAME(w http.ResponseWriter, r *http.Request) error {
+	var err error
+	_, ok := a.IngressService.(router.ServiceCNAME)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		_, err = w.Write([]byte(fmt.Sprintf("No CNAME Capabilites")))
+		return err
+	}
+	_, err = w.Write([]byte("OK"))
+	return err
 }
