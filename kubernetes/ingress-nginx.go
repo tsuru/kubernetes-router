@@ -42,12 +42,12 @@ func (k *IngressNginxService) Create(appName string, routerOpts router.Opts) err
 	if len(routerOpts.Domain) > 0 {
 		spec = v1beta1.IngressSpec{
 			Rules: []v1beta1.IngressRule{
-				v1beta1.IngressRule{
+				{
 					Host: routerOpts.Domain,
 					IngressRuleValue: v1beta1.IngressRuleValue{
 						HTTP: &v1beta1.HTTPIngressRuleValue{
 							Paths: []v1beta1.HTTPIngressPath{
-								v1beta1.HTTPIngressPath{
+								{
 									Path: routerOpts.Route,
 									Backend: v1beta1.IngressBackend{
 										ServiceName: appName,
@@ -264,7 +264,7 @@ func (k *IngressNginxService) AddCertificate(appName string, certName string, ce
 	}
 
 	ingress.Spec.TLS = []v1beta1.IngressTLS{
-		v1beta1.IngressTLS{
+		{
 			Hosts:      []string{ingress.Spec.Rules[0].Host},
 			SecretName: retSecret.Name,
 		},
@@ -347,9 +347,6 @@ func (k *IngressNginxService) SetCname(appName string, cname string) error {
 	ingress.SetAnnotations(annotations)
 
 	_, err = ingressClient.Update(ingress)
-	if err != nil {
-		return err
-	}
 
 	return err
 }
