@@ -7,6 +7,7 @@ package router
 import (
 	"encoding/json"
 	"errors"
+	"strconv"
 )
 
 // ErrIngressAlreadyExists is the error returned by the service when
@@ -46,6 +47,7 @@ type Opts struct {
 	ExposedPort    string
 	Domain         string
 	Route          string
+	KubeLego       bool
 	AdditionalOpts map[string]string
 }
 
@@ -87,6 +89,11 @@ func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 			o.Domain = strV
 		case "route":
 			o.Route = strV
+		case "kubelego":
+			o.KubeLego, err = strconv.ParseBool(strV)
+			if err != nil {
+				o.KubeLego = false
+			}
 		default:
 			o.AdditionalOpts[k] = strV
 		}
