@@ -24,11 +24,40 @@ type Service interface {
 	Addresses(appName string) ([]string, error)
 }
 
+// ServiceTLS Certificates interface
+type ServiceTLS interface {
+	Service
+	AddCertificate(appName string, certName string, cert CertData) error
+	GetCertificate(appName string, certName string) (*CertData, error)
+	RemoveCertificate(appName string, certName string) error
+}
+
+// ServiceCNAME Certificates interface
+type ServiceCNAME interface {
+	Service
+	SetCname(appName string, cname string) error
+	GetCnames(appName string) (*CnamesResp, error)
+	UnsetCname(appName string, cname string) error
+}
+
 // Opts used when creating/updating routers
 type Opts struct {
 	Pool           string
 	ExposedPort    string
+	Domain         string
+	Route          string
 	AdditionalOpts map[string]string
+}
+
+// CnamesResp used when adding cnames
+type CnamesResp struct {
+	Cnames []string `json:"cnames"`
+}
+
+// CertData user when adding certificates
+type CertData struct {
+	Certificate string `json:"certificate"`
+	Key         string `json:"key"`
 }
 
 // UnmarshalJSON unmarshals Opts from a byte array parsing known fields
@@ -54,6 +83,10 @@ func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 			o.Pool = strV
 		case "exposed-port":
 			o.ExposedPort = strV
+		case "domain":
+			o.Domain = strV
+		case "route":
+			o.Route = strV
 		default:
 			o.AdditionalOpts[k] = strV
 		}
