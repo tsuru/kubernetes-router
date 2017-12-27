@@ -31,7 +31,7 @@ func main() {
 	flag.Var(k8sLabels, "k8s-labels", "Labels to be added to each resource created. Expects KEY=VALUE format.")
 	k8sAnnotations := &MapFlag{}
 	flag.Var(k8sAnnotations, "k8s-annotations", "Annotations to be added to each resource created. Expects KEY=VALUE format.")
-	runMode := flag.String("ingress-mode", "service", "Defines the controller running mode, service, ingress or ingressNginx.")
+	runMode := flag.String("controller-mode", "service", "Defines the controller running mode, service, ingress or ingressNginx.")
 	ingressDefaultDomain := flag.String("ingress-domain", "local", "Default domain to be used on created vhosts, local is the default. (eg: serviceName.local")
 
 	certFile := flag.String("cert-file", "", "Path to certificate used to serve https requests")
