@@ -177,6 +177,7 @@ func (a *RouterAPI) getCertificate(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
+	w.Header().Set("Content-Type", "application/json")
 	_, err = w.Write(b)
 	return err
 }
@@ -223,6 +224,7 @@ func (a *RouterAPI) getCnames(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	w.Header().Set("Content-Type", "application/json")
 	_, err = w.Write(b)
 	return err
 }

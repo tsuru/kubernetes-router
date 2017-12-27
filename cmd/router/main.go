@@ -31,9 +31,8 @@ func main() {
 	flag.Var(k8sLabels, "k8s-labels", "Labels to be added to each resource created. Expects KEY=VALUE format.")
 	k8sAnnotations := &MapFlag{}
 	flag.Var(k8sAnnotations, "k8s-annotations", "Annotations to be added to each resource created. Expects KEY=VALUE format.")
-	ingressMode := flag.Bool("ingress-mode", false, "Creates ingress resources instead of LB services.")
-	ingressNginxMode := flag.Bool("ingressnginx-mode", false, "Creates ingress resources to use with ingress-nginx.")
-	ingressDefaultDomain := flag.String("ingress-domain", "local", "Default domain to be used on created vhosts")
+	runMode := flag.String("ingress-mode", "service", "Defines the controller running mode, service, ingress or ingressNginx.")
+	ingressDefaultDomain := flag.String("ingress-domain", "local", "Default domain to be used on created vhosts, local is the default. (eg: serviceName.local")
 
 	certFile := flag.String("cert-file", "", "Path to certificate used to serve https requests")
 	keyFile := flag.String("key-file", "", "Path to private key used to serve https requests")
@@ -58,12 +57,19 @@ func main() {
 		Annotations: *k8sAnnotations,
 	}
 
-	routerAPI := api.RouterAPI{IngressService: &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels}}
-	if *ingressMode {
+	var routerAPI api.RouterAPI
+	switch *runMode {
+	case "ingress":
 		routerAPI = api.RouterAPI{IngressService: &kubernetes.IngressService{BaseService: base}}
-	}
-	if *ingressNginxMode {
-		routerAPI = api.RouterAPI{IngressService: &kubernetes.IngressNginxService{BaseService: base, DefaultDomain: *ingressDefaultDomain}}
+	case "ingressNginx":
+		for k, v := range kubernetes.AnnotationsNginx {
+			base.Annotations[k] = v
+		}
+		routerAPI = api.RouterAPI{IngressService: &kubernetes.IngressService{BaseService: base, DefaultDomain: *ingressDefaultDomain}}
+	case "service":
+		routerAPI = api.RouterAPI{IngressService: &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels}}
+	default:
+		log.Fatalf("fail parameters: Use one of the following modes: service, ingress or ingressNginx.")
 	}
 
 	r := mux.NewRouter().StrictSlash(true)
