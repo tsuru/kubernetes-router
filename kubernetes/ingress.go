@@ -86,7 +86,7 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 			i.ObjectMeta.Annotations[k] = v
 		}
 	}
-	if routerOpts.KubeLego {
+	if routerOpts.Acme {
 		i.Spec.TLS = []v1beta1.IngressTLS{
 			{
 				Hosts:      []string{i.Spec.Rules[0].Host},
@@ -186,7 +186,7 @@ func (k *IngressService) Get(appName string) (map[string]string, error) {
 		return nil, err
 	}
 
-	return map[string]string{"address": fmt.Sprintf("%v.%v", appName, ingress.Spec.Rules[0].Host)}, nil
+	return map[string]string{"address": fmt.Sprintf("%v", ingress.Spec.Rules[0].Host)}, nil
 }
 
 func (k *IngressService) get(appName string) (*v1beta1.Ingress, error) {

@@ -47,7 +47,7 @@ type Opts struct {
 	ExposedPort    string
 	Domain         string
 	Route          string
-	KubeLego       bool
+	Acme           bool
 	AdditionalOpts map[string]string
 }
 
@@ -89,10 +89,10 @@ func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 			o.Domain = strV
 		case "route":
 			o.Route = strV
-		case "kubelego":
-			o.KubeLego, err = strconv.ParseBool(strV)
+		case "tls-acme":
+			o.Acme, err = strconv.ParseBool(strV)
 			if err != nil {
-				o.KubeLego = false
+				o.Acme = false
 			}
 		default:
 			o.AdditionalOpts[k] = strV
