@@ -7,6 +7,7 @@ package kubernetes
 import (
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/tsuru/kubernetes-router/router"
@@ -355,10 +356,11 @@ func (k *IngressService) SetCname(appName string, cname string) error {
 		aliasesArray = append(aliasesArray, []string{cname}...)
 		aliases = strings.Join(aliasesArray, " ")
 	}
-	annotations[annotationWithPrefix("server-alias")] = aliases
+	annotations[annotationWithPrefix("server-alias")] = strings.TrimSpace(aliases)
 	ingress.SetAnnotations(annotations)
 
-	if val, ok := annotations[AnnotationsACMEKey]; ok && strings.Compare(val, "\"true\"") == 0 {
+	if val, ok := annotations[AnnotationsACMEKey]; ok && strings.Contains(val, "true") {
+		log.Printf("Acme-tls is enabled on ingress, creating TLS secret for CNAME.")
 		ingress.Spec.TLS = append(ingress.Spec.TLS,
 			[]v1beta1.IngressTLS{
 				{
@@ -409,7 +411,7 @@ func (k *IngressService) UnsetCname(appName string, cname string) error {
 		}
 	}
 
-	annotations[annotationWithPrefix("server-alias")] = strings.Join(aliases, " ")
+	annotations[annotationWithPrefix("server-alias")] = strings.TrimSpace(strings.Join(aliases, " "))
 	ingress.SetAnnotations(annotations)
 
 	_, err = ingressClient.Update(ingress)
