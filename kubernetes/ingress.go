@@ -22,8 +22,10 @@ import (
 var (
 	// AnnotationsPrefix defines the common prefix used in the nginx ingress controller
 	AnnotationsPrefix = "nginx.ingress.kubernetes.io"
-	// AnnotationsNginx defines the common prefix used in the nginx ingress controller
+	// AnnotationsNginx defines the common annotation used in the nginx ingress controller
 	AnnotationsNginx = map[string]string{"kubernetes.io/ingress.class": "nginx"}
+	// AnnotationsACMEKey defines the common annotation used to enable acme-tls
+	AnnotationsACMEKey = "kubernetes.io/tls-acme"
 )
 
 // IngressService manages ingresses in a Kubernetes cluster that uses ingress-nginx
@@ -297,7 +299,7 @@ func (k *IngressService) GetCertificate(appName string, certCname string) (*rout
 }
 
 // RemoveCertificate delete certificates from app ingress
-func (k *IngressService) RemoveCertificate(appName string, certName string) error {
+func (k *IngressService) RemoveCertificate(appName string, certCname string) error {
 	ingressClient, err := k.ingressClient()
 	if err != nil {
 		return err
@@ -311,13 +313,19 @@ func (k *IngressService) RemoveCertificate(appName string, certName string) erro
 		return err
 	}
 
-	ingress.Spec.TLS = nil
+	for k := range ingress.Spec.TLS {
+		for _, host := range ingress.Spec.TLS[k].Hosts {
+			if strings.Compare(certCname, host) == 0 {
+				ingress.Spec.TLS = append(ingress.Spec.TLS[:k], ingress.Spec.TLS[k+1:]...)
+			}
+		}
+	}
 	_, err = ingressClient.Update(ingress)
 	if err != nil {
 		return err
 	}
 
-	err = secret.Delete(secretName(appName, certName), &metav1.DeleteOptions{})
+	err = secret.Delete(secretName(appName, certCname), &metav1.DeleteOptions{})
 
 	return err
 }
@@ -349,6 +357,16 @@ func (k *IngressService) SetCname(appName string, cname string) error {
 	}
 	annotations[annotationWithPrefix("server-alias")] = aliases
 	ingress.SetAnnotations(annotations)
+
+	if val, ok := annotations[AnnotationsACMEKey]; ok && strings.Compare(val, "\"true\"") == 0 {
+		ingress.Spec.TLS = append(ingress.Spec.TLS,
+			[]v1beta1.IngressTLS{
+				{
+					Hosts:      []string{cname},
+					SecretName: secretName(appName, cname),
+				},
+			}...)
+	}
 
 	_, err = ingressClient.Update(ingress)
 
