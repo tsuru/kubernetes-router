@@ -95,7 +95,7 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 				SecretName: secretName(appName, i.Spec.Rules[0].Host),
 			},
 		}
-		i.ObjectMeta.Annotations["kubernetes.io/tls-acme"] = "true"
+		i.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 	}
 
 	_, err = client.Create(&i)
