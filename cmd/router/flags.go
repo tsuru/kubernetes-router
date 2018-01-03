@@ -40,6 +40,8 @@ func (f *MapFlag) Set(val string) error {
 	return nil
 }
 
+// MapFlag wraps a map[string]map[string]string to be populated from
+// flags with KEY={K: V} format
 type MultiMapFlag map[string]map[string]string
 
 // String prints the json representation
