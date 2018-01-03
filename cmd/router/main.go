@@ -40,6 +40,9 @@ func main() {
 	optsToLabels := &MapFlag{}
 	flag.Var(optsToLabels, "opts-to-label", "Mapping between router options and service labels. Expects KEY=VALUE format.")
 
+	poolLabels := &MultiMapFlag{}
+	flag.Var(poolLabels, "pool-labels", "Default labels for a given pool. Expects POOL={\"LABEL\":\"VALUE\"} format.")
+
 	flag.Parse()
 
 	err := flag.Lookup("logtostderr").Value.Set("true")
@@ -53,7 +56,7 @@ func main() {
 		Labels:      *k8sLabels,
 		Annotations: *k8sAnnotations,
 	}
-	var service router.Service = &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels}
+	var service router.Service = &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels, PoolLabels: *poolLabels}
 	if *ingressMode {
 		service = &kubernetes.IngressService{BaseService: base}
 	}

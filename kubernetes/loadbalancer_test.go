@@ -70,6 +70,7 @@ func TestLBCreate(t *testing.T) {
 	svc.Labels = map[string]string{"label": "labelval"}
 	svc.Annotations = map[string]string{"annotation": "annval"}
 	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
+	svc.PoolLabels = map[string]map[string]string{"mypool": {"pool-env": "dev"}, "otherpool": {"pool-env": "prod"}}
 	err := svc.Create("test", router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
@@ -84,6 +85,7 @@ func TestLBCreate(t *testing.T) {
 	}
 	svc.Labels[appPoolLabel] = "mypool"
 	svc.Labels["my-opt-as-label"] = "value"
+	svc.Labels["pool-env"] = "dev"
 	expectedService := defaultService("test", svc.Labels, svc.Annotations, nil)
 	if !reflect.DeepEqual(serviceList.Items[0], expectedService) {
 		t.Errorf("Expected %v. Got %v", expectedService, serviceList.Items[0])
