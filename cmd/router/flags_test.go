@@ -36,3 +36,19 @@ func TestMapFlagInvalid(t *testing.T) {
 		t.Fatal("Expected err. Got nil")
 	}
 }
+
+func TestMultiMapFlag(t *testing.T) {
+	var f MultiMapFlag
+	err := f.Set("a={\"v\": \"1\"}")
+	if err != nil {
+		t.Fatalf("Expected nil. Got %v.", err)
+	}
+	err = f.Set("b={\"v\": \"2\", \"x\":\"3\"}")
+	if err != nil {
+		t.Fatalf("Expected nil. Got %v.", err)
+	}
+	expected := MultiMapFlag{"a": {"v": "1"}, "b": {"v": "2", "x": "3"}}
+	if !reflect.DeepEqual(f, expected) {
+		t.Fatalf("Expected %v. Got %v.", expected, f)
+	}
+}
