@@ -67,7 +67,7 @@ func main() {
 		}
 		routerAPI = api.RouterAPI{IngressService: &kubernetes.IngressService{BaseService: base, DefaultDomain: *ingressDefaultDomain}}
 	case "service":
-		routerAPI = api.RouterAPI{IngressService: &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels}}
+		routerAPI = api.RouterAPI{IngressService: &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels, PoolLabels: *poolLabels}}
 	default:
 		log.Fatalf("fail parameters: Use one of the following modes: service, ingress or ingressNginx.")
 	}
