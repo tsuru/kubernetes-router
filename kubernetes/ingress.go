@@ -233,8 +233,8 @@ func annotationWithPrefix(suffix string) string {
 }
 
 func (k *IngressService) swap(srcIngress, dstIngress *v1beta1.Ingress) {
-	srcIngress.Spec.Backend.ServiceName, dstIngress.Spec.Backend.ServiceName = dstIngress.Spec.Backend.ServiceName, srcIngress.Spec.Backend.ServiceName
-	srcIngress.Spec.Backend.ServicePort, dstIngress.Spec.Backend.ServicePort = dstIngress.Spec.Backend.ServicePort, srcIngress.Spec.Backend.ServicePort
+	srcIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName, dstIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName = dstIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName, srcIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName
+	srcIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServicePort, dstIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServicePort = dstIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServicePort, srcIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServicePort
 	k.BaseService.swap(&srcIngress.ObjectMeta, &dstIngress.ObjectMeta)
 }
 
@@ -343,6 +343,9 @@ func (k *IngressService) SetCname(appName string, cname string) error {
 	}
 
 	annotations := ingress.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
 	aliases, ok := annotations[annotationWithPrefix("server-alias")]
 	if !ok {
 		aliases = cname

@@ -211,6 +211,177 @@ func TestGetRoutes(t *testing.T) {
 	}
 }
 
+func TestAddCertificate(t *testing.T) {
+	service := &mock.RouterService{}
+	api := RouterAPI{IngressService: service}
+	r := api.Routes()
+
+	certExpected := router.CertData{Certificate: "Certz", Key: "keyz"}
+
+	service.AddCertificateFn = func(appName string, certName string, cert router.CertData) error {
+		if !reflect.DeepEqual(certExpected, cert) {
+			t.Errorf("Expected %v. Got %v", certExpected, cert)
+		}
+		return nil
+	}
+
+	reqData, _ := json.Marshal(certExpected)
+	body := bytes.NewReader(reqData)
+
+	req := httptest.NewRequest(http.MethodPut, "http://localhost/api/backend/myapp/certificate/certname", body)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
+	}
+	if !service.AddCertificateInvoked {
+		t.Errorf("Service Addresses function not invoked")
+	}
+}
+
+func TestGetCertificate(t *testing.T) {
+	service := &mock.RouterService{}
+	api := RouterAPI{IngressService: service}
+	r := api.Routes()
+
+	service.GetCertificateFn = func(appName, certName string) (*router.CertData, error) {
+		cert := router.CertData{Certificate: "Certz", Key: "keyz"}
+		return &cert, nil
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp/certificate/certname", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
+	}
+	if !service.GetCertificateInvoked {
+		t.Errorf("Service Addresses function not invoked")
+	}
+	var data router.CertData
+	err := json.Unmarshal(w.Body.Bytes(), &data)
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v", err)
+	}
+	expected := router.CertData{Certificate: "Certz", Key: "keyz"}
+	if !reflect.DeepEqual(data, expected) {
+		t.Errorf("Expected %v. Got %v", expected, data)
+	}
+}
+
+func TestRemoveCertificate(t *testing.T) {
+	service := &mock.RouterService{}
+	api := RouterAPI{IngressService: service}
+	r := api.Routes()
+
+	service.RemoveCertificateFn = func(appName, certName string) error {
+		return nil
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "http://localhost/api/backend/myapp/certificate/certname", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
+	}
+	if !service.RemoveCertificateInvoked {
+		t.Errorf("Service Addresses function not invoked")
+	}
+}
+
+func TestSetCname(t *testing.T) {
+	service := &mock.RouterService{}
+	api := RouterAPI{IngressService: service}
+	r := api.Routes()
+	cnameExpected := "cname1"
+
+	service.SetCnameFn = func(appName string, cname string) error {
+		if !reflect.DeepEqual(cname, cnameExpected) {
+			t.Errorf("Expected %v. Got %v", cnameExpected, cname)
+		}
+		return nil
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/cname/cname1", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
+	}
+	if !service.SetCnameInvoked {
+		t.Errorf("Service Addresses function not invoked")
+	}
+}
+
+func TestGetCnames(t *testing.T) {
+	service := &mock.RouterService{}
+	api := RouterAPI{IngressService: service}
+	r := api.Routes()
+	cnames := router.CnamesResp{
+		Cnames: []string{
+			"cname1",
+			"cname2",
+		},
+	}
+	service.GetCnamesFn = func(appName string) (*router.CnamesResp, error) {
+		return &cnames, nil
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp/cname", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
+	}
+	if !service.GetCnamesInvoked {
+		t.Errorf("Service Addresses function not invoked")
+	}
+	var data router.CnamesResp
+	err := json.Unmarshal(w.Body.Bytes(), &data)
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v", err)
+	}
+	if !reflect.DeepEqual(data, cnames) {
+		t.Errorf("Expected %v. Got %v", cnames, data)
+	}
+}
+
+func TestUnsetCname(t *testing.T) {
+	service := &mock.RouterService{}
+	api := RouterAPI{IngressService: service}
+	r := api.Routes()
+	cnameExpected := "cname1"
+
+	service.UnsetCnameFn = func(appName string, cname string) error {
+		if !reflect.DeepEqual(cname, cnameExpected) {
+			t.Errorf("Expected %v. Got %v", cnameExpected, cname)
+		}
+		return nil
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "http://localhost/api/backend/myapp/cname/cname1", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
+	}
+	if !service.UnsetCnameInvoked {
+		t.Errorf("Service Addresses function not invoked")
+	}
+}
+
 func testCalledWith(expected string, t *testing.T) func(string) error {
 	t.Helper()
 	return func(name string) error {

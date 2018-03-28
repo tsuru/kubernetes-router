@@ -46,6 +46,7 @@ func TestCreate(t *testing.T) {
 	expectedIngress.Labels["XPTO"] = "true"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
+
 	if !reflect.DeepEqual(ingressList.Items[0], expectedIngress) {
 		t.Errorf("Expected %v. Got %v", expectedIngress, ingressList.Items[0])
 	}
@@ -112,8 +113,8 @@ func TestUpdate(t *testing.T) {
 			if len(ingressList.Items) != 1 {
 				t.Errorf("Expected 1 item. Got %d.", len(ingressList.Items))
 			}
-			if !reflect.DeepEqual(ingressList.Items[0].Spec.Backend, &tc.expectedBackend) {
-				t.Errorf("Expected %v. Got %v", tc.expectedBackend, ingressList.Items[0].Spec.Backend)
+			if !reflect.DeepEqual(ingressList.Items[0].Spec.Rules[0].HTTP.Paths[0].Backend, tc.expectedBackend) {
+				t.Errorf("Expected %v. Got %v", tc.expectedBackend, ingressList.Items[0].Spec.Rules[0].HTTP.Paths[0].Backend)
 			}
 		})
 	}
@@ -144,13 +145,21 @@ func TestSwap(t *testing.T) {
 	})
 	blueIng := defaultIngress("test-blue")
 	blueIng.Labels[swapLabel] = "test-green"
-	blueIng.Spec.Backend.ServiceName = "test-green"
+	blueIng.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName = "test-green"
 	greenIng := defaultIngress("test-green")
 	greenIng.Labels[swapLabel] = "test-blue"
-	greenIng.Spec.Backend.ServiceName = "test-blue"
+	greenIng.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName = "test-blue"
 
-	if !reflect.DeepEqual(ingressList.Items, []v1beta1.Ingress{blueIng, greenIng}) {
-		t.Errorf("Expected %v. Got %v", []v1beta1.Ingress{blueIng, greenIng}, ingressList.Items)
+	for _, ing := range ingressList.Items {
+		if ing.GetName() == blueIng.GetName() {
+			if !reflect.DeepEqual(ing.Spec.Rules[0], blueIng.Spec.Rules[0]) {
+				t.Errorf("Expected %v. Got %v", blueIng.Spec.Rules[0], ing.Spec.Rules[0])
+			}
+		} else if ing.GetName() == greenIng.GetName() {
+			if !reflect.DeepEqual(ing.Spec.Rules[0], greenIng.Spec.Rules[0]) {
+				t.Errorf("Expected %v. Got %v", greenIng.Spec.Rules[0], ing.Spec.Rules[0])
+			}
+		}
 	}
 
 	err = svc.Swap("test-blue", "test-green")
@@ -166,13 +175,22 @@ func TestSwap(t *testing.T) {
 		return ingressList.Items[i].Name < ingressList.Items[j].Name
 	})
 	blueIng.Labels[swapLabel] = ""
-	blueIng.Spec.Backend.ServiceName = "test-blue"
+	blueIng.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName = "test-blue"
 	greenIng.Labels[swapLabel] = ""
-	greenIng.Spec.Backend.ServiceName = "test-green"
+	greenIng.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName = "test-green"
 
-	if !reflect.DeepEqual(ingressList.Items, []v1beta1.Ingress{blueIng, greenIng}) {
-		t.Errorf("Expected %v. Got %v", []v1beta1.Ingress{blueIng, greenIng}, ingressList.Items)
+	for _, ing := range ingressList.Items {
+		if ing.GetName() == blueIng.GetName() {
+			if !reflect.DeepEqual(ing.Spec.Rules[0], blueIng.Spec.Rules[0]) {
+				t.Errorf("Expected %v. Got %v", blueIng.Spec.Rules[0], ing.Spec.Rules[0])
+			}
+		} else if ing.GetName() == greenIng.GetName() {
+			if !reflect.DeepEqual(ing.Spec.Rules[0], greenIng.Spec.Rules[0]) {
+				t.Errorf("Expected %v. Got %v", greenIng.Spec.Rules[0], ing.Spec.Rules[0])
+			}
+		}
 	}
+
 }
 
 func TestRemove(t *testing.T) {
@@ -221,18 +239,207 @@ func TestRemove(t *testing.T) {
 	}
 }
 
+func TestUnsetCname(t *testing.T) {
+	svc := createFakeService()
+	err := svc.Create("test-blue", router.Opts{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.SetCname("test-blue", "cname1")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.UnsetCname("test-blue", "cname1")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	cnameIng := defaultIngress("test-blue")
+	cnameIng.Annotations[annotationWithPrefix("server-alias")] = ""
+
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	if !reflect.DeepEqual(ingressList, &v1beta1.IngressList{Items: []v1beta1.Ingress{cnameIng}}) {
+		t.Errorf("Expected %v. Got %v", v1beta1.IngressList{Items: []v1beta1.Ingress{cnameIng}}, ingressList)
+	}
+}
+
+func TestSetCname(t *testing.T) {
+	svc := createFakeService()
+	err := svc.Create("test-blue", router.Opts{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.SetCname("test-blue", "cname1")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	cnameIng := defaultIngress("test-blue")
+	cnameIng.Annotations[annotationWithPrefix("server-alias")] = "cname1"
+
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	if !reflect.DeepEqual(ingressList, &v1beta1.IngressList{Items: []v1beta1.Ingress{cnameIng}}) {
+		t.Errorf("Expected %v. Got %v", v1beta1.IngressList{Items: []v1beta1.Ingress{cnameIng}}, ingressList)
+	}
+}
+
+func TestGetCnames(t *testing.T) {
+	svc := createFakeService()
+	err := svc.Create("test-blue", router.Opts{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.SetCname("test-blue", "cname1")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.SetCname("test-blue", "cname2")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	cnameIng := defaultIngress("test-blue")
+	cnameIng.Annotations[annotationWithPrefix("server-alias")] = "cname1 cname2"
+
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	if !reflect.DeepEqual(ingressList, &v1beta1.IngressList{Items: []v1beta1.Ingress{cnameIng}}) {
+		t.Errorf("Expected %v. Got %v", v1beta1.IngressList{Items: []v1beta1.Ingress{cnameIng}}, ingressList)
+	}
+
+	cnames, err := svc.GetCnames("test-blue")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	if !reflect.DeepEqual(cnames, &router.CnamesResp{Cnames: []string{"cname1", "cname2"}}) {
+		t.Errorf("Expected %v. Got %v", &router.CnamesResp{Cnames: []string{"cname1", "cname2"}}, cnames)
+	}
+}
+
+func TestRemoveCertificate(t *testing.T) {
+	svc := createFakeService()
+	err := svc.Create("test-blue", router.Opts{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	expectedCert := router.CertData{Certificate: "Certz", Key: "keyz"}
+	err = svc.AddCertificate("test-blue", "mycert", expectedCert)
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.RemoveCertificate("test-blue", "mycert")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+}
+
+func TestAddCertificate(t *testing.T) {
+	svc := createFakeService()
+	err := svc.Create("test-blue", router.Opts{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	expectedCert := router.CertData{Certificate: "Certz", Key: "keyz"}
+	err = svc.AddCertificate("test-blue", "mycert", expectedCert)
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	certTest := defaultIngress("test-blue")
+	certTest.Spec.TLS = append(certTest.Spec.TLS,
+		[]v1beta1.IngressTLS{
+			{
+				Hosts:      []string{"mycert"},
+				SecretName: secretName("test-blue", "mycert"),
+			},
+		}...)
+
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	if !reflect.DeepEqual(ingressList.Items[0].Spec.TLS, certTest.Spec.TLS) {
+		t.Errorf("Expected %v. Got %v", &v1beta1.IngressList{Items: []v1beta1.Ingress{certTest}}, ingressList)
+	}
+}
+
+func TestGetCertificate(t *testing.T) {
+	svc := createFakeService()
+	err := svc.Create("test-blue", router.Opts{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	expectedCert := router.CertData{Certificate: "Certz", Key: "keyz"}
+	err = svc.AddCertificate("test-blue", "mycert", expectedCert)
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	certTest := defaultIngress("test-blue")
+	certTest.Spec.TLS = append(certTest.Spec.TLS,
+		[]v1beta1.IngressTLS{
+			{
+				Hosts:      []string{"mycert"},
+				SecretName: secretName("test-blue", "mycert"),
+			},
+		}...)
+
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+
+	if !reflect.DeepEqual(ingressList.Items[0].Spec.TLS, certTest.Spec.TLS) {
+		t.Errorf("Expected %v. Got %v", &v1beta1.IngressList{Items: []v1beta1.Ingress{certTest}}, ingressList)
+	}
+
+	cert, err := svc.GetCertificate("test-blue", "mycert")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	if !reflect.DeepEqual(cert, &router.CertData{Certificate: "", Key: ""}) {
+		t.Errorf("Expected %v. Got %v", &expectedCert, cert)
+	}
+}
+
 func defaultIngress(name string) v1beta1.Ingress {
 	return v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        name + "-ingress",
+			Name:        ingressName(name),
 			Namespace:   "default",
 			Labels:      map[string]string{appLabel: name},
 			Annotations: make(map[string]string),
 		},
 		Spec: v1beta1.IngressSpec{
-			Backend: &v1beta1.IngressBackend{
-				ServiceName: name,
-				ServicePort: intstr.FromInt(8888),
+			Rules: []v1beta1.IngressRule{
+				{
+					Host: name + ".",
+					IngressRuleValue: v1beta1.IngressRuleValue{
+						HTTP: &v1beta1.HTTPIngressRuleValue{
+							Paths: []v1beta1.HTTPIngressPath{
+								{
+									Path: "",
+									Backend: v1beta1.IngressBackend{
+										ServiceName: name,
+										ServicePort: intstr.FromInt(defaultServicePort),
+									},
+								},
+							},
+						},
+					},
+				},
 			},
 		},
 	}
