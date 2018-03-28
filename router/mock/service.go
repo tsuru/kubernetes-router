@@ -9,18 +9,30 @@ import "github.com/tsuru/kubernetes-router/router"
 // RouterService is a router.Service mock implementation to be
 // used by tests
 type RouterService struct {
-	CreateFn         func(string, router.Opts) error
-	RemoveFn         func(string) error
-	UpdateFn         func(string, router.Opts) error
-	SwapFn           func(string, string) error
-	GetFn            func(string) (map[string]string, error)
-	AddressesFn      func(string) ([]string, error)
-	CreateInvoked    bool
-	RemoveInvoked    bool
-	UpdateInvoked    bool
-	SwapInvoked      bool
-	GetInvoked       bool
-	AddressesInvoked bool
+	CreateFn                 func(string, router.Opts) error
+	RemoveFn                 func(string) error
+	UpdateFn                 func(string, router.Opts) error
+	SwapFn                   func(string, string) error
+	GetFn                    func(string) (map[string]string, error)
+	AddressesFn              func(string) ([]string, error)
+	GetCertificateFn         func(string, string) (*router.CertData, error)
+	AddCertificateFn         func(string, string, router.CertData) error
+	RemoveCertificateFn      func(string, string) error
+	SetCnameFn               func(appName string, cname string) error
+	GetCnamesFn              func(appName string) (*router.CnamesResp, error)
+	UnsetCnameFn             func(appName string, cname string) error
+	CreateInvoked            bool
+	RemoveInvoked            bool
+	UpdateInvoked            bool
+	SwapInvoked              bool
+	GetInvoked               bool
+	AddressesInvoked         bool
+	AddCertificateInvoked    bool
+	GetCertificateInvoked    bool
+	RemoveCertificateInvoked bool
+	GetCnamesInvoked         bool
+	SetCnameInvoked          bool
+	UnsetCnameInvoked        bool
 }
 
 // Create calls CreateFn
@@ -57,4 +69,40 @@ func (s *RouterService) Get(appName string) (map[string]string, error) {
 func (s *RouterService) Addresses(appName string) ([]string, error) {
 	s.AddressesInvoked = true
 	return s.AddressesFn(appName)
+}
+
+// GetCertificate calls GetCertificate
+func (s *RouterService) GetCertificate(appName, certName string) (*router.CertData, error) {
+	s.GetCertificateInvoked = true
+	return s.GetCertificateFn(appName, certName)
+}
+
+// AddCertificate calls AddCertificate
+func (s *RouterService) AddCertificate(appName string, certName string, cert router.CertData) error {
+	s.AddCertificateInvoked = true
+	return s.AddCertificateFn(appName, certName, cert)
+}
+
+// RemoveCertificate calls RemoveCertificate
+func (s *RouterService) RemoveCertificate(appName string, certName string) error {
+	s.RemoveCertificateInvoked = true
+	return s.RemoveCertificateFn(appName, certName)
+}
+
+// SetCname calls SetCnameFn
+func (s *RouterService) SetCname(appName string, cname string) error {
+	s.SetCnameInvoked = true
+	return s.SetCnameFn(appName, cname)
+}
+
+// GetCnames calls GetCnames
+func (s *RouterService) GetCnames(appName string) (*router.CnamesResp, error) {
+	s.GetCnamesInvoked = true
+	return s.GetCnamesFn(appName)
+}
+
+// UnsetCname calls UnsetCnameFn
+func (s *RouterService) UnsetCname(appName string, cname string) error {
+	s.UnsetCnameInvoked = true
+	return s.UnsetCnameFn(appName, cname)
 }
