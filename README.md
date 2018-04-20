@@ -10,7 +10,7 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 - `-k8s-namespace`: the namespace on which the resources should be created;
 - `-k8s-timeout`: Per request kubernetes timeout;
 - `-listen-addr`: The address on which this API should listen;
-- `-ingress-mode`: Create ingresses instead of LoadBalancer services;
+- `-controller-mode`: The mode in which the controller should run. Valid values are: "service", "ingress" and "ingressNginx".
 - `-key-file`: Path to private key used to serve https requests;
 - `-cert-file`: Path to certificate used to serve https requests;
 - `-opts-to-label`: Router opts to be parsed and turned into service labels, expects the format KEY=VALUE.
