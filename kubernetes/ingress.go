@@ -5,6 +5,8 @@
 package kubernetes
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -225,7 +227,15 @@ func ingressName(appName string) string {
 }
 
 func secretName(appName, certName string) string {
-	return "kubernetes-router-" + appName + "-" + certName + "-secret"
+	fuzCertName := certName
+	if len(certName) > 39 {
+		algorithm := sha1.New()
+		_, err := algorithm.Write([]byte(certName))
+		if err == nil {
+			fuzCertName = hex.EncodeToString(algorithm.Sum(nil))
+		}
+	}
+	return "kr-" + appName + "-" + fuzCertName
 }
 
 func annotationWithPrefix(suffix string) string {
