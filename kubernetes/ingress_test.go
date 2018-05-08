@@ -30,7 +30,7 @@ func TestSecretName(t *testing.T) {
 	appName := "tsuru-dashboard"
 	certName := "biiigerdomain.cloud.evenbiiiiiiiiigerrrrr.com"
 	sName := secretName(appName, certName)
-	if sName != "kr-tsuru-dashboard-820cd9555057448cf3183d001e997a4049d3c881" {
+	if sName != "kr-tsuru-dashboard-820cd9555057448" {
 		t.Errorf("SecretName Got %v.", sName)
 	}
 	if len(sName) > 63 {
