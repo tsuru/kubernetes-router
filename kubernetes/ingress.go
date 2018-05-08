@@ -228,11 +228,11 @@ func ingressName(appName string) string {
 
 func secretName(appName, certName string) string {
 	fuzCertName := certName
-	if len(certName) > 39 {
+	if len(certName) > 16 {
 		algorithm := sha1.New()
 		_, err := algorithm.Write([]byte(certName))
 		if err == nil {
-			fuzCertName = hex.EncodeToString(algorithm.Sum(nil))
+			fuzCertName = hex.EncodeToString(algorithm.Sum(nil))[0:15]
 		}
 	}
 	return "kr-" + appName + "-" + fuzCertName
