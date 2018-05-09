@@ -24,6 +24,7 @@ const (
 
 	defaultServicePort = 8888
 	appLabel           = "tsuru.io/app-name"
+	domainLabel        = "tsuru.io/domain-name"
 	processLabel       = "tsuru.io/app-process"
 	swapLabel          = "tsuru.io/swapped-with"
 	appPoolLabel       = "tsuru.io/app-pool"

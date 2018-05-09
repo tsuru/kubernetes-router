@@ -227,15 +227,15 @@ func ingressName(appName string) string {
 }
 
 func secretName(appName, certName string) string {
-	fuzCertName := certName
-	if len(certName) > 16 {
+	hashedAppCertName := appName + "-" + certName
+	if (len(hashedAppCertName)) > 59 {
 		algorithm := sha1.New()
-		_, err := algorithm.Write([]byte(certName))
+		_, err := algorithm.Write([]byte(hashedAppCertName))
 		if err == nil {
-			fuzCertName = hex.EncodeToString(algorithm.Sum(nil))[0:15]
+			hashedAppCertName = hex.EncodeToString(algorithm.Sum(nil))
 		}
 	}
-	return "kr-" + appName + "-" + fuzCertName
+	return "kr-" + hashedAppCertName
 }
 
 func annotationWithPrefix(suffix string) string {
@@ -265,9 +265,12 @@ func (k *IngressService) AddCertificate(appName string, certCname string, cert r
 
 	tlsSecret := v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        secretName(appName, certCname),
-			Namespace:   k.Namespace,
-			Labels:      map[string]string{appLabel: appName},
+			Name:      secretName(appName, certCname),
+			Namespace: k.Namespace,
+			Labels: map[string]string{
+				appLabel:    appName,
+				domainLabel: certCname,
+			},
 			Annotations: make(map[string]string),
 		},
 		Type: "kubernetes.io/tls",
