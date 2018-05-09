@@ -228,7 +228,7 @@ func ingressName(appName string) string {
 
 func secretName(appName, certName string) string {
 	hashedAppCertName := appName + "-" + certName
-	if (len(hashedAppCertName)) > 59 {
+	if (len(hashedAppCertName)) > 49 {
 		algorithm := sha1.New()
 		_, err := algorithm.Write([]byte(hashedAppCertName))
 		if err == nil {
