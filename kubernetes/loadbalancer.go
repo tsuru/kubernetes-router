@@ -124,7 +124,7 @@ func (s *LBService) Update(appName string, opts router.Opts) error {
 	if err != nil {
 		return err
 	}
-	if lbService.Labels == nil && len(lbService.Labels) > 0 {
+	if lbService.Labels == nil && len(webService.Labels) > 0 {
 		lbService.Labels = make(map[string]string)
 	}
 	for k, v := range webService.Labels {
