@@ -143,9 +143,10 @@ func TestLBRemove(t *testing.T) {
 
 func TestLBUpdate(t *testing.T) {
 	svc1 := v1.Service{ObjectMeta: metav1.ObjectMeta{
-		Name:      "test-single",
-		Namespace: "default",
-		Labels:    map[string]string{appLabel: "test"},
+		Name:        "test-single",
+		Namespace:   "default",
+		Labels:      map[string]string{appLabel: "test"},
+		Annotations: map[string]string{"test-ann": "val-ann"},
 	},
 		Spec: v1.ServiceSpec{
 			Selector: map[string]string{"name": "test-single"},
