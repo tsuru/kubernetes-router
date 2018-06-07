@@ -9,9 +9,12 @@ import (
 	"net/http"
 	"time"
 
+	tsuruv1clientset "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned"
+	apiv1 "k8s.io/api/core/v1"
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	apiv1 "k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/transport"
 )
@@ -30,6 +33,8 @@ const (
 	appPoolLabel       = "tsuru.io/app-pool"
 	poolLabel          = "tsuru.io/pool"
 	webProcessName     = "web"
+
+	appCRDName = "apps.tsuru.io"
 )
 
 // ErrNoService indicates that the app has no service running
@@ -54,11 +59,13 @@ func (e ErrAppSwapped) Error() string {
 // BaseService has the base functionality needed by router.Service implementations
 // targeting kubernetes
 type BaseService struct {
-	Namespace   string
-	Timeout     time.Duration
-	Client      kubernetes.Interface
-	Labels      map[string]string
-	Annotations map[string]string
+	Namespace        string
+	Timeout          time.Duration
+	Client           kubernetes.Interface
+	TsuruClient      tsuruv1clientset.Interface
+	ExtensionsClient apiextensionsclientset.Interface
+	Labels           map[string]string
+	Annotations      map[string]string
 }
 
 // Addresses return the addresses of every node on the same pool as the
@@ -167,5 +174,27 @@ func (k *BaseService) isSwapped(obj metav1.ObjectMeta) (string, bool) {
 }
 
 func (k *BaseService) getAppNamespace(app string) (string, error) {
-	return k.Namespace, nil
+	hasCRD, err := k.hasCRD()
+	if err != nil {
+		return "", err
+	}
+	if !hasCRD {
+		return k.Namespace, nil
+	}
+	appCR, err := k.TsuruClient.TsuruV1().Apps(k.Namespace).Get(app, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	return appCR.Spec.NamespaceName, nil
+}
+
+func (k *BaseService) hasCRD() (bool, error) {
+	_, err := k.ExtensionsClient.ApiextensionsV1beta1().CustomResourceDefinitions().Get(appCRDName, metav1.GetOptions{})
+	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }

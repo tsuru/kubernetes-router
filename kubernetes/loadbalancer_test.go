@@ -10,59 +10,25 @@ import (
 	"testing"
 
 	"github.com/tsuru/kubernetes-router/router"
+	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
+	"k8s.io/api/core/v1"
+	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
-	"k8s.io/client-go/pkg/api/v1"
 )
 
 func createFakeLBService() LBService {
 	return LBService{
 		BaseService: &BaseService{
-			Namespace: "default",
-			Client:    fake.NewSimpleClientset(),
+			Namespace:        "default",
+			Client:           fake.NewSimpleClientset(),
+			TsuruClient:      faketsuru.NewSimpleClientset(),
+			ExtensionsClient: fakeapiextensions.NewSimpleClientset(),
 		},
 		OptsAsLabels: make(map[string]string),
 	}
-}
-
-func defaultService(app string, labels, annotations, selector map[string]string) v1.Service {
-	svc := v1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceName(app),
-			Namespace: "default",
-			Labels: map[string]string{
-				appLabel:            app,
-				managedServiceLabel: "true",
-				appPoolLabel:        "",
-			},
-			Annotations: annotations,
-		},
-		Spec: v1.ServiceSpec{
-			Selector: selector,
-			Type:     v1.ServiceTypeLoadBalancer,
-			Ports: []v1.ServicePort{
-				{
-					Name:       fmt.Sprintf("port-%d", defaultLBPort),
-					Protocol:   "TCP",
-					Port:       int32(defaultLBPort),
-					TargetPort: intstr.FromInt(defaultServicePort),
-				},
-			},
-		},
-		Status: v1.ServiceStatus{
-			LoadBalancer: v1.LoadBalancerStatus{
-				Ingress: []v1.LoadBalancerIngress{
-					{IP: "127.0.0.1"},
-				},
-			},
-		},
-	}
-	for k, v := range labels {
-		svc.ObjectMeta.Labels[k] = v
-	}
-	return svc
 }
 
 func TestLBCreate(t *testing.T) {
@@ -86,9 +52,26 @@ func TestLBCreate(t *testing.T) {
 	svc.Labels[appPoolLabel] = "mypool"
 	svc.Labels["my-opt-as-label"] = "value"
 	svc.Labels["pool-env"] = "dev"
-	expectedService := defaultService("test", svc.Labels, svc.Annotations, nil)
+	expectedService := defaultService("test", "default", svc.Labels, svc.Annotations, nil)
 	if !reflect.DeepEqual(serviceList.Items[0], expectedService) {
 		t.Errorf("Expected %v. Got %v", expectedService, serviceList.Items[0])
+	}
+}
+
+func TestLBCreateAppNamespace(t *testing.T) {
+	svc := createFakeLBService()
+	if err := createCRD(svc.BaseService, "app", "custom-namespace"); err != nil {
+		t.Errorf("failed to create CRD for test: %v", err)
+	}
+	if err := svc.Create("app", router.Opts{}); err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	serviceList, err := svc.Client.CoreV1().Services("custom-namespace").List(metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	if len(serviceList.Items) != 1 {
+		t.Errorf("Expected 1 item. Got %d.", len(serviceList.Items))
 	}
 }
 
@@ -217,7 +200,7 @@ func TestLBUpdateSwapped(t *testing.T) {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
 		setIP(t, svc, "test-"+n)
-		err = createWebService(n, svc.Client)
+		err = createWebService(n, "default", svc.Client)
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -253,7 +236,7 @@ func TestLBSwap(t *testing.T) {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
 		setIP(t, svc, "test-"+n)
-		err = createWebService(n, svc.Client)
+		err = createWebService(n, "default", svc.Client)
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -263,8 +246,8 @@ func TestLBSwap(t *testing.T) {
 		}
 	}
 
-	blueSvc := defaultService("test-blue", map[string]string{swapLabel: "test-green"}, nil, map[string]string{"app": "green"})
-	greenSvc := defaultService("test-green", map[string]string{swapLabel: "test-blue"}, nil, map[string]string{"app": "blue"})
+	blueSvc := defaultService("test-blue", "default", map[string]string{swapLabel: "test-green"}, nil, map[string]string{"app": "green"})
+	greenSvc := defaultService("test-green", "default", map[string]string{swapLabel: "test-blue"}, nil, map[string]string{"app": "blue"})
 	isSwapped := true
 	i := 1
 	for i <= 2 {
@@ -285,8 +268,8 @@ func TestLBSwap(t *testing.T) {
 			t.Errorf("Iteration %d: Expected isSwapped to be %v. Got %v", i, isSwapped, swapped)
 		}
 
-		blueSvc = defaultService("test-blue", map[string]string{swapLabel: ""}, nil, map[string]string{"app": "blue"})
-		greenSvc = defaultService("test-green", map[string]string{swapLabel: ""}, nil, map[string]string{"app": "green"})
+		blueSvc = defaultService("test-blue", "default", map[string]string{swapLabel: ""}, nil, map[string]string{"app": "blue"})
+		greenSvc = defaultService("test-green", "default", map[string]string{swapLabel: ""}, nil, map[string]string{"app": "green"})
 
 		isSwapped = !isSwapped
 		i++
@@ -318,11 +301,11 @@ func TestLBUpdateSwapWithouIPFails(t *testing.T) {
 	}
 }
 
-func createWebService(app string, client kubernetes.Interface) error {
+func createWebService(app, namespace string, client kubernetes.Interface) error {
 	webService := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      app + "-web",
-			Namespace: "default",
+			Namespace: namespace,
 			Labels:    map[string]string{appLabel: "test-" + app},
 		},
 		Spec: v1.ServiceSpec{
@@ -336,8 +319,46 @@ func createWebService(app string, client kubernetes.Interface) error {
 			},
 		},
 	}
-	_, err := client.CoreV1().Services("default").Create(webService)
+	_, err := client.CoreV1().Services(namespace).Create(webService)
 	return err
+}
+
+func defaultService(app, namespace string, labels, annotations, selector map[string]string) v1.Service {
+	svc := v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      serviceName(app),
+			Namespace: namespace,
+			Labels: map[string]string{
+				appLabel:            app,
+				managedServiceLabel: "true",
+				appPoolLabel:        "",
+			},
+			Annotations: annotations,
+		},
+		Spec: v1.ServiceSpec{
+			Selector: selector,
+			Type:     v1.ServiceTypeLoadBalancer,
+			Ports: []v1.ServicePort{
+				{
+					Name:       fmt.Sprintf("port-%d", defaultLBPort),
+					Protocol:   "TCP",
+					Port:       int32(defaultLBPort),
+					TargetPort: intstr.FromInt(defaultServicePort),
+				},
+			},
+		},
+		Status: v1.ServiceStatus{
+			LoadBalancer: v1.LoadBalancerStatus{
+				Ingress: []v1.LoadBalancerIngress{
+					{IP: "127.0.0.1"},
+				},
+			},
+		},
+	}
+	for k, v := range labels {
+		svc.ObjectMeta.Labels[k] = v
+	}
+	return svc
 }
 
 func setIP(t *testing.T, svc LBService, appName string) {

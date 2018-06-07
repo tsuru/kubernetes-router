@@ -1,0 +1,126 @@
+// Copyright 2013 tsuru authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package main
+
+import (
+	"fmt"
+
+	"github.com/pkg/errors"
+	"github.com/tsuru/config"
+	"github.com/tsuru/tsuru/app"
+	"github.com/tsuru/tsuru/auth"
+	_ "github.com/tsuru/tsuru/auth/native"
+	_ "github.com/tsuru/tsuru/auth/oauth"
+	"github.com/tsuru/tsuru/cmd"
+	"github.com/tsuru/tsuru/permission"
+)
+
+type createRootUserCmd struct{}
+
+func (createRootUserCmd) Run(context *cmd.Context, client *cmd.Client) error {
+	context.RawOutput()
+	scheme, err := config.GetString("auth:scheme")
+	if err != nil {
+		scheme = nativeSchemeName
+	}
+	app.AuthScheme, err = auth.GetScheme(scheme)
+	if err != nil {
+		return err
+	}
+	email := context.Args[0]
+	user, err := auth.GetUserByEmail(email)
+	if err == nil {
+		err = addSuperRole(user)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(context.Stdout, "Root user successfully updated.")
+	}
+	var confirm, password string
+	if scheme == nativeSchemeName {
+		fmt.Fprint(context.Stdout, "Password: ")
+		password, err = cmd.PasswordFromReader(context.Stdin)
+		if err != nil {
+			return err
+		}
+		fmt.Fprint(context.Stdout, "\nConfirm: ")
+		confirm, err = cmd.PasswordFromReader(context.Stdin)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(context.Stdout)
+		if password != confirm {
+			return errors.New("Passwords didn't match.")
+		}
+	}
+	user, err = app.AuthScheme.Create(&auth.User{
+		Email:    email,
+		Password: password,
+	})
+	if err != nil {
+		return err
+	}
+	err = addSuperRole(user)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(context.Stdout, "Root user successfully created.")
+	return nil
+}
+
+func addSuperRole(u *auth.User) error {
+	defaultRoleName := "AllowAll"
+	r, err := permission.FindRole(defaultRoleName)
+	if err != nil {
+		r, err = permission.NewRole(defaultRoleName, string(permission.CtxGlobal), "")
+		if err != nil {
+			return err
+		}
+	}
+	err = r.AddPermissions("*")
+	if err != nil {
+		return err
+	}
+	return u.AddRole(defaultRoleName, "")
+}
+
+func (createRootUserCmd) Info() *cmd.Info {
+	return &cmd.Info{
+		Name:  "root-user-create",
+		Usage: "root-user-create <email>",
+		Desc: `Create a root user with all permission. This user can be used when
+bootstraping a tsuru cloud. It can be erased after other users are created and
+roles are properly created and assigned.`,
+		MinArgs: 1,
+	}
+}
+
+type tokenCmd struct{}
+
+func (tokenCmd) Run(context *cmd.Context, client *cmd.Client) error {
+	scheme, err := config.GetString("auth:scheme")
+	if err != nil {
+		scheme = nativeSchemeName
+	}
+	app.AuthScheme, err = auth.GetScheme(scheme)
+	if err != nil {
+		return err
+	}
+	t, err := app.AuthScheme.AppLogin(app.InternalAppName)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(context.Stdout, t.GetValue())
+	return nil
+}
+
+func (tokenCmd) Info() *cmd.Info {
+	return &cmd.Info{
+		Name:    "token",
+		Usage:   "token",
+		Desc:    "Generates a tsuru token.",
+		MinArgs: 0,
+	}
+}

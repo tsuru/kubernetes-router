@@ -13,13 +13,13 @@ import (
 	"strings"
 
 	"github.com/tsuru/kubernetes-router/router"
+	"k8s.io/api/core/v1"
+	v1beta1 "k8s.io/api/extensions/v1beta1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	typedV1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	typedV1Beta1 "k8s.io/client-go/kubernetes/typed/extensions/v1beta1"
-	v1 "k8s.io/client-go/pkg/api/v1"
-	"k8s.io/client-go/pkg/apis/extensions/v1beta1"
+	typedV1beta1 "k8s.io/client-go/kubernetes/typed/extensions/v1beta1"
 )
 
 var (
@@ -236,7 +236,7 @@ func (k *IngressService) get(appName string) (*v1beta1.Ingress, error) {
 	return ingress, nil
 }
 
-func (k *IngressService) ingressClient(namespace string) (typedV1Beta1.IngressInterface, error) {
+func (k *IngressService) ingressClient(namespace string) (typedV1beta1.IngressInterface, error) {
 	client, err := k.getClient()
 	if err != nil {
 		return nil, err
@@ -371,7 +371,6 @@ func (k *IngressService) RemoveCertificate(appName string, certCname string) err
 	if err != nil {
 		return err
 	}
-
 	for k := range ingress.Spec.TLS {
 		for _, host := range ingress.Spec.TLS[k].Hosts {
 			if strings.Compare(certCname, host) == 0 {
@@ -383,9 +382,7 @@ func (k *IngressService) RemoveCertificate(appName string, certCname string) err
 	if err != nil {
 		return err
 	}
-
 	err = secret.Delete(secretName(appName, certCname), &metav1.DeleteOptions{})
-
 	return err
 }
 
@@ -403,7 +400,6 @@ func (k *IngressService) SetCname(appName string, cname string) error {
 	if err != nil {
 		return err
 	}
-
 	annotations := ingress.GetAnnotations()
 	if annotations == nil {
 		annotations = make(map[string]string)
