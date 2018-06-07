@@ -127,7 +127,11 @@ func (k *BaseService) getWebService(appName string) (*apiv1.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	list, err := client.CoreV1().Services(k.Namespace).List(metav1.ListOptions{
+	namespace, err := k.getAppNamespace(appName)
+	if err != nil {
+		return nil, err
+	}
+	list, err := client.CoreV1().Services(namespace).List(metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("%s=%s,%s!=%s,%s!=%s", appLabel, appName, managedServiceLabel, "true", headlessServiceLabel, "true"),
 	})
 	if err != nil {
@@ -160,4 +164,8 @@ func (k *BaseService) swap(src, dst *metav1.ObjectMeta) {
 func (k *BaseService) isSwapped(obj metav1.ObjectMeta) (string, bool) {
 	target := obj.Labels[swapLabel]
 	return target, target != ""
+}
+
+func (k *BaseService) getAppNamespace(app string) (string, error) {
+	return k.Namespace, nil
 }

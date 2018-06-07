@@ -41,6 +41,10 @@ func (s *LBService) Create(appName string, opts router.Opts) error {
 	if port == 0 {
 		port = defaultLBPort
 	}
+	ns, err := s.getAppNamespace(appName)
+	if err != nil {
+		return err
+	}
 	client, err := s.getClient()
 	if err != nil {
 		return err
@@ -48,7 +52,7 @@ func (s *LBService) Create(appName string, opts router.Opts) error {
 	service := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceName(appName),
-			Namespace: s.Namespace,
+			Namespace: ns,
 			Labels: map[string]string{
 				appLabel:            appName,
 				managedServiceLabel: "true",
@@ -77,7 +81,7 @@ func (s *LBService) Create(appName string, opts router.Opts) error {
 	for k, l := range s.PoolLabels[opts.Pool] {
 		service.ObjectMeta.Labels[k] = l
 	}
-	_, err = client.CoreV1().Services(s.Namespace).Create(service)
+	_, err = client.CoreV1().Services(ns).Create(service)
 	if k8sErrors.IsAlreadyExists(err) {
 		return router.ErrIngressAlreadyExists
 	}
@@ -100,7 +104,11 @@ func (s *LBService) Remove(appName string) error {
 	if dstApp, swapped := s.BaseService.isSwapped(service.ObjectMeta); swapped {
 		return ErrAppSwapped{App: appName, DstApp: dstApp}
 	}
-	err = client.CoreV1().Services(s.Namespace).Delete(service.Name, &metav1.DeleteOptions{})
+	ns, err := s.getAppNamespace(appName)
+	if err != nil {
+		return err
+	}
+	err = client.CoreV1().Services(ns).Delete(service.Name, &metav1.DeleteOptions{})
 	if k8sErrors.IsNotFound(err) {
 		return nil
 	}
@@ -147,7 +155,11 @@ func (s *LBService) Update(appName string, opts router.Opts) error {
 	if err != nil {
 		return err
 	}
-	_, err = client.CoreV1().Services(s.Namespace).Update(lbService)
+	ns, err := s.getAppNamespace(appName)
+	if err != nil {
+		return err
+	}
+	_, err = client.CoreV1().Services(ns).Update(lbService)
 	return err
 }
 
@@ -172,14 +184,25 @@ func (s *LBService) Swap(appSrc string, appDst string) error {
 	if err != nil {
 		return err
 	}
-	_, err = client.CoreV1().Services(s.Namespace).Update(srcServ)
+	ns, err := s.getAppNamespace(appSrc)
 	if err != nil {
 		return err
 	}
-	_, err = client.CoreV1().Services(s.Namespace).Update(dstServ)
+	ns2, err := s.getAppNamespace(appDst)
+	if err != nil {
+		return err
+	}
+	if ns != ns2 {
+		return fmt.Errorf("unable to swap apps with different namespaces: %v != %v", ns, ns2)
+	}
+	_, err = client.CoreV1().Services(ns).Update(srcServ)
+	if err != nil {
+		return err
+	}
+	_, err = client.CoreV1().Services(ns).Update(dstServ)
 	if err != nil {
 		s.swap(srcServ, dstServ)
-		_, errRollback := client.CoreV1().Services(s.Namespace).Update(srcServ)
+		_, errRollback := client.CoreV1().Services(ns).Update(srcServ)
 		if errRollback != nil {
 			return fmt.Errorf("failed to rollback swap %v: %v", err, errRollback)
 		}
@@ -213,7 +236,11 @@ func (s *LBService) getLBService(appName string) (*v1.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return client.CoreV1().Services(s.Namespace).Get(serviceName(appName), metav1.GetOptions{})
+	ns, err := s.getAppNamespace(appName)
+	if err != nil {
+		return nil, err
+	}
+	return client.CoreV1().Services(ns).Get(serviceName(appName), metav1.GetOptions{})
 }
 
 func (s *LBService) swap(srcServ, dstServ *v1.Service) {
