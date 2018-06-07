@@ -1,0 +1,11 @@
+database:
+  url: 127.0.0.1:27017?maxPoolSize=100
+  name: tsuru_api_test
+auth:
+  salt: tsuru-salt
+  token-expire-days: 2
+  hash-cost: 4
+repo-manager: fake
+routers:
+  fake:
+    type: fake

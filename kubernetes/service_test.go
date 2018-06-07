@@ -9,10 +9,14 @@ import (
 	"testing"
 
 	"github.com/tsuru/kubernetes-router/router"
+	tsuruv1 "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1"
+	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
+	"k8s.io/api/core/v1"
+	v1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
-	"k8s.io/client-go/pkg/api/v1"
 )
 
 func TestAddresses(t *testing.T) {
@@ -65,7 +69,12 @@ func TestGetWebService(t *testing.T) {
 			Selector: map[string]string{"name": "test"},
 		},
 	}
-	svc := BaseService{Namespace: "default", Client: fake.NewSimpleClientset()}
+	svc := BaseService{
+		Namespace:        "default",
+		Client:           fake.NewSimpleClientset(),
+		TsuruClient:      faketsuru.NewSimpleClientset(),
+		ExtensionsClient: fakeapiextensions.NewSimpleClientset(),
+	}
 	_, err := svc.Client.CoreV1().Services(svc.Namespace).Create(&headlessSvc)
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
@@ -111,4 +120,56 @@ func TestGetWebService(t *testing.T) {
 	if webService.Name != "test-web" {
 		t.Errorf("Expected service to be %v. Got %v.", svc2, webService)
 	}
+
+	if errCr := createCRD(&svc, "namespacedApp", "custom-namespace"); errCr != nil {
+		t.Errorf("error creating CRD for test: %v", errCr)
+	}
+	svc3 := v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "namespacedApp-web",
+			Namespace: "custom-namespace",
+			Labels:    map[string]string{appLabel: "namespacedApp", processLabel: "web"},
+		},
+		Spec: v1.ServiceSpec{
+			Selector: map[string]string{"name": "namespacedApp-web"},
+			Ports:    []v1.ServicePort{{Protocol: "TCP", Port: int32(8890), TargetPort: intstr.FromInt(8890)}},
+		},
+	}
+	_, err = svc.Client.CoreV1().Services(svc3.Namespace).Create(&svc3)
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	webService, err = svc.getWebService("namespacedApp")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	if webService.Name != "namespacedApp-web" {
+		t.Errorf("Expected service to be %v. Got %v.", svc2, webService)
+	}
+}
+
+func createCRD(svc *BaseService, app string, namespace string) error {
+	_, err := svc.ExtensionsClient.ApiextensionsV1beta1().CustomResourceDefinitions().Create(&v1beta1.CustomResourceDefinition{
+		ObjectMeta: metav1.ObjectMeta{Name: "apps.tsuru.io"},
+		Spec: v1beta1.CustomResourceDefinitionSpec{
+			Group:   "tsuru.io",
+			Version: "v1",
+			Names: v1beta1.CustomResourceDefinitionNames{
+				Plural:   "apps",
+				Singular: "app",
+				Kind:     "App",
+				ListKind: "AppList",
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	_, err = svc.TsuruClient.TsuruV1().Apps(svc.Namespace).Create(&tsuruv1.App{
+		ObjectMeta: metav1.ObjectMeta{Name: app},
+		Spec: tsuruv1.AppSpec{
+			NamespaceName: namespace,
+		},
+	})
+	return err
 }

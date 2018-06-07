@@ -10,18 +10,22 @@ import (
 	"testing"
 
 	"github.com/tsuru/kubernetes-router/router"
+	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
+	apiv1 "k8s.io/api/core/v1"
+	v1beta1 "k8s.io/api/extensions/v1beta1"
+	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
-	apiv1 "k8s.io/client-go/pkg/api/v1"
-	"k8s.io/client-go/pkg/apis/extensions/v1beta1"
 )
 
 func createFakeService() IngressService {
 	return IngressService{
 		BaseService: &BaseService{
-			Namespace: "default",
-			Client:    fake.NewSimpleClientset(),
+			Namespace:        "default",
+			Client:           fake.NewSimpleClientset(),
+			TsuruClient:      faketsuru.NewSimpleClientset(),
+			ExtensionsClient: fakeapiextensions.NewSimpleClientset(),
 		},
 	}
 }
@@ -62,7 +66,7 @@ func TestCreate(t *testing.T) {
 	if len(ingressList.Items) != 1 {
 		t.Errorf("Expected 1 item. Got %d.", len(ingressList.Items))
 	}
-	expectedIngress := defaultIngress("test")
+	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
 	expectedIngress.Annotations["ann1"] = "val1"
@@ -70,6 +74,23 @@ func TestCreate(t *testing.T) {
 
 	if !reflect.DeepEqual(ingressList.Items[0], expectedIngress) {
 		t.Errorf("Expected %v. Got %v", expectedIngress, ingressList.Items[0])
+	}
+}
+
+func TestCreateIngressAppNamespace(t *testing.T) {
+	svc := createFakeService()
+	if err := createCRD(svc.BaseService, "app", "custom-namespace"); err != nil {
+		t.Errorf("failed to create CRD for test: %v", err)
+	}
+	if err := svc.Create("app", router.Opts{}); err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses("custom-namespace").List(metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	if len(ingressList.Items) != 1 {
+		t.Errorf("Expected 1 item. Got %d.", len(ingressList.Items))
 	}
 }
 
@@ -164,10 +185,10 @@ func TestSwap(t *testing.T) {
 	sort.Slice(ingressList.Items, func(i, j int) bool {
 		return ingressList.Items[i].Name < ingressList.Items[j].Name
 	})
-	blueIng := defaultIngress("test-blue")
+	blueIng := defaultIngress("test-blue", "default")
 	blueIng.Labels[swapLabel] = "test-green"
 	blueIng.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName = "test-green"
-	greenIng := defaultIngress("test-green")
+	greenIng := defaultIngress("test-green", "default")
 	greenIng.Labels[swapLabel] = "test-blue"
 	greenIng.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName = "test-blue"
 
@@ -275,7 +296,7 @@ func TestUnsetCname(t *testing.T) {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 
-	cnameIng := defaultIngress("test-blue")
+	cnameIng := defaultIngress("test-blue", "default")
 	cnameIng.Annotations[annotationWithPrefix("server-alias")] = ""
 
 	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
@@ -299,7 +320,7 @@ func TestSetCname(t *testing.T) {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 
-	cnameIng := defaultIngress("test-blue")
+	cnameIng := defaultIngress("test-blue", "default")
 	cnameIng.Annotations[annotationWithPrefix("server-alias")] = "cname1"
 
 	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
@@ -327,7 +348,7 @@ func TestGetCnames(t *testing.T) {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 
-	cnameIng := defaultIngress("test-blue")
+	cnameIng := defaultIngress("test-blue", "default")
 	cnameIng.Annotations[annotationWithPrefix("server-alias")] = "cname1 cname2"
 
 	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
@@ -377,7 +398,7 @@ func TestAddCertificate(t *testing.T) {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 
-	certTest := defaultIngress("test-blue")
+	certTest := defaultIngress("test-blue", "default")
 	certTest.Spec.TLS = append(certTest.Spec.TLS,
 		[]v1beta1.IngressTLS{
 			{
@@ -408,7 +429,7 @@ func TestGetCertificate(t *testing.T) {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 
-	certTest := defaultIngress("test-blue")
+	certTest := defaultIngress("test-blue", "default")
 	certTest.Spec.TLS = append(certTest.Spec.TLS,
 		[]v1beta1.IngressTLS{
 			{
@@ -435,11 +456,11 @@ func TestGetCertificate(t *testing.T) {
 	}
 }
 
-func defaultIngress(name string) v1beta1.Ingress {
+func defaultIngress(name, namespace string) v1beta1.Ingress {
 	return v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        ingressName(name),
-			Namespace:   "default",
+			Namespace:   namespace,
 			Labels:      map[string]string{appLabel: name},
 			Annotations: make(map[string]string),
 		},
