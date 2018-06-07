@@ -121,8 +121,8 @@ func TestGetWebService(t *testing.T) {
 		t.Errorf("Expected service to be %v. Got %v.", svc2, webService)
 	}
 
-	if err := createCRD(&svc, "namespacedApp", "custom-namespace"); err != nil {
-		t.Errorf("error creating CRD for test: %v", err)
+	if errCr := createCRD(&svc, "namespacedApp", "custom-namespace"); errCr != nil {
+		t.Errorf("error creating CRD for test: %v", errCr)
 	}
 	svc3 := v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
