@@ -118,6 +118,39 @@ func (k *BaseService) getClient() (kubernetes.Interface, error) {
 	if k.Client != nil {
 		return k.Client, nil
 	}
+	config, err := k.getConfig()
+	if err != nil {
+		return nil, err
+	}
+	k.Client, err = kubernetes.NewForConfig(config)
+	return k.Client, err
+}
+
+func (k *BaseService) getTsuruClient() (tsuruv1clientset.Interface, error) {
+	if k.TsuruClient != nil {
+		return k.TsuruClient, nil
+	}
+	config, err := k.getConfig()
+	if err != nil {
+		return nil, err
+	}
+	k.TsuruClient, err = tsuruv1clientset.NewForConfig(config)
+	return k.TsuruClient, err
+}
+
+func (k *BaseService) getExtensionsClient() (apiextensionsclientset.Interface, error) {
+	if k.ExtensionsClient != nil {
+		return k.ExtensionsClient, nil
+	}
+	config, err := k.getConfig()
+	if err != nil {
+		return nil, err
+	}
+	k.ExtensionsClient, err = apiextensionsclientset.NewForConfig(config)
+	return k.ExtensionsClient, err
+}
+
+func (k *BaseService) getConfig() (*rest.Config, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, err
@@ -126,7 +159,7 @@ func (k *BaseService) getClient() (kubernetes.Interface, error) {
 	config.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
 		return transport.DebugWrappers(rt)
 	}
-	return kubernetes.NewForConfig(config)
+	return config, nil
 }
 
 func (k *BaseService) getWebService(appName string) (*apiv1.Service, error) {
@@ -181,7 +214,11 @@ func (k *BaseService) getAppNamespace(app string) (string, error) {
 	if !hasCRD {
 		return k.Namespace, nil
 	}
-	appCR, err := k.TsuruClient.TsuruV1().Apps(k.Namespace).Get(app, metav1.GetOptions{})
+	tclient, err := k.getTsuruClient()
+	if err != nil {
+		return "", err
+	}
+	appCR, err := tclient.TsuruV1().Apps(k.Namespace).Get(app, metav1.GetOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -189,7 +226,11 @@ func (k *BaseService) getAppNamespace(app string) (string, error) {
 }
 
 func (k *BaseService) hasCRD() (bool, error) {
-	_, err := k.ExtensionsClient.ApiextensionsV1beta1().CustomResourceDefinitions().Get(appCRDName, metav1.GetOptions{})
+	eclient, err := k.getExtensionsClient()
+	if err != nil {
+		return false, err
+	}
+	_, err = eclient.ApiextensionsV1beta1().CustomResourceDefinitions().Get(appCRDName, metav1.GetOptions{})
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return false, nil
