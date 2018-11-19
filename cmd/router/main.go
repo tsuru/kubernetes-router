@@ -15,12 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/urfave/negroni"
-
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/tsuru/kubernetes-router/api"
 	"github.com/tsuru/kubernetes-router/kubernetes"
+	"github.com/urfave/negroni"
 )
 
 func main() {
@@ -31,8 +30,11 @@ func main() {
 	flag.Var(k8sLabels, "k8s-labels", "Labels to be added to each resource created. Expects KEY=VALUE format.")
 	k8sAnnotations := &MapFlag{}
 	flag.Var(k8sAnnotations, "k8s-annotations", "Annotations to be added to each resource created. Expects KEY=VALUE format.")
-	runMode := flag.String("controller-mode", "service", "Defines the controller running mode, service, ingress or ingressNginx.")
-	ingressDefaultDomain := flag.String("ingress-domain", "local", "Default domain to be used on created vhosts, local is the default. (eg: serviceName.local")
+	runMode := flag.String("controller-mode", "service", "Defines the controller running mode, service, ingress, ingressNginx or istio-gateway.")
+	ingressDefaultDomain := flag.String("ingress-domain", "local", "Default domain to be used on created vhosts, local is the default. (eg: serviceName.local)")
+
+	istioGatewaySelector := &MapFlag{}
+	flag.Var(istioGatewaySelector, "istio-gateway.gateway-selector", "Gateway selector used in gateways created for apps.")
 
 	certFile := flag.String("cert-file", "", "Path to certificate used to serve https requests")
 	keyFile := flag.String("key-file", "", "Path to private key used to serve https requests")
@@ -59,6 +61,8 @@ func main() {
 
 	var routerAPI api.RouterAPI
 	switch *runMode {
+	case "istio-gateway":
+		routerAPI = api.RouterAPI{IngressService: &kubernetes.IstioGateway{BaseService: base, DefaultDomain: *ingressDefaultDomain, GatewaySelector: *istioGatewaySelector}}
 	case "ingress":
 		routerAPI = api.RouterAPI{IngressService: &kubernetes.IngressService{BaseService: base}}
 	case "ingressNginx":

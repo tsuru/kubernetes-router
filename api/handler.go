@@ -5,6 +5,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/tsuru/kubernetes-router/router"
@@ -28,6 +29,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func handleError(err error, w http.ResponseWriter, r *http.Request) {
 	if err != nil {
+		log.Printf("error during request %v %v: %v", r.Method, r.URL.Path, err)
 		if httpErr, ok := err.(httpError); ok {
 			http.Error(w, httpErr.Error(), httpErr.Status)
 			return
