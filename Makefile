@@ -4,7 +4,7 @@ IMAGE=tsuru/$(BINARY)
 LOCAL_REGISTRY=10.200.10.1:5000
 LINTER_ARGS = \
 	-j 4 --enable-gc -s vendor -e '.*/vendor/.*' --vendor --enable=misspell --enable=gofmt --enable=goimports --enable=unused \
-	--disable=gocyclo --deadline=60m --tests
+	--disable=gocyclo --disable=gosec --deadline=60m --tests
 RUN_FLAGS=-v 9
 
 .PHONY: run
