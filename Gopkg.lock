@@ -228,6 +228,14 @@
   version = "v2.1"
 
 [[projects]]
+  digest = "1:0028cb19b2e4c3112225cd871870f2d9cf49b9b4276531f03438a88e94be86fe"
+  name = "github.com/pmezard/go-difflib"
+  packages = ["difflib"]
+  pruneopts = "NUT"
+  revision = "792786c7400a136282c1664665ae0a8db921c6c2"
+  version = "v1.0.0"
+
+[[projects]]
   digest = "1:a8512715947d49f24e6aa2d0fdd06f46bdd8d2e792517ba0ac95a2c089eaae28"
   name = "github.com/prometheus/client_golang"
   packages = [
@@ -285,6 +293,17 @@
   pruneopts = "NUT"
   revision = "298182f68c66c05229eb03ac171abe6e309ee79a"
   version = "v1.0.3"
+
+[[projects]]
+  digest = "1:0331452965d8695c0a5633e0f509012987681a654f388f2ad0c3b2d7f7004b1c"
+  name = "github.com/stretchr/testify"
+  packages = [
+    "assert",
+    "require",
+  ]
+  pruneopts = "NUT"
+  revision = "f35b8ab0b5a2cef36673838d662e249dd9c94686"
+  version = "v1.2.2"
 
 [[projects]]
   branch = "master"
@@ -511,12 +530,13 @@
   revision = "6bf9d6613f65c2754a3d90ae916e1806e9d74175"
 
 [[projects]]
-  digest = "1:726587ae293bbf72bd3fa2f85ab1183f79ec22cb5b6d1cefbcbd5afbcfe91045"
+  digest = "1:f145f272df2b68f601423a944bbe9e425fa1dd8a3238d0aadf56836db6e056e4"
   name = "istio.io/istio"
   packages = [
     "pilot/pkg/config/kube/crd",
     "pilot/pkg/model",
     "pilot/pkg/model/test",
+    "pilot/pkg/networking/core/v1alpha3/fakes",
     "pilot/pkg/serviceregistry/kube",
     "pkg/cache",
     "pkg/kube",
@@ -730,6 +750,8 @@
     "github.com/golang/glog",
     "github.com/gorilla/mux",
     "github.com/prometheus/client_golang/prometheus/promhttp",
+    "github.com/stretchr/testify/assert",
+    "github.com/stretchr/testify/require",
     "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1",
     "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned",
     "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake",
@@ -737,6 +759,7 @@
     "istio.io/api/networking/v1alpha3",
     "istio.io/istio/pilot/pkg/config/kube/crd",
     "istio.io/istio/pilot/pkg/model",
+    "istio.io/istio/pilot/pkg/networking/core/v1alpha3/fakes",
     "k8s.io/api/core/v1",
     "k8s.io/api/extensions/v1beta1",
     "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1",

@@ -24,6 +24,7 @@ const (
 // IstioGateway manages gateways in a Kubernetes cluster with istio enabled.
 type IstioGateway struct {
 	*BaseService
+	istioClient     model.ConfigStore
 	DefaultDomain   string
 	GatewaySelector map[string]string
 }
@@ -76,15 +77,19 @@ func (k *IstioGateway) setConfigMeta(config *model.Config, appName string, route
 	}
 }
 
-func (k *IstioGateway) istioClient() (*crd.Client, error) {
-	cli, err := crd.NewClient("", "", model.IstioConfigTypes, "")
+func (k *IstioGateway) getClient() (model.ConfigStore, error) {
+	if k.istioClient != nil {
+		return k.istioClient, nil
+	}
+	var err error
+	k.istioClient, err = crd.NewClient("", "", model.IstioConfigTypes, "")
 	if err != nil {
 		return nil, err
 	}
-	return cli, nil
+	return k.istioClient, nil
 }
 
-func (k *IstioGateway) getVS(cli *crd.Client, appName string) (*model.Config, *networking.VirtualService, error) {
+func (k *IstioGateway) getVS(cli model.ConfigStore, appName string) (*model.Config, *networking.VirtualService, error) {
 	ns, err := k.getAppNamespace(appName)
 	if err != nil {
 		return nil, nil, err
@@ -100,7 +105,7 @@ func (k *IstioGateway) getVS(cli *crd.Client, appName string) (*model.Config, *n
 	return vsConfig, vsSpec, nil
 }
 
-func (k *IstioGateway) getGateway(cli *crd.Client, appName string) (*model.Config, *networking.Gateway, error) {
+func (k *IstioGateway) getGateway(cli model.ConfigStore, appName string) (*model.Config, *networking.Gateway, error) {
 	ns, err := k.getAppNamespace(appName)
 	if err != nil {
 		return nil, nil, err
@@ -139,7 +144,10 @@ func addToSet(dst []string, toAdd ...string) []string {
 
 func (k *IstioGateway) updateVirtualService(vsSpec *networking.VirtualService, appName, dstHost string) *networking.VirtualService {
 	vsSpec.Gateways = addToSet(vsSpec.Gateways, gatewayName(appName))
-	vsSpec.Hosts = addToSet(vsSpec.Hosts, k.gatewayHost(appName), dstHost)
+	vsSpec.Hosts = addToSet(vsSpec.Hosts, k.gatewayHost(appName))
+	if dstHost != placeHolderServiceName {
+		vsSpec.Hosts = addToSet(vsSpec.Hosts, dstHost)
+	}
 	if len(vsSpec.Http) == 0 {
 		vsSpec.Http = append(vsSpec.Http, &networking.HTTPRoute{})
 	}
@@ -163,7 +171,7 @@ func (k *IstioGateway) updateVirtualService(vsSpec *networking.VirtualService, a
 
 // Create adds a new gateway and a virtualservice for the app
 func (k *IstioGateway) Create(appName string, routerOpts router.Opts) error {
-	cli, err := k.istioClient()
+	cli, err := k.getClient()
 	if err != nil {
 		return err
 	}
@@ -237,7 +245,7 @@ func (k *IstioGateway) Update(appName string, _ router.Opts) error {
 	if err != nil {
 		return err
 	}
-	cli, err := k.istioClient()
+	cli, err := k.getClient()
 	if err != nil {
 		return err
 	}
@@ -252,7 +260,7 @@ func (k *IstioGateway) Update(appName string, _ router.Opts) error {
 
 // Get returns the address in the gateway
 func (k *IstioGateway) Get(appName string) (map[string]string, error) {
-	cli, err := k.istioClient()
+	cli, err := k.getClient()
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +278,7 @@ func (k *IstioGateway) Swap(srcApp, dstApp string) error {
 
 // Remove removes the application gateway and removes it from the virtualservice
 func (k *IstioGateway) Remove(appName string) error {
-	cli, err := k.istioClient()
+	cli, err := k.getClient()
 	if err != nil {
 		return err
 	}
@@ -304,7 +312,7 @@ var errCnameExists = errors.New("cname already exists")
 
 // SetCname adds a new host to the gateway
 func (k *IstioGateway) SetCname(appName string, cname string) error {
-	cli, err := k.istioClient()
+	cli, err := k.getClient()
 	if err != nil {
 		return err
 	}
@@ -325,7 +333,7 @@ func (k *IstioGateway) SetCname(appName string, cname string) error {
 
 // GetCnames returns hosts in gateway
 func (k *IstioGateway) GetCnames(appName string) (*router.CnamesResp, error) {
-	cli, err := k.istioClient()
+	cli, err := k.getClient()
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +352,7 @@ func (k *IstioGateway) GetCnames(appName string) (*router.CnamesResp, error) {
 
 // UnsetCname removes a host from a gateway
 func (k *IstioGateway) UnsetCname(appName string, cname string) error {
-	cli, err := k.istioClient()
+	cli, err := k.getClient()
 	if err != nil {
 		return err
 	}
