@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 
 	"github.com/tsuru/kubernetes-router/router"
@@ -19,6 +20,8 @@ import (
 
 const (
 	placeHolderServiceName = "kubernetes-router-placeholder"
+
+	hostsAnnotation = "tsuru.io/additional-hosts"
 )
 
 // IstioGateway manages gateways in a Kubernetes cluster with istio enabled.
@@ -105,25 +108,6 @@ func (k *IstioGateway) getVS(cli model.ConfigStore, appName string) (*model.Conf
 	return vsConfig, vsSpec, nil
 }
 
-func (k *IstioGateway) getGateway(cli model.ConfigStore, appName string) (*model.Config, *networking.Gateway, error) {
-	ns, err := k.getAppNamespace(appName)
-	if err != nil {
-		return nil, nil, err
-	}
-	gatewayConfig, found := cli.Get(model.Gateway.Type, gatewayName(appName), ns)
-	if !found {
-		return nil, nil, fmt.Errorf("gateway %q not found", gatewayName(appName))
-	}
-	gatewaySpec, ok := gatewayConfig.Spec.(*networking.Gateway)
-	if !ok {
-		return nil, nil, fmt.Errorf("gateway does not match type: %T - %#v", gatewayConfig.Spec, gatewayConfig.Spec)
-	}
-	if len(gatewaySpec.Servers) == 0 || len(gatewaySpec.Servers[0].Hosts) == 0 {
-		return nil, nil, fmt.Errorf("no servers or hosts in gateway %q: %#v", gatewayConfig.Name, gatewaySpec)
-	}
-	return gatewayConfig, gatewaySpec, nil
-}
-
 func (k *IstioGateway) isSwapped(obj *model.Config) (string, bool) {
 	target := obj.Labels[swapLabel]
 	return target, target != ""
@@ -142,7 +126,51 @@ func addToSet(dst []string, toAdd ...string) []string {
 	return dst
 }
 
-func (k *IstioGateway) updateVirtualService(vsSpec *networking.VirtualService, appName, dstHost string) *networking.VirtualService {
+func removeFromSet(dst []string, toRemove ...string) []string {
+	existingSet := map[string]struct{}{}
+	for _, v := range dst {
+		existingSet[v] = struct{}{}
+	}
+	for _, v := range toRemove {
+		delete(existingSet, v)
+	}
+	dst = dst[:0]
+	for h := range existingSet {
+		dst = append(dst, h)
+	}
+	return dst
+}
+
+func hostsFromAnnotation(virtualSvcCfg *model.Config) []string {
+	hostsRaw := virtualSvcCfg.Annotations[hostsAnnotation]
+	var hosts []string
+	if hostsRaw != "" {
+		hosts = strings.Split(hostsRaw, ",")
+	}
+	return hosts
+}
+
+func vsAddHost(virtualSvcCfg *model.Config, vsSpec *networking.VirtualService, host string) {
+	hosts := hostsFromAnnotation(virtualSvcCfg)
+	vsSpec.Hosts = removeFromSet(vsSpec.Hosts, hosts...)
+	hosts = addToSet(hosts, host)
+	vsSpec.Hosts = addToSet(vsSpec.Hosts, hosts...)
+	sort.Strings(hosts)
+	virtualSvcCfg.Annotations[hostsAnnotation] = strings.Join(hosts, ",")
+	virtualSvcCfg.Spec = vsSpec
+}
+
+func vsRemoveHost(virtualSvcCfg *model.Config, vsSpec *networking.VirtualService, host string) {
+	hosts := hostsFromAnnotation(virtualSvcCfg)
+	vsSpec.Hosts = removeFromSet(vsSpec.Hosts, hosts...)
+	hosts = removeFromSet(hosts, host)
+	vsSpec.Hosts = addToSet(vsSpec.Hosts, hosts...)
+	sort.Strings(hosts)
+	virtualSvcCfg.Annotations[hostsAnnotation] = strings.Join(hosts, ",")
+	virtualSvcCfg.Spec = vsSpec
+}
+
+func (k *IstioGateway) updateVirtualService(virtualSvcCfg *model.Config, vsSpec *networking.VirtualService, appName, dstHost string) *model.Config {
 	vsSpec.Gateways = addToSet(vsSpec.Gateways, gatewayName(appName))
 	vsSpec.Hosts = addToSet(vsSpec.Hosts, k.gatewayHost(appName))
 	if dstHost != placeHolderServiceName {
@@ -166,7 +194,8 @@ func (k *IstioGateway) updateVirtualService(vsSpec *networking.VirtualService, a
 	vsSpec.Http[0].Route[dstIdx].Destination = &networking.Destination{
 		Host: dstHost,
 	}
-	return vsSpec
+	virtualSvcCfg.Spec = vsSpec
+	return virtualSvcCfg
 }
 
 // Create adds a new gateway and a virtualservice for the app
@@ -179,7 +208,6 @@ func (k *IstioGateway) Create(appName string, routerOpts router.Opts) error {
 	if err != nil {
 		return err
 	}
-
 	gatewayCfg := makeConfig(gatewayName(appName), namespace, model.Gateway)
 	k.setConfigMeta(gatewayCfg, appName, routerOpts)
 	gatewayCfg.Spec = &networking.Gateway{
@@ -188,12 +216,10 @@ func (k *IstioGateway) Create(appName string, routerOpts router.Opts) error {
 			{
 				Port: &networking.Port{
 					Number:   80,
-					Name:     "http",
-					Protocol: "HTTP",
+					Name:     "http2",
+					Protocol: "HTTP2",
 				},
-				Hosts: []string{
-					k.gatewayHost(appName),
-				},
+				Hosts: []string{"*"},
 			},
 		},
 	}
@@ -223,7 +249,7 @@ func (k *IstioGateway) Create(appName string, routerOpts router.Opts) error {
 		}
 	}
 	k.setConfigMeta(virtualSvcCfg, appName, routerOpts)
-	virtualSvcCfg.Spec = k.updateVirtualService(vsSpec, appName, webServiceName)
+	virtualSvcCfg = k.updateVirtualService(virtualSvcCfg, vsSpec, appName, webServiceName)
 	if existingSvc {
 		_, err = cli.Update(*virtualSvcCfg)
 	} else {
@@ -240,7 +266,7 @@ func (k *IstioGateway) Create(appName string, routerOpts router.Opts) error {
 }
 
 // Update sets the app web service into the existing virtualservice
-func (k *IstioGateway) Update(appName string, _ router.Opts) error {
+func (k *IstioGateway) Update(appName string, opts router.Opts) error {
 	service, err := k.getWebService(appName)
 	if err != nil {
 		return err
@@ -253,27 +279,20 @@ func (k *IstioGateway) Update(appName string, _ router.Opts) error {
 	if err != nil {
 		return err
 	}
-	vsConfig.Spec = k.updateVirtualService(vsSpec, appName, service.Name)
+	vsConfig = k.updateVirtualService(vsConfig, vsSpec, appName, service.Name)
+	k.setConfigMeta(vsConfig, appName, opts)
 	_, err = cli.Update(*vsConfig)
 	return err
 }
 
 // Get returns the address in the gateway
 func (k *IstioGateway) Get(appName string) (map[string]string, error) {
-	cli, err := k.getClient()
-	if err != nil {
-		return nil, err
-	}
-	_, gatewaySpec, err := k.getGateway(cli, appName)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]string{"address": gatewaySpec.Servers[0].Hosts[0]}, nil
+	return map[string]string{"address": k.gatewayHost(appName)}, nil
 }
 
 // Swap is not implemented
 func (k *IstioGateway) Swap(srcApp, dstApp string) error {
-	return errors.New("swap is not implemented yet")
+	return errors.New("swap is not supported, the virtualservice should be edited manually")
 }
 
 // Remove removes the application gateway and removes it from the virtualservice
@@ -316,17 +335,11 @@ func (k *IstioGateway) SetCname(appName string, cname string) error {
 	if err != nil {
 		return err
 	}
-	cfg, spec, err := k.getGateway(cli, appName)
+	cfg, vsSpec, err := k.getVS(cli, appName)
 	if err != nil {
 		return err
 	}
-	for _, h := range spec.Servers[0].Hosts {
-		if h == cname {
-			return errCnameExists
-		}
-	}
-	spec.Servers[0].Hosts = append(spec.Servers[0].Hosts, cname)
-	cfg.Spec = spec
+	vsAddHost(cfg, vsSpec, cname)
 	_, err = cli.Update(*cfg)
 	return err
 }
@@ -337,13 +350,14 @@ func (k *IstioGateway) GetCnames(appName string) (*router.CnamesResp, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, spec, err := k.getGateway(cli, appName)
+	vsConfig, _, err := k.getVS(cli, appName)
 	if err != nil {
 		return nil, err
 	}
 	var rsp router.CnamesResp
-	for _, h := range spec.Servers[0].Hosts {
-		if h != k.gatewayHost(appName) {
+	hostsRaw := vsConfig.Annotations[hostsAnnotation]
+	for _, h := range strings.Split(hostsRaw, ",") {
+		if h != "" {
 			rsp.Cnames = append(rsp.Cnames, h)
 		}
 	}
@@ -356,18 +370,11 @@ func (k *IstioGateway) UnsetCname(appName string, cname string) error {
 	if err != nil {
 		return err
 	}
-	cfg, spec, err := k.getGateway(cli, appName)
+	cfg, vsSpec, err := k.getVS(cli, appName)
 	if err != nil {
 		return err
 	}
-	var keep []string
-	for _, h := range spec.Servers[0].Hosts {
-		if h != cname {
-			keep = append(keep, h)
-		}
-	}
-	spec.Servers[0].Hosts = keep
-	cfg.Spec = spec
+	vsRemoveHost(cfg, vsSpec, cname)
 	_, err = cli.Update(*cfg)
 	return err
 }

@@ -5,6 +5,7 @@
 package kubernetes
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,11 +61,11 @@ func TestIstioGateway_Create(t *testing.T) {
 				{
 					Port: &networking.Port{
 						Number:   80,
-						Name:     "http",
-						Protocol: "HTTP",
+						Name:     "http2",
+						Protocol: "HTTP2",
 					},
 					Hosts: []string{
-						"myapp.my.domain",
+						"*",
 					},
 				},
 			},
@@ -145,11 +146,11 @@ func TestIstioGateway_Create_existingVirtualService(t *testing.T) {
 				{
 					Port: &networking.Port{
 						Number:   80,
-						Name:     "http",
-						Protocol: "HTTP",
+						Name:     "http2",
+						Protocol: "HTTP2",
 					},
 					Hosts: []string{
-						"myapp.my.domain",
+						"*",
 					},
 				},
 			},
@@ -259,4 +260,179 @@ func TestIstioGateway_Update(t *testing.T) {
 			},
 		},
 	}, vsConfig.Spec)
+}
+
+func TestIstioGateway_SetCname(t *testing.T) {
+	tests := []struct {
+		annotation         string
+		hosts              []string
+		toAdd              string
+		expectedHosts      []string
+		expectedAnnotation string
+	}{
+		{
+			hosts:              []string{"existing1"},
+			toAdd:              "myhost.com",
+			expectedHosts:      []string{"myhost.com", "existing1"},
+			expectedAnnotation: "myhost.com",
+		},
+		{
+			annotation:         "my.other.addr",
+			hosts:              []string{"existing1"},
+			toAdd:              "myhost.com",
+			expectedHosts:      []string{"myhost.com", "existing1", "my.other.addr"},
+			expectedAnnotation: "my.other.addr,myhost.com",
+		},
+		{
+			annotation:         "my.other.addr",
+			hosts:              []string{"existing1", "my.other.addr"},
+			toAdd:              "myhost.com",
+			expectedHosts:      []string{"myhost.com", "existing1", "my.other.addr"},
+			expectedAnnotation: "my.other.addr,myhost.com",
+		},
+		{
+			annotation:         "my.other.addr,myhost.com",
+			hosts:              []string{"existing1", "my.other.addr"},
+			toAdd:              "another.host.com",
+			expectedHosts:      []string{"myhost.com", "existing1", "my.other.addr", "another.host.com"},
+			expectedAnnotation: "another.host.com,my.other.addr,myhost.com",
+		},
+	}
+	for i, tt := range tests {
+		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
+			svc, istio := fakeService()
+			istio.GetReturns(&model.Config{
+				ConfigMeta: model.ConfigMeta{
+					Type:      "virtual-service",
+					Group:     "networking.istio.io",
+					Version:   "v1alpha3",
+					Name:      "myapp",
+					Namespace: "default",
+					Labels: map[string]string{
+						"tsuru.io/app-name": "myapp",
+					},
+					Annotations: map[string]string{
+						"tsuru.io/additional-hosts": tt.annotation,
+					},
+				},
+				Spec: &networking.VirtualService{
+					Hosts: tt.hosts,
+				},
+			}, true)
+			err := svc.SetCname("myapp", tt.toAdd)
+			require.NoError(t, err)
+			require.Equal(t, 1, istio.UpdateCallCount())
+			vsConfig := istio.UpdateArgsForCall(0)
+			assert.ElementsMatch(t, tt.expectedHosts, vsConfig.Spec.(*networking.VirtualService).Hosts)
+			assert.Equal(t, tt.expectedAnnotation, vsConfig.Annotations["tsuru.io/additional-hosts"])
+		})
+	}
+}
+
+func TestIstioGateway_UnsetCname(t *testing.T) {
+	tests := []struct {
+		annotation         string
+		hosts              []string
+		toRemove           string
+		expectedHosts      []string
+		expectedAnnotation string
+	}{
+		{
+			hosts:              []string{"existing1"},
+			toRemove:           "myhost.com",
+			expectedHosts:      []string{"existing1"},
+			expectedAnnotation: "",
+		},
+		{
+			annotation:         "my.other.addr,myhost.com",
+			hosts:              []string{"myhost.com", "existing1"},
+			toRemove:           "myhost.com",
+			expectedHosts:      []string{"existing1", "my.other.addr"},
+			expectedAnnotation: "my.other.addr",
+		},
+		{
+			annotation:         "my.other.addr,myhost.com",
+			hosts:              []string{"myhost.com", "existing1", "my.other.addr"},
+			toRemove:           "myhost.com",
+			expectedHosts:      []string{"existing1", "my.other.addr"},
+			expectedAnnotation: "my.other.addr",
+		},
+		{
+			annotation:         "another.host.com,my.other.addr,myhost.com",
+			hosts:              []string{"myhost.com", "existing1", "my.other.addr", "another.host.com"},
+			toRemove:           "another.host.com",
+			expectedHosts:      []string{"existing1", "my.other.addr", "myhost.com"},
+			expectedAnnotation: "my.other.addr,myhost.com",
+		},
+	}
+	for i, tt := range tests {
+		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
+			svc, istio := fakeService()
+			istio.GetReturns(&model.Config{
+				ConfigMeta: model.ConfigMeta{
+					Type:      "virtual-service",
+					Group:     "networking.istio.io",
+					Version:   "v1alpha3",
+					Name:      "myapp",
+					Namespace: "default",
+					Labels: map[string]string{
+						"tsuru.io/app-name": "myapp",
+					},
+					Annotations: map[string]string{
+						"tsuru.io/additional-hosts": tt.annotation,
+					},
+				},
+				Spec: &networking.VirtualService{
+					Hosts: tt.hosts,
+				},
+			}, true)
+			err := svc.UnsetCname("myapp", tt.toRemove)
+			require.NoError(t, err)
+			require.Equal(t, 1, istio.UpdateCallCount())
+			vsConfig := istio.UpdateArgsForCall(0)
+			assert.ElementsMatch(t, tt.expectedHosts, vsConfig.Spec.(*networking.VirtualService).Hosts)
+			assert.Equal(t, tt.expectedAnnotation, vsConfig.Annotations["tsuru.io/additional-hosts"])
+		})
+	}
+}
+
+func TestIstioGateway_GetCnames(t *testing.T) {
+	tests := []struct {
+		annotation string
+		expected   []string
+	}{
+		{},
+		{
+			annotation: "my.other.addr,myhost.com",
+			expected:   []string{"my.other.addr", "myhost.com"},
+		},
+		{
+			annotation: "my.other.addr,",
+			expected:   []string{"my.other.addr"},
+		},
+	}
+	for i, tt := range tests {
+		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
+			svc, istio := fakeService()
+			istio.GetReturns(&model.Config{
+				ConfigMeta: model.ConfigMeta{
+					Type:      "virtual-service",
+					Group:     "networking.istio.io",
+					Version:   "v1alpha3",
+					Name:      "myapp",
+					Namespace: "default",
+					Labels: map[string]string{
+						"tsuru.io/app-name": "myapp",
+					},
+					Annotations: map[string]string{
+						"tsuru.io/additional-hosts": tt.annotation,
+					},
+				},
+				Spec: &networking.VirtualService{},
+			}, true)
+			rsp, err := svc.GetCnames("myapp")
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.expected, rsp.Cnames)
+		})
+	}
 }
