@@ -37,7 +37,7 @@ func TestHealthcheckOK(t *testing.T) {
 
 func TestGetBackend(t *testing.T) {
 	service := &mock.RouterService{}
-	api := RouterAPI{IngressService: service}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 	expected := map[string]string{"data": "myapp"}
 	service.GetFn = func(name string) (map[string]string, error) {
@@ -67,9 +67,47 @@ func TestGetBackend(t *testing.T) {
 	}
 }
 
+func TestGetBackendExplicitMode(t *testing.T) {
+	service := &mock.RouterService{}
+	api := RouterAPI{DefaultMode: "xyz", IngressServices: map[string]router.Service{"mymode": service}}
+	r := api.Routes()
+	expected := map[string]string{"data": "myapp"}
+	service.GetFn = func(name string) (map[string]string, error) {
+		if name != "myapp" {
+			t.Errorf("Expected myapp. Got %s", name)
+		}
+		return expected, nil
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/mymode/backend/myapp", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
+	}
+	if !service.GetInvoked {
+		t.Errorf("Service Get function not invoked")
+	}
+}
+
+func TestGetBackendInvalidMode(t *testing.T) {
+	service := &mock.RouterService{}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
+	r := api.Routes()
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/othermode/backend/myapp", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	resp := w.Result()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected status %q. Got %q", http.StatusNotFound, resp.Status)
+	}
+}
+
 func TestAddBackend(t *testing.T) {
 	service := &mock.RouterService{}
-	api := RouterAPI{IngressService: service}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
 	service.CreateFn = func(name string, opts router.Opts) error {
@@ -106,7 +144,7 @@ func TestAddBackend(t *testing.T) {
 
 func TestRemoveBackend(t *testing.T) {
 	service := &mock.RouterService{}
-	api := RouterAPI{IngressService: service}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
 	service.RemoveFn = testCalledWith("myapp", t)
@@ -126,7 +164,7 @@ func TestRemoveBackend(t *testing.T) {
 
 func TestAddRoutes(t *testing.T) {
 	service := &mock.RouterService{}
-	api := RouterAPI{IngressService: service}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
 	service.UpdateFn = func(name string, opts router.Opts) error {
@@ -151,7 +189,7 @@ func TestAddRoutes(t *testing.T) {
 
 func TestSwap(t *testing.T) {
 	service := &mock.RouterService{}
-	api := RouterAPI{IngressService: service}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
 	service.SwapFn = func(app, dst string) error {
@@ -182,7 +220,7 @@ func TestSwap(t *testing.T) {
 
 func TestGetRoutes(t *testing.T) {
 	service := &mock.RouterService{}
-	api := RouterAPI{IngressService: service}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
 	service.AddressesFn = func(app string) ([]string, error) {
@@ -213,7 +251,7 @@ func TestGetRoutes(t *testing.T) {
 
 func TestAddCertificate(t *testing.T) {
 	service := &mock.RouterService{}
-	api := RouterAPI{IngressService: service}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
 	certExpected := router.CertData{Certificate: "Certz", Key: "keyz"}
@@ -243,7 +281,7 @@ func TestAddCertificate(t *testing.T) {
 
 func TestGetCertificate(t *testing.T) {
 	service := &mock.RouterService{}
-	api := RouterAPI{IngressService: service}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
 	service.GetCertificateFn = func(appName, certName string) (*router.CertData, error) {
@@ -275,7 +313,7 @@ func TestGetCertificate(t *testing.T) {
 
 func TestRemoveCertificate(t *testing.T) {
 	service := &mock.RouterService{}
-	api := RouterAPI{IngressService: service}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
 	service.RemoveCertificateFn = func(appName, certName string) error {
@@ -297,7 +335,7 @@ func TestRemoveCertificate(t *testing.T) {
 
 func TestSetCname(t *testing.T) {
 	service := &mock.RouterService{}
-	api := RouterAPI{IngressService: service}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 	cnameExpected := "cname1"
 
@@ -323,7 +361,7 @@ func TestSetCname(t *testing.T) {
 
 func TestGetCnames(t *testing.T) {
 	service := &mock.RouterService{}
-	api := RouterAPI{IngressService: service}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 	cnames := router.CnamesResp{
 		Cnames: []string{
@@ -358,7 +396,7 @@ func TestGetCnames(t *testing.T) {
 
 func TestUnsetCname(t *testing.T) {
 	service := &mock.RouterService{}
-	api := RouterAPI{IngressService: service}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 	cnameExpected := "cname1"
 

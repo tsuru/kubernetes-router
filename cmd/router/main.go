@@ -19,6 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/tsuru/kubernetes-router/api"
 	"github.com/tsuru/kubernetes-router/kubernetes"
+	"github.com/tsuru/kubernetes-router/router"
 	"github.com/urfave/negroni"
 )
 
@@ -30,7 +31,9 @@ func main() {
 	flag.Var(k8sLabels, "k8s-labels", "Labels to be added to each resource created. Expects KEY=VALUE format.")
 	k8sAnnotations := &MapFlag{}
 	flag.Var(k8sAnnotations, "k8s-annotations", "Annotations to be added to each resource created. Expects KEY=VALUE format.")
-	runMode := flag.String("controller-mode", "service", "Defines the controller running mode, service, ingress, ingressNginx or istio-gateway.")
+	runModes := StringSliceFlag{}
+	flag.Var(&runModes, "controller-modes", "Defines enabled controller running modes: service, ingress, ingress-nginx or istio-gateway.")
+
 	ingressDefaultDomain := flag.String("ingress-domain", "local", "Default domain to be used on created vhosts, local is the default. (eg: serviceName.local)")
 
 	istioGatewaySelector := &MapFlag{}
@@ -59,26 +62,35 @@ func main() {
 		Annotations: *k8sAnnotations,
 	}
 
-	var routerAPI api.RouterAPI
-	switch *runMode {
-	case "istio-gateway":
-		routerAPI = api.RouterAPI{IngressService: &kubernetes.IstioGateway{BaseService: base, DefaultDomain: *ingressDefaultDomain, GatewaySelector: *istioGatewaySelector}}
-	case "ingress":
-		routerAPI = api.RouterAPI{IngressService: &kubernetes.IngressService{BaseService: base}}
-	case "ingressNginx":
-		for k, v := range kubernetes.AnnotationsNginx {
-			base.Annotations[k] = v
+	if len(runModes) == 0 {
+		runModes = append(runModes, "service")
+	}
+
+	routerAPI := api.RouterAPI{
+		DefaultMode:     runModes[0],
+		IngressServices: map[string]router.Service{},
+	}
+	for _, mode := range runModes {
+		switch mode {
+		case "istio-gateway":
+			routerAPI.IngressServices[mode] = &kubernetes.IstioGateway{BaseService: base, DefaultDomain: *ingressDefaultDomain, GatewaySelector: *istioGatewaySelector}
+		case "ingress":
+			routerAPI.IngressServices[mode] = &kubernetes.IngressService{BaseService: base}
+		case "ingressNginx":
+			for k, v := range kubernetes.AnnotationsNginx {
+				base.Annotations[k] = v
+			}
+			routerAPI.IngressServices[mode] = &kubernetes.IngressService{BaseService: base, DefaultDomain: *ingressDefaultDomain}
+		case "service":
+			routerAPI.IngressServices[mode] = &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels, PoolLabels: *poolLabels}
+		default:
+			log.Fatalf("fail parameters: Use one of the following modes: service, ingress or ingressNginx.")
 		}
-		routerAPI = api.RouterAPI{IngressService: &kubernetes.IngressService{BaseService: base, DefaultDomain: *ingressDefaultDomain}}
-	case "service":
-		routerAPI = api.RouterAPI{IngressService: &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels, PoolLabels: *poolLabels}}
-	default:
-		log.Fatalf("fail parameters: Use one of the following modes: service, ingress or ingressNginx.")
 	}
 
 	r := mux.NewRouter().StrictSlash(true)
 
-	r.PathPrefix("/api").Handler(negroni.New(
+	r.NewRoute().Handler(negroni.New(
 		api.AuthMiddleware{
 			User: os.Getenv("ROUTER_API_USER"),
 			Pass: os.Getenv("ROUTER_API_PASSWORD"),

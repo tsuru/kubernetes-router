@@ -74,3 +74,22 @@ func (f *MultiMapFlag) Set(val string) error {
 	(*f)[parts[0]] = innerMap
 	return nil
 }
+
+// StringSliceFlag wraps a string slice populated by multiple flags.
+type StringSliceFlag []string
+
+// String prints a json representation
+func (f *StringSliceFlag) String() string {
+	repr := *f
+	if repr == nil {
+		repr = StringSliceFlag{}
+	}
+	data, _ := json.Marshal(repr)
+	return string(data)
+}
+
+// Set appends a new string to the slice
+func (f *StringSliceFlag) Set(val string) error {
+	*f = append(*f, val)
+	return nil
+}

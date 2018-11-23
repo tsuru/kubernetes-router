@@ -7,6 +7,8 @@ package main
 import (
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMapFlag(t *testing.T) {
@@ -48,6 +50,22 @@ func TestMultiMapFlag(t *testing.T) {
 		t.Fatalf("Expected nil. Got %v.", err)
 	}
 	expected := MultiMapFlag{"a": {"v": "1"}, "b": {"v": "2", "x": "3"}}
+	if !reflect.DeepEqual(f, expected) {
+		t.Fatalf("Expected %v. Got %v.", expected, f)
+	}
+}
+
+func TestStringSliceFlag(t *testing.T) {
+	var f StringSliceFlag
+	err := f.Set("a")
+	require.NoError(t, err)
+	err = f.Set("b")
+	require.NoError(t, err)
+	err = f.Set("c")
+	require.NoError(t, err)
+	expected := StringSliceFlag{
+		"a", "b", "c",
+	}
 	if !reflect.DeepEqual(f, expected) {
 		t.Fatalf("Expected %v. Got %v.", expected, f)
 	}
