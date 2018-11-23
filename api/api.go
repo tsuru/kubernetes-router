@@ -19,12 +19,19 @@ import (
 
 // RouterAPI implements Tsuru HTTP router API
 type RouterAPI struct {
-	IngressService router.Service
+	DefaultMode     string
+	IngressServices map[string]router.Service
 }
 
 // Routes returns an mux for the API routes
 func (a *RouterAPI) Routes() *mux.Router {
-	r := mux.NewRouter().PathPrefix("/api").Subrouter()
+	r := mux.NewRouter()
+	a.registerRoutes(r.PathPrefix("/api").Subrouter())
+	a.registerRoutes(r.PathPrefix("/api/{mode}").Subrouter())
+	return r
+}
+
+func (a *RouterAPI) registerRoutes(r *mux.Router) {
 	r.Handle("/backend/{name}", handler(a.getBackend)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}", handler(a.addBackend)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}", handler(a.updateBackend)).Methods(http.MethodPut)
@@ -44,7 +51,17 @@ func (a *RouterAPI) Routes() *mux.Router {
 	// Supports
 	r.Handle("/support/tls", handler(a.supportTLS)).Methods(http.MethodGet)
 	r.Handle("/support/cname", handler(a.supportCNAME)).Methods(http.MethodGet)
-	return r
+}
+
+func (a *RouterAPI) ingressService(mode string) (router.Service, error) {
+	if mode == "" {
+		mode = a.DefaultMode
+	}
+	svc, ok := a.IngressServices[mode]
+	if !ok {
+		return nil, httpError{Status: http.StatusNotFound}
+	}
+	return svc, nil
 }
 
 // getBackend returns the address for the load balancer registered in
@@ -52,7 +69,11 @@ func (a *RouterAPI) Routes() *mux.Router {
 func (a *RouterAPI) getBackend(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	name := vars["name"]
-	info, err := a.IngressService.Get(name)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	info, err := svc.Get(name)
 	if err != nil {
 		return err
 	}
@@ -72,7 +93,11 @@ func (a *RouterAPI) addBackend(w http.ResponseWriter, r *http.Request) error {
 	if len(routerOpts.Domain) > 0 && len(routerOpts.Route) == 0 {
 		routerOpts.Route = "/"
 	}
-	return a.IngressService.Create(name, routerOpts)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	return svc.Create(name, routerOpts)
 }
 
 // updateBackend is no-op
@@ -84,14 +109,22 @@ func (a *RouterAPI) updateBackend(w http.ResponseWriter, r *http.Request) error 
 func (a *RouterAPI) removeBackend(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	name := vars["name"]
-	return a.IngressService.Remove(name)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	return svc.Remove(name)
 }
 
 // addRoutes updates the Ingress to point to the correct service
 func (a *RouterAPI) addRoutes(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	name := vars["name"]
-	return a.IngressService.Update(name, router.Opts{})
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	return svc.Update(name, router.Opts{})
 }
 
 // removeRoutes is no-op
@@ -102,7 +135,11 @@ func (a *RouterAPI) removeRoutes(w http.ResponseWriter, r *http.Request) error {
 func (a *RouterAPI) getRoutes(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	name := vars["name"]
-	endpoints, err := a.IngressService.Addresses(name)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	endpoints, err := svc.Addresses(name)
 	if err != nil {
 		return err
 	}
@@ -127,7 +164,11 @@ func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
 	if req.Target == "" {
 		return httpError{Body: "empty target", Status: http.StatusBadRequest}
 	}
-	return a.IngressService.Swap(name, req.Target)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	return svc.Swap(name, req.Target)
 }
 
 // Healthcheck checks the health of the service
@@ -138,12 +179,18 @@ func (a *RouterAPI) Healthcheck(w http.ResponseWriter, req *http.Request) {
 			glog.Errorf("failed to write healthcheck: %v", err)
 		}
 	}()
-	if hc, ok := a.IngressService.(router.HealthcheckableService); ok {
-		if err = hc.Healthcheck(); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, err = w.Write([]byte(fmt.Sprintf("failed to check IngressService: %v", err)))
-			return
+	var errors []string
+	for mode, svc := range a.IngressServices {
+		if hc, ok := svc.(router.HealthcheckableService); ok {
+			if err = hc.Healthcheck(); err != nil {
+				errors = append(errors, fmt.Sprintf("failed to check IngressService %v: %v", mode, err))
+			}
 		}
+	}
+	if len(errors) > 0 {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, err = w.Write([]byte(strings.Join(errors, " - ")))
+		return
 	}
 	_, err = w.Write([]byte("WORKING"))
 }
@@ -159,7 +206,11 @@ func (a *RouterAPI) addCertificate(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
-	return a.IngressService.(router.ServiceTLS).AddCertificate(name, certName, cert)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	return svc.(router.ServiceTLS).AddCertificate(name, certName, cert)
 }
 
 // getCertificate Return certificate for app
@@ -168,7 +219,11 @@ func (a *RouterAPI) getCertificate(w http.ResponseWriter, r *http.Request) error
 	name := vars["name"]
 	certName := vars["certname"]
 	log.Printf("Getting certificate %s from %s", certName, name)
-	cert, err := a.IngressService.(router.ServiceTLS).GetCertificate(name, certName)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	cert, err := svc.(router.ServiceTLS).GetCertificate(name, certName)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		return err
@@ -188,7 +243,11 @@ func (a *RouterAPI) removeCertificate(w http.ResponseWriter, r *http.Request) er
 	name := vars["name"]
 	certName := vars["certname"]
 	log.Printf("Removing certificate %s from %s", certName, name)
-	err := a.IngressService.(router.ServiceTLS).RemoveCertificate(name, certName)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	err = svc.(router.ServiceTLS).RemoveCertificate(name, certName)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -201,7 +260,11 @@ func (a *RouterAPI) setCname(w http.ResponseWriter, r *http.Request) error {
 	name := vars["name"]
 	cname := vars["cname"]
 	log.Printf("Adding on %s CNAME %s", name, cname)
-	err := a.IngressService.(router.ServiceCNAME).SetCname(name, cname)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	err = svc.(router.ServiceCNAME).SetCname(name, cname)
 	if err != nil {
 		if strings.Contains(err.Error(), "exists") {
 			w.WriteHeader(http.StatusConflict)
@@ -216,7 +279,11 @@ func (a *RouterAPI) getCnames(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	name := vars["name"]
 	log.Printf("Getting CNAMEs from %s", name)
-	cnames, err := a.IngressService.(router.ServiceCNAME).GetCnames(name)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	cnames, err := svc.(router.ServiceCNAME).GetCnames(name)
 	if err != nil {
 		return err
 	}
@@ -235,13 +302,22 @@ func (a *RouterAPI) unsetCname(w http.ResponseWriter, r *http.Request) error {
 	name := vars["name"]
 	cname := vars["cname"]
 	log.Printf("Removing CNAME %s from %s", cname, name)
-	return a.IngressService.(router.ServiceCNAME).UnsetCname(name, cname)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	return svc.(router.ServiceCNAME).UnsetCname(name, cname)
 }
 
 // Check for TLS Support
 func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 	var err error
-	_, ok := a.IngressService.(router.ServiceTLS)
+	vars := mux.Vars(r)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	_, ok := svc.(router.ServiceTLS)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		_, err = w.Write([]byte(fmt.Sprintf("No TLS Capabilities")))
@@ -254,7 +330,12 @@ func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 // Check for CNAME Support
 func (a *RouterAPI) supportCNAME(w http.ResponseWriter, r *http.Request) error {
 	var err error
-	_, ok := a.IngressService.(router.ServiceCNAME)
+	vars := mux.Vars(r)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	_, ok := svc.(router.ServiceCNAME)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		_, err = w.Write([]byte(fmt.Sprintf("No CNAME Capabilities")))

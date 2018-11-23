@@ -327,8 +327,6 @@ func (k *IstioGateway) Remove(appName string) error {
 	return cli.Delete(model.Gateway.Type, gatewayName(appName), ns)
 }
 
-var errCnameExists = errors.New("cname already exists")
-
 // SetCname adds a new host to the gateway
 func (k *IstioGateway) SetCname(appName string, cname string) error {
 	cli, err := k.getClient()
