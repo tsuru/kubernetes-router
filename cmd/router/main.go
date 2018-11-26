@@ -90,7 +90,7 @@ func main() {
 
 	r := mux.NewRouter().StrictSlash(true)
 
-	r.NewRoute().Handler(negroni.New(
+	r.PathPrefix("/api").Handler(negroni.New(
 		api.AuthMiddleware{
 			User: os.Getenv("ROUTER_API_USER"),
 			Pass: os.Getenv("ROUTER_API_PASSWORD"),
