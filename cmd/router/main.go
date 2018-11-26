@@ -76,7 +76,7 @@ func main() {
 			routerAPI.IngressServices[mode] = &kubernetes.IstioGateway{BaseService: base, DefaultDomain: *ingressDefaultDomain, GatewaySelector: *istioGatewaySelector}
 		case "ingress":
 			routerAPI.IngressServices[mode] = &kubernetes.IngressService{BaseService: base}
-		case "ingressNginx":
+		case "ingress-nginx":
 			for k, v := range kubernetes.AnnotationsNginx {
 				base.Annotations[k] = v
 			}
@@ -84,7 +84,7 @@ func main() {
 		case "service":
 			routerAPI.IngressServices[mode] = &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels, PoolLabels: *poolLabels}
 		default:
-			log.Fatalf("fail parameters: Use one of the following modes: service, ingress or ingressNginx.")
+			log.Fatalf("fail parameters: Use one of the following modes: service, ingress, ingress-nginx or istio-gateway.")
 		}
 	}
 

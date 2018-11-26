@@ -5,15 +5,25 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 
 ## Flags
 
-- `-k8s-labels`: Labels to be added to each resource created, expects the format KEY=VALUE;
-- `-k8s-annotations`: Annotations to be added to each resource created, expects the format KEY=VALUE;
-- `-k8s-namespace`: the namespace on which the resources should be created;
-- `-k8s-timeout`: Per request kubernetes timeout;
-- `-listen-addr`: The address on which this API should listen;
-- `-controller-mode`: The mode in which the controller should run. Valid values are: "service", "ingress" and "ingressNginx".
-- `-key-file`: Path to private key used to serve https requests;
+- `-alsologtostderr`: log to standard error as well as files;
 - `-cert-file`: Path to certificate used to serve https requests;
-- `-opts-to-label`: Router opts to be parsed and turned into service labels, expects the format KEY=VALUE.
+- `-controller-modes`: Defines enabled controller running modes: service, ingress, ingress-nginx or istio-gateway;
+- `-ingress-domain`: Default domain to be used on created vhosts, local is the default. (eg: serviceName.local) (default "local");
+- `-istio-gateway.gateway-selector`: Gateway selector used in gateways created for apps;
+- `-k8s-annotations`: Annotations to be added to each resource created. Expects KEY=VALUE format;
+- `-k8s-labels`: Labels to be added to each resource created. Expects KEY=VALUE format;
+- `-k8s-namespace`: Kubernetes namespace to create resources (default "default");
+- `-k8s-timeout`: Kubernetes per-request timeout (default 10s);
+- `-key-file`: Path to private key used to serve https requests;
+- `-listen-addr`: Listen address (default ":8077");
+- `-log_backtrace_at`: when logging hits line file:N, emit a stack trace;
+- `-log_dir`: If non-empty, write log files in this directory;
+- `-logtostderr`: log to standard error instead of files;
+- `-opts-to-label`: Mapping between router options and service labels. Expects KEY=VALUE format;
+- `-pool-labels`: Default labels for a given pool. Expects POOL={"LABEL":"VALUE"} format;
+- `-stderrthreshold`: logs at or above this threshold go to stderr;
+- `-v`: log level for V logs;
+- `-vmodule`: comma-separated list of pattern=N settings for file-filtered logging.
 
 ## Envs
 
