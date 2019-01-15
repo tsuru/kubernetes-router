@@ -11,10 +11,17 @@ import (
 )
 
 const (
+	// ExposedPort is the exposed port option name
 	ExposedPort = "exposed-port"
-	Domain      = "domain"
-	Route       = "route"
-	Acme        = "tls-acme"
+
+	// Domain is the domain option name
+	Domain = "domain"
+
+	// Route is the route option name
+	Route = "route"
+
+	// Acme is the acme option name
+	Acme = "tls-acme"
 )
 
 // ErrIngressAlreadyExists is the error returned by the service when

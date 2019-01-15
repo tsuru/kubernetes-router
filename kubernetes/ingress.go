@@ -484,6 +484,7 @@ func (k *IngressService) UnsetCname(appName string, cname string) error {
 	return err
 }
 
+// SupportedOptions returns the supported options
 func (k *IngressService) SupportedOptions() (map[string]string, error) {
 	return map[string]string{router.Domain: "", router.Acme: "", router.Route: ""}, nil
 }

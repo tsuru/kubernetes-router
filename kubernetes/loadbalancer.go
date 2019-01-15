@@ -234,6 +234,7 @@ func (s *LBService) Get(appName string) (map[string]string, error) {
 	return map[string]string{"address": addr}, nil
 }
 
+// SupportedOptions returns all the supported options
 func (s *LBService) SupportedOptions() (map[string]string, error) {
 	opts := map[string]string{
 		router.ExposedPort: "",
