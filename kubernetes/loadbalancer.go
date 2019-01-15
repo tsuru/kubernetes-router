@@ -31,6 +31,9 @@ type LBService struct {
 	// OptsAsLabels maps router additional options to labels to be set on the service
 	OptsAsLabels map[string]string
 
+	// OptsAsLabelsDocs maps router additional options to user friendly help text
+	OptsAsLabelsDocs map[string]string
+
 	// PoolLabels maps router additional options for a given pool to be set on the service
 	PoolLabels map[string]map[string]string
 }
@@ -229,6 +232,19 @@ func (s *LBService) Get(appName string) (map[string]string, error) {
 		}
 	}
 	return map[string]string{"address": addr}, nil
+}
+
+func (s *LBService) SupportedOptions() (map[string]string, error) {
+	opts := map[string]string{
+		router.ExposedPort: "",
+	}
+	for k, v := range s.OptsAsLabels {
+		opts[k] = v
+		if s.OptsAsLabelsDocs[k] != "" {
+			opts[k] = s.OptsAsLabelsDocs[k]
+		}
+	}
+	return opts, nil
 }
 
 func (s *LBService) getLBService(appName string) (*v1.Service, error) {

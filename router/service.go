@@ -10,6 +10,13 @@ import (
 	"strconv"
 )
 
+const (
+	ExposedPort = "exposed-port"
+	Domain      = "domain"
+	Route       = "route"
+	Acme        = "tls-acme"
+)
+
 // ErrIngressAlreadyExists is the error returned by the service when
 // trying to create a service that already exists
 var ErrIngressAlreadyExists = errors.New("ingress already exists")
@@ -23,6 +30,7 @@ type Service interface {
 	Swap(appSrc, appDst string) error
 	Get(appName string) (map[string]string, error)
 	Addresses(appName string) ([]string, error)
+	SupportedOptions() (map[string]string, error)
 }
 
 // ServiceTLS Certificates interface
@@ -83,13 +91,13 @@ func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 		switch k {
 		case "tsuru.io/app-pool":
 			o.Pool = strV
-		case "exposed-port":
+		case ExposedPort:
 			o.ExposedPort = strV
-		case "domain":
+		case Domain:
 			o.Domain = strV
-		case "route":
+		case Route:
 			o.Route = strV
-		case "tls-acme":
+		case Acme:
 			o.Acme, err = strconv.ParseBool(strV)
 			if err != nil {
 				o.Acme = false
@@ -100,6 +108,17 @@ func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 	}
 
 	return err
+}
+
+// DescribedOptions returns a map containing all the available options
+// and their description as values of the map
+func DescribedOptions() map[string]string {
+	return map[string]string{
+		ExposedPort: "Port to be exposed by the Load Balancer. Defaults to 80.",
+		Domain:      "Domain used on Ingress.",
+		Route:       "Path used on Ingress rule.",
+		Acme:        "If set to true, adds ingress TLS options to Ingress. Defaults to false.",
+	}
 }
 
 // HealthcheckableService is a Service that implements

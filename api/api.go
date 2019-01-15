@@ -40,14 +40,19 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 	r.Handle("/backend/{name}/routes", handler(a.addRoutes)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}/routes/remove", handler(a.removeRoutes)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}/swap", handler(a.swap)).Methods(http.MethodPost)
+
+	r.Handle("/info", handler(a.info)).Methods(http.MethodGet)
+
 	// TLS
 	r.Handle("/backend/{name}/certificate/{certname}", handler(a.addCertificate)).Methods(http.MethodPut)
 	r.Handle("/backend/{name}/certificate/{certname}", handler(a.getCertificate)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}/certificate/{certname}", handler(a.removeCertificate)).Methods(http.MethodDelete)
+
 	// CNAME
 	r.Handle("/backend/{name}/cname/{cname}", handler(a.setCname)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}/cname", handler(a.getCnames)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}/cname/{cname}", handler(a.unsetCname)).Methods(http.MethodDelete)
+
 	// Supports
 	r.Handle("/support/tls", handler(a.supportTLS)).Methods(http.MethodGet)
 	r.Handle("/support/cname", handler(a.supportCNAME)).Methods(http.MethodGet)
@@ -169,6 +174,28 @@ func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return svc.Swap(name, req.Target)
+}
+
+func (a *RouterAPI) info(w http.ResponseWriter, r *http.Request) error {
+	vars := mux.Vars(r)
+	svc, err := a.ingressService(vars["mode"])
+	if err != nil {
+		return err
+	}
+	opts, err := svc.SupportedOptions()
+	if err != nil {
+		return err
+	}
+	allOpts := router.DescribedOptions()
+	info := make(map[string]string)
+	for k, v := range opts {
+		vv := v
+		if vv == "" {
+			vv = allOpts[k]
+		}
+		info[k] = vv
+	}
+	return json.NewEncoder(w).Encode(info)
 }
 
 // Healthcheck checks the health of the service

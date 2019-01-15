@@ -45,6 +45,9 @@ func main() {
 	optsToLabels := &MapFlag{}
 	flag.Var(optsToLabels, "opts-to-label", "Mapping between router options and service labels. Expects KEY=VALUE format.")
 
+	optsToLabelsDocs := &MapFlag{}
+	flag.Var(optsToLabelsDocs, "opts-to-label-doc", "Mapping between router options and user friendly help. Expects KEY=VALUE format.")
+
 	poolLabels := &MultiMapFlag{}
 	flag.Var(poolLabels, "pool-labels", "Default labels for a given pool. Expects POOL={\"LABEL\":\"VALUE\"} format.")
 
@@ -73,7 +76,11 @@ func main() {
 	for _, mode := range runModes {
 		switch mode {
 		case "istio-gateway":
-			routerAPI.IngressServices[mode] = &kubernetes.IstioGateway{BaseService: base, DefaultDomain: *ingressDefaultDomain, GatewaySelector: *istioGatewaySelector}
+			routerAPI.IngressServices[mode] = &kubernetes.IstioGateway{
+				BaseService:     base,
+				DefaultDomain:   *ingressDefaultDomain,
+				GatewaySelector: *istioGatewaySelector,
+			}
 		case "ingress":
 			routerAPI.IngressServices[mode] = &kubernetes.IngressService{BaseService: base}
 		case "ingress-nginx":
@@ -82,7 +89,12 @@ func main() {
 			}
 			routerAPI.IngressServices[mode] = &kubernetes.IngressService{BaseService: base, DefaultDomain: *ingressDefaultDomain}
 		case "service":
-			routerAPI.IngressServices[mode] = &kubernetes.LBService{BaseService: base, OptsAsLabels: *optsToLabels, PoolLabels: *poolLabels}
+			routerAPI.IngressServices[mode] = &kubernetes.LBService{
+				BaseService:      base,
+				OptsAsLabels:     *optsToLabels,
+				OptsAsLabelsDocs: *optsToLabelsDocs,
+				PoolLabels:       *poolLabels,
+			}
 		default:
 			log.Fatalf("fail parameters: Use one of the following modes: service, ingress, ingress-nginx or istio-gateway.")
 		}
