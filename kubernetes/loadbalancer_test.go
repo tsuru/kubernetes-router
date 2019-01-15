@@ -27,7 +27,8 @@ func createFakeLBService() LBService {
 			TsuruClient:      faketsuru.NewSimpleClientset(),
 			ExtensionsClient: fakeapiextensions.NewSimpleClientset(),
 		},
-		OptsAsLabels: make(map[string]string),
+		OptsAsLabels:     make(map[string]string),
+		OptsAsLabelsDocs: make(map[string]string),
 	}
 }
 
@@ -55,6 +56,25 @@ func TestLBCreate(t *testing.T) {
 	expectedService := defaultService("test", "default", svc.Labels, svc.Annotations, nil)
 	if !reflect.DeepEqual(serviceList.Items[0], expectedService) {
 		t.Errorf("Expected %v. Got %v", expectedService, serviceList.Items[0])
+	}
+}
+
+func TestLBSupportedOptions(t *testing.T) {
+	svc := createFakeLBService()
+	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
+	svc.OptsAsLabels["my-opt2"] = "my-opt-as-label2"
+	svc.OptsAsLabelsDocs["my-opt2"] = "User friendly option description."
+	options, err := svc.SupportedOptions()
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	expectedOptions := map[string]string{
+		"my-opt2":      "User friendly option description.",
+		"exposed-port": "",
+		"my-opt":       "my-opt-as-label",
+	}
+	if !reflect.DeepEqual(options, expectedOptions) {
+		t.Errorf("Expected %v. Got %v", expectedOptions, options)
 	}
 }
 

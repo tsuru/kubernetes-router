@@ -218,6 +218,37 @@ func TestSwap(t *testing.T) {
 	}
 }
 
+func TestInfo(t *testing.T) {
+	service := &mock.RouterService{}
+	service.SupportedOptionsFn = func() (map[string]string, error) {
+		return map[string]string{router.ExposedPort: "", router.Domain: "Custom help."}, nil
+	}
+
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
+	r := api.Routes()
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/info", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
+	}
+
+	var info map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &info)
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v", err)
+	}
+	expected := map[string]string{
+		"exposed-port": "Port to be exposed by the Load Balancer. Defaults to 80.",
+		"domain":       "Custom help.",
+	}
+	if !reflect.DeepEqual(info, expected) {
+		t.Errorf("Expected %v. Got %v", expected, info)
+	}
+}
+
 func TestGetRoutes(t *testing.T) {
 	service := &mock.RouterService{}
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}

@@ -104,6 +104,11 @@ func (k *BaseService) Addresses(appName string) ([]string, error) {
 	return addresses, nil
 }
 
+// SupportedOptions returns the options supported by all services
+func (k *BaseService) SupportedOptions() (map[string]string, error) {
+	return nil, nil
+}
+
 // Healthcheck uses the kubernetes client to check the connectivity
 func (k *BaseService) Healthcheck() error {
 	client, err := k.getClient()

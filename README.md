@@ -20,6 +20,7 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 - `-log_dir`: If non-empty, write log files in this directory;
 - `-logtostderr`: log to standard error instead of files;
 - `-opts-to-label`: Mapping between router options and service labels. Expects KEY=VALUE format;
+- `-opts-to-label-doc`: Mapping between router options and user friendly help. Expects KEY=VALUE format;
 - `-pool-labels`: Default labels for a given pool. Expects POOL={"LABEL":"VALUE"} format;
 - `-stderrthreshold`: logs at or above this threshold go to stderr;
 - `-v`: log level for V logs;
