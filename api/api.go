@@ -56,6 +56,10 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 	// Supports
 	r.Handle("/support/tls", handler(a.supportTLS)).Methods(http.MethodGet)
 	r.Handle("/support/cname", handler(a.supportCNAME)).Methods(http.MethodGet)
+	r.Handle("/support/info", handler(func(w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})).Methods(http.MethodGet)
 }
 
 func (a *RouterAPI) ingressService(mode string) (router.Service, error) {
