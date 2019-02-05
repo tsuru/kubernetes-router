@@ -307,7 +307,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:6115b810846c4d511483cb3ee241a827bc542ac788b0d8fc1b1c6065746ef0da"
+  digest = "1:37dcdb090f0464399ac9a1fa8d30c47687b22907f9ff590679df299e64cca84c"
   name = "github.com/tsuru/tsuru"
   packages = [
     "provision/kubernetes/pkg/apis/tsuru/v1",
@@ -316,9 +316,11 @@
     "provision/kubernetes/pkg/client/clientset/versioned/scheme",
     "provision/kubernetes/pkg/client/clientset/versioned/typed/tsuru/v1",
     "provision/kubernetes/pkg/client/clientset/versioned/typed/tsuru/v1/fake",
+    "types/provision",
+    "types/router",
   ]
   pruneopts = "NUT"
-  revision = "c36c4f3137908edac6935d2b877656f32f3b5601"
+  revision = "08b9d26909cee765e8f97442acd3b293c12100a7"
 
 [[projects]]
   digest = "1:bd5bc0421c02ca9d8f458d8333eac864ea8b530a28f523d4d3a4450b7dcef819"
@@ -755,6 +757,7 @@
     "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1",
     "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned",
     "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake",
+    "github.com/tsuru/tsuru/types/provision",
     "github.com/urfave/negroni",
     "istio.io/api/networking/v1alpha3",
     "istio.io/istio/pilot/pkg/config/kube/crd",
@@ -767,12 +770,14 @@
     "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake",
     "k8s.io/apimachinery/pkg/api/errors",
     "k8s.io/apimachinery/pkg/apis/meta/v1",
+    "k8s.io/apimachinery/pkg/runtime",
     "k8s.io/apimachinery/pkg/util/intstr",
     "k8s.io/client-go/kubernetes",
     "k8s.io/client-go/kubernetes/fake",
     "k8s.io/client-go/kubernetes/typed/core/v1",
     "k8s.io/client-go/kubernetes/typed/extensions/v1beta1",
     "k8s.io/client-go/rest",
+    "k8s.io/client-go/testing",
     "k8s.io/client-go/transport",
   ]
   solver-name = "gps-cdcl"
