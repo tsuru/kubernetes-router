@@ -3,6 +3,10 @@
   unused-packages = true
   go-tests = true
 
+[[constraint]]
+  name = "github.com/tsuru/tsuru"
+  branch = "master"
+
 [[override]]
   name = "k8s.io/client-go"
   branch = "release-7.0"
@@ -18,7 +22,7 @@
 [[override]]
   name = "k8s.io/apiextensions-apiserver"
   version = "kubernetes-1.10.4"
-  
+
 [[constraint]]
   name = "github.com/gorilla/mux"
   version = "1.4.0"
