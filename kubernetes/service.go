@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	tsuruv1 "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1"
 	tsuruv1clientset "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned"
 	apiv1 "k8s.io/api/core/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -211,23 +212,30 @@ func (k *BaseService) isSwapped(obj metav1.ObjectMeta) (string, bool) {
 	return target, target != ""
 }
 
-func (k *BaseService) getAppNamespace(app string) (string, error) {
+func (k *BaseService) getApp(app string) (*tsuruv1.App, error) {
 	hasCRD, err := k.hasCRD()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if !hasCRD {
-		return k.Namespace, nil
+		return nil, nil
 	}
 	tclient, err := k.getTsuruClient()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	appCR, err := tclient.TsuruV1().Apps(k.Namespace).Get(app, metav1.GetOptions{})
+	return tclient.TsuruV1().Apps(k.Namespace).Get(app, metav1.GetOptions{})
+}
+
+func (k *BaseService) getAppNamespace(appName string) (string, error) {
+	app, err := k.getApp(appName)
 	if err != nil {
 		return "", err
 	}
-	return appCR.Spec.NamespaceName, nil
+	if app == nil {
+		return k.Namespace, nil
+	}
+	return app.Spec.NamespaceName, nil
 }
 
 func (k *BaseService) hasCRD() (bool, error) {

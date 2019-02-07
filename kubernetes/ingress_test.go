@@ -79,7 +79,7 @@ func TestCreate(t *testing.T) {
 
 func TestCreateIngressAppNamespace(t *testing.T) {
 	svc := createFakeService()
-	if err := createCRD(svc.BaseService, "app", "custom-namespace"); err != nil {
+	if err := createCRD(svc.BaseService, "app", "custom-namespace", nil); err != nil {
 		t.Errorf("failed to create CRD for test: %v", err)
 	}
 	if err := svc.Create("app", router.Opts{}); err != nil {

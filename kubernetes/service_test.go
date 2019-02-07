@@ -11,7 +11,8 @@ import (
 	"github.com/tsuru/kubernetes-router/router"
 	tsuruv1 "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1"
 	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
-	"k8s.io/api/core/v1"
+	"github.com/tsuru/tsuru/types/provision"
+	v1 "k8s.io/api/core/v1"
 	v1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -121,7 +122,7 @@ func TestGetWebService(t *testing.T) {
 		t.Errorf("Expected service to be %v. Got %v.", svc2, webService)
 	}
 
-	if errCr := createCRD(&svc, "namespacedApp", "custom-namespace"); errCr != nil {
+	if errCr := createCRD(&svc, "namespacedApp", "custom-namespace", nil); errCr != nil {
 		t.Errorf("error creating CRD for test: %v", errCr)
 	}
 	svc3 := v1.Service{
@@ -148,7 +149,7 @@ func TestGetWebService(t *testing.T) {
 	}
 }
 
-func createCRD(svc *BaseService, app string, namespace string) error {
+func createCRD(svc *BaseService, app string, namespace string, configs *provision.TsuruYamlKubernetesConfig) error {
 	_, err := svc.ExtensionsClient.ApiextensionsV1beta1().CustomResourceDefinitions().Create(&v1beta1.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{Name: "apps.tsuru.io"},
 		Spec: v1beta1.CustomResourceDefinitionSpec{
@@ -169,6 +170,7 @@ func createCRD(svc *BaseService, app string, namespace string) error {
 		ObjectMeta: metav1.ObjectMeta{Name: app},
 		Spec: tsuruv1.AppSpec{
 			NamespaceName: namespace,
+			Configs:       configs,
 		},
 	})
 	return err
