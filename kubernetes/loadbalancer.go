@@ -10,7 +10,8 @@ import (
 	"strconv"
 
 	"github.com/tsuru/kubernetes-router/router"
-	"k8s.io/api/core/v1"
+	"github.com/tsuru/tsuru/types/provision"
+	v1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -44,13 +45,43 @@ func (s *LBService) Create(appName string, opts router.Opts) error {
 	if port == 0 {
 		port = defaultLBPort
 	}
-	ns, err := s.getAppNamespace(appName)
+	app, err := s.getApp(appName)
 	if err != nil {
 		return err
 	}
 	client, err := s.getClient()
 	if err != nil {
 		return err
+	}
+	ns := s.Namespace
+	if app != nil {
+		ns = app.Spec.NamespaceName
+	}
+	targetPort := defaultServicePort
+	if app != nil && app.Spec.Configs != nil {
+		var process *provision.TsuruYamlKubernetesProcessConfig
+		for _, group := range app.Spec.Configs.Groups {
+			for procName, proc := range group {
+				if procName == webProcessName {
+					process = &proc
+					break
+				}
+			}
+		}
+		if process == nil {
+			for _, group := range app.Spec.Configs.Groups {
+				for _, proc := range group {
+					process = &proc
+					break
+				}
+			}
+		}
+		if process != nil && len(process.Ports) > 0 {
+			targetPort = process.Ports[0].TargetPort
+			if targetPort == 0 {
+				targetPort = process.Ports[0].Port
+			}
+		}
 	}
 	service := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -69,7 +100,7 @@ func (s *LBService) Create(appName string, opts router.Opts) error {
 				Name:       fmt.Sprintf("port-%d", port),
 				Protocol:   v1.ProtocolTCP,
 				Port:       int32(port),
-				TargetPort: intstr.FromInt(defaultServicePort),
+				TargetPort: intstr.FromInt(targetPort),
 			}},
 		},
 	}

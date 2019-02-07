@@ -11,12 +11,15 @@ import (
 
 	"github.com/tsuru/kubernetes-router/router"
 	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
-	"k8s.io/api/core/v1"
+	"github.com/tsuru/tsuru/types/provision"
+	v1 "k8s.io/api/core/v1"
 	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	ktesting "k8s.io/client-go/testing"
 )
 
 func createFakeLBService() LBService {
@@ -59,6 +62,98 @@ func TestLBCreate(t *testing.T) {
 	}
 }
 
+func TestLBCreateDefaultPort(t *testing.T) {
+	svc := createFakeLBService()
+	if err := createCRD(svc.BaseService, "myapp", "custom-namespace", nil); err != nil {
+		t.Errorf("failed to create CRD for test: %v", err)
+	}
+	svc.BaseService.Client.(*fake.Clientset).PrependReactor("create", "services", func(action ktesting.Action) (bool, runtime.Object, error) {
+		newSvc, ok := action.(ktesting.CreateAction).GetObject().(*v1.Service)
+		if !ok {
+			t.Errorf("Error creating service.")
+		}
+		ports := newSvc.Spec.Ports
+		if len(ports) != 1 || ports[0].TargetPort != intstr.FromInt(8888) {
+			t.Errorf("Expected service with targetPort 8888. Got %#v", ports)
+		}
+		return false, nil, nil
+	})
+	err := svc.Create("myapp", router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+}
+
+func TestLBCreateCustomTargetPort(t *testing.T) {
+	svc := createFakeLBService()
+	configs := &provision.TsuruYamlKubernetesConfig{
+		Groups: map[string]provision.TsuruYamlKubernetesGroup{
+			"pod1": map[string]provision.TsuruYamlKubernetesProcessConfig{
+				"worker": {},
+			},
+			"pod2": map[string]provision.TsuruYamlKubernetesProcessConfig{
+				"web": {
+					Ports: []provision.TsuruYamlKubernetesProcessPortConfig{
+						{TargetPort: 8000},
+						{TargetPort: 8001},
+					},
+				},
+			},
+		},
+	}
+	if err := createCRD(svc.BaseService, "myapp", "custom-namespace", configs); err != nil {
+		t.Errorf("failed to create CRD for test: %v", err)
+	}
+	svc.BaseService.Client.(*fake.Clientset).PrependReactor("create", "services", func(action ktesting.Action) (bool, runtime.Object, error) {
+		newSvc, ok := action.(ktesting.CreateAction).GetObject().(*v1.Service)
+		if !ok {
+			t.Errorf("Error creating service.")
+		}
+		ports := newSvc.Spec.Ports
+		if len(ports) != 1 || ports[0].TargetPort != intstr.FromInt(8000) {
+			t.Errorf("Expected service with targetPort 8000. Got %#v", ports)
+		}
+		return false, nil, nil
+	})
+	err := svc.Create("myapp", router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+}
+
+func TestLBCreateCustomPort(t *testing.T) {
+	svc := createFakeLBService()
+	configs := &provision.TsuruYamlKubernetesConfig{
+		Groups: map[string]provision.TsuruYamlKubernetesGroup{
+			"pod1": map[string]provision.TsuruYamlKubernetesProcessConfig{
+				"myproc": {
+					Ports: []provision.TsuruYamlKubernetesProcessPortConfig{
+						{Port: 9000},
+					},
+				},
+			},
+		},
+	}
+	if err := createCRD(svc.BaseService, "myapp", "custom-namespace", configs); err != nil {
+		t.Errorf("failed to create CRD for test: %v", err)
+	}
+	svc.BaseService.Client.(*fake.Clientset).PrependReactor("create", "services", func(action ktesting.Action) (bool, runtime.Object, error) {
+		newSvc, ok := action.(ktesting.CreateAction).GetObject().(*v1.Service)
+		if !ok {
+			t.Errorf("Error creating service.")
+		}
+		ports := newSvc.Spec.Ports
+		if len(ports) != 1 || ports[0].TargetPort != intstr.FromInt(9000) {
+			t.Errorf("Expected service with targetPort 9000. Got %#v", ports)
+		}
+		return false, nil, nil
+	})
+	err := svc.Create("myapp", router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+}
+
 func TestLBSupportedOptions(t *testing.T) {
 	svc := createFakeLBService()
 	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
@@ -80,7 +175,7 @@ func TestLBSupportedOptions(t *testing.T) {
 
 func TestLBCreateAppNamespace(t *testing.T) {
 	svc := createFakeLBService()
-	if err := createCRD(svc.BaseService, "app", "custom-namespace"); err != nil {
+	if err := createCRD(svc.BaseService, "app", "custom-namespace", nil); err != nil {
 		t.Errorf("failed to create CRD for test: %v", err)
 	}
 	if err := svc.Create("app", router.Opts{}); err != nil {
