@@ -2,6 +2,7 @@ BINARY=kubernetes-router
 TAG=latest
 IMAGE=tsuru/$(BINARY)
 LOCAL_REGISTRY=10.200.10.1:5000
+NAMESPACE=tsuru
 LINTER_ARGS = \
 	-j 4 --enable-gc -s vendor -e '.*/vendor/.*' --vendor --enable=misspell --enable=gofmt --enable=goimports --enable=unused \
 	--disable=gocyclo --disable=gosec --deadline=60m --tests
@@ -35,8 +36,9 @@ lint:
 	go test -i ./...; \
 	gometalinter $(LINTER_ARGS) ./...; \
 
-.PHONY: kube-local
+.PHONY: minikube
 minikube:
 	make IMAGE=$(LOCAL_REGISTRY)/$(BINARY) push
 	kubectl delete -f deployments/local.yml || true
-	cat deployments/local.yml | sed 's~IMAGE~$(LOCAL_REGISTRY)/$(BINARY)~g' | kubectl apply -f -
+	cat deployments/rbac.yml | sed 's~NAMESPACE~$(NAMESPACE)~g' | kubectl apply -f -
+	cat deployments/local.yml | sed 's~IMAGE~$(LOCAL_REGISTRY)/$(BINARY)~g' | sed 's~NAMESPACE~$(NAMESPACE)~g' | kubectl apply -f -
