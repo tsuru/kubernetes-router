@@ -4,7 +4,7 @@ IMAGE=tsuru/$(BINARY)
 LOCAL_REGISTRY=10.200.10.1:5000
 NAMESPACE=tsuru
 LINTER_ARGS = \
-	-j 4 --enable-gc -s vendor -e '.*/vendor/.*' --vendor --enable=misspell --enable=gofmt --enable=goimports --enable=unused \
+	-j 4 --enable-gc -s vendor -e '.*/vendor/.*' --vendor --enable=misspell --enable=gofmt --enable=goimports \
 	--disable=gocyclo --disable=gosec --deadline=60m --tests
 RUN_FLAGS=-v 9
 
