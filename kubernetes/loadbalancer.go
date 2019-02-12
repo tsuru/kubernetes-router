@@ -15,6 +15,7 @@ import (
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/kubernetes"
 )
 
 var (
@@ -115,11 +116,33 @@ func (s *LBService) Create(appName string, opts router.Opts) error {
 	for k, l := range s.PoolLabels[opts.Pool] {
 		service.ObjectMeta.Labels[k] = l
 	}
-	_, err = client.CoreV1().Services(ns).Create(service)
-	if k8sErrors.IsAlreadyExists(err) {
-		return router.ErrIngressAlreadyExists
+
+	service, isNew, err := mergeServices(client, service)
+	if err != nil {
+		return err
+	}
+	if isNew {
+		_, err = client.CoreV1().Services(ns).Create(service)
+	} else {
+		_, err = client.CoreV1().Services(ns).Update(service)
 	}
 	return err
+}
+
+func mergeServices(client kubernetes.Interface, svc *v1.Service) (*v1.Service, bool, error) {
+	existing, err := client.CoreV1().Services(svc.Namespace).Get(svc.Name, metav1.GetOptions{})
+	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return svc, true, nil
+		}
+		return nil, false, err
+	}
+	for i := 0; i < len(svc.Spec.Ports) && i < len(existing.Spec.Ports); i++ {
+		svc.Spec.Ports[i].NodePort = existing.Spec.Ports[i].NodePort
+	}
+	svc.ObjectMeta.ResourceVersion = existing.ObjectMeta.ResourceVersion
+	svc.Spec.ClusterIP = existing.Spec.ClusterIP
+	return svc, false, nil
 }
 
 // Remove removes the LoadBalancer service
