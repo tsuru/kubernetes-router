@@ -154,6 +154,73 @@ func TestLBCreateCustomPort(t *testing.T) {
 	}
 }
 
+func TestLBCreateExistingService(t *testing.T) {
+	svc := createFakeLBService()
+	clusterIP := "1.2.3.4"
+	resourceVersion := "47928443"
+	targetPort := 9001
+	nodePort := int32(30000)
+	configs := &provision.TsuruYamlKubernetesConfig{
+		Groups: map[string]provision.TsuruYamlKubernetesGroup{
+			"pod1": map[string]provision.TsuruYamlKubernetesProcessConfig{
+				"myproc": {
+					Ports: []provision.TsuruYamlKubernetesProcessPortConfig{
+						{TargetPort: targetPort},
+					},
+				},
+			},
+		},
+	}
+	if err := createCRD(svc.BaseService, "myapp", "custom-namespace", configs); err != nil {
+		t.Errorf("failed to create CRD for test: %v", err)
+	}
+	svc.BaseService.Client.(*fake.Clientset).PrependReactor("get", "services", func(action ktesting.Action) (bool, runtime.Object, error) {
+		service := &v1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "myapp-router-lb",
+				Namespace:       "custom-namespace",
+				ResourceVersion: resourceVersion,
+			},
+			Spec: v1.ServiceSpec{
+				Type:      v1.ServiceTypeLoadBalancer,
+				ClusterIP: clusterIP,
+				Ports: []v1.ServicePort{{
+					Name:       "port-80",
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(80),
+					TargetPort: intstr.FromInt(targetPort),
+					NodePort:   nodePort,
+				}},
+			},
+		}
+		return true, service, nil
+	})
+	svc.BaseService.Client.(*fake.Clientset).PrependReactor("update", "services", func(action ktesting.Action) (bool, runtime.Object, error) {
+		newSvc, ok := action.(ktesting.UpdateAction).GetObject().(*v1.Service)
+		if !ok {
+			t.Errorf("Error updating service.")
+		}
+		if newSvc.Spec.ClusterIP != clusterIP {
+			t.Errorf("Expected ClusterIP %s. Got %s", clusterIP, newSvc.Spec.ClusterIP)
+		}
+		if newSvc.ObjectMeta.ResourceVersion != resourceVersion {
+			t.Errorf("Expected ResourceVersion %s. Got %s", resourceVersion, newSvc.ObjectMeta.ResourceVersion)
+		}
+		ports := newSvc.Spec.Ports
+		if len(ports) != 1 || ports[0].TargetPort != intstr.FromInt(targetPort) {
+			t.Errorf("Expected service with TargetPort %d. Got %#v", targetPort, ports)
+		}
+		if len(ports) != 1 || ports[0].NodePort != nodePort {
+			t.Errorf("Expected service with NodePort %d. Got %#v", nodePort, ports)
+		}
+		return true, newSvc, nil
+	})
+	err := svc.Create("myapp", router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+}
+
 func TestLBSupportedOptions(t *testing.T) {
 	svc := createFakeLBService()
 	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
