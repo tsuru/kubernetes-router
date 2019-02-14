@@ -142,6 +142,9 @@ func mergeServices(client kubernetes.Interface, svc *v1.Service) (*v1.Service, b
 	}
 	svc.ObjectMeta.ResourceVersion = existing.ObjectMeta.ResourceVersion
 	svc.Spec.ClusterIP = existing.Spec.ClusterIP
+	svc.Spec.ExternalIPs = existing.Spec.ExternalIPs
+	svc.Spec.LoadBalancerIP = existing.Spec.LoadBalancerIP
+	svc.Spec.ExternalName = existing.Spec.ExternalName
 	return svc, false, nil
 }
 
