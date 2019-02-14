@@ -83,7 +83,7 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 	if err != nil {
 		return err
 	}
-	i := v1beta1.Ingress{
+	i := &v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        ingressName(appName),
 			Namespace:   namespace,
@@ -115,9 +115,14 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 		i.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 	}
 
-	_, err = client.Create(&i)
-	if k8sErrors.IsAlreadyExists(err) {
-		return router.ErrIngressAlreadyExists
+	i, isNew, err := mergeIngresses(client, i)
+	if err != nil {
+		return err
+	}
+	if isNew {
+		_, err = client.Create(i)
+	} else {
+		_, err = client.Update(i)
 	}
 	return err
 }
@@ -494,4 +499,20 @@ func (k *IngressService) UnsetCname(appName string, cname string) error {
 // SupportedOptions returns the supported options
 func (k *IngressService) SupportedOptions() (map[string]string, error) {
 	return map[string]string{router.Domain: "", router.Acme: "", router.Route: ""}, nil
+}
+
+func mergeIngresses(client typedV1beta1.IngressInterface, ing *v1beta1.Ingress) (*v1beta1.Ingress, bool, error) {
+	existing, err := client.Get(ing.Name, metav1.GetOptions{})
+	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return ing, true, nil
+		}
+		return nil, false, err
+	}
+
+	ing.ObjectMeta.ResourceVersion = existing.ObjectMeta.ResourceVersion
+	if existing.Spec.Backend != nil {
+		ing.Spec.Backend = existing.Spec.Backend
+	}
+	return ing, false, nil
 }
