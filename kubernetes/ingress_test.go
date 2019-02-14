@@ -139,6 +139,49 @@ func TestIngressCreateCustomTargetPort(t *testing.T) {
 	}
 }
 
+func TestCreateExistingIngress(t *testing.T) {
+	svc := createFakeService()
+	svcName := "test"
+	svcPort := 8000
+	resourceVersion := "123"
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+
+	svc.BaseService.Client.(*fake.Clientset).PrependReactor("get", "ingresses", func(action ktesting.Action) (bool, runtime.Object, error) {
+		ingress := &v1beta1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            svcName,
+				ResourceVersion: resourceVersion,
+			},
+			Spec: v1beta1.IngressSpec{
+				Backend: &v1beta1.IngressBackend{
+					ServiceName: svcName,
+					ServicePort: intstr.FromInt(svcPort),
+				},
+			},
+		}
+		return true, ingress, nil
+	})
+	svc.BaseService.Client.(*fake.Clientset).PrependReactor("update", "ingresses", func(action ktesting.Action) (bool, runtime.Object, error) {
+		newIng, ok := action.(ktesting.UpdateAction).GetObject().(*v1beta1.Ingress)
+		if !ok {
+			t.Fatalf("Error updating ingress.")
+		}
+		if newIng.ObjectMeta.ResourceVersion != resourceVersion {
+			t.Errorf("Expected ResourceVersion %q. Got %s", resourceVersion, newIng.ObjectMeta.ResourceVersion)
+		}
+		if newIng.Spec.Backend == nil || newIng.Spec.Backend.ServiceName != svcName || newIng.Spec.Backend.ServicePort.IntValue() != svcPort {
+			t.Errorf("Expected Backend with name %q and port %d. Got %v", svcName, svcPort, newIng.Spec.Backend)
+		}
+		return true, newIng, nil
+	})
+
+	err := svc.Create(svcName, router.Opts{})
+	if err != nil {
+		t.Fatalf("Expected err to be nil. Got %v.", err)
+	}
+}
+
 func TestCreateIngressAppNamespace(t *testing.T) {
 	svc := createFakeService()
 	if err := createCRD(svc.BaseService, "app", "custom-namespace", nil); err != nil {
