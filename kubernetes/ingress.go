@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/tsuru/kubernetes-router/router"
+	"github.com/tsuru/tsuru/types/provision"
 	"k8s.io/api/core/v1"
 	v1beta1 "k8s.io/api/extensions/v1beta1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -42,9 +43,39 @@ type IngressService struct {
 func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 	var spec v1beta1.IngressSpec
 	var vhost string
-	ns, err := k.getAppNamespace(appName)
+	app, err := k.getApp(appName)
 	if err != nil {
 		return err
+	}
+	ns := k.Namespace
+	if app != nil {
+		ns = app.Spec.NamespaceName
+	}
+	servicePort := defaultServicePort
+	if app != nil && app.Spec.Configs != nil {
+		var process *provision.TsuruYamlKubernetesProcessConfig
+		for _, group := range app.Spec.Configs.Groups {
+			for procName, proc := range group {
+				if procName == webProcessName {
+					process = &proc
+					break
+				}
+			}
+		}
+		if process == nil {
+			for _, group := range app.Spec.Configs.Groups {
+				for _, proc := range group {
+					process = &proc
+					break
+				}
+			}
+		}
+		if process != nil && len(process.Ports) > 0 {
+			servicePort = process.Ports[0].TargetPort
+			if servicePort == 0 {
+				servicePort = process.Ports[0].Port
+			}
+		}
 	}
 	client, err := k.ingressClient(ns)
 	if err != nil {
@@ -66,7 +97,7 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 								Path: routerOpts.Route,
 								Backend: v1beta1.IngressBackend{
 									ServiceName: appName,
-									ServicePort: intstr.FromInt(defaultServicePort),
+									ServicePort: intstr.FromInt(servicePort),
 								},
 							},
 						},
@@ -87,6 +118,9 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 			Annotations: k.Annotations,
 		},
 		Spec: spec,
+	}
+	if i.ObjectMeta.Annotations == nil {
+		i.ObjectMeta.Annotations = map[string]string{}
 	}
 	for k, v := range k.Labels {
 		i.ObjectMeta.Labels[k] = v
