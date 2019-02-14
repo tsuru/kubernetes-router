@@ -156,6 +156,9 @@ func TestLBCreateCustomPort(t *testing.T) {
 
 func TestLBCreateExistingService(t *testing.T) {
 	svc := createFakeLBService()
+	externalName := "lbname"
+	externalIPs := []string{"10.10.10.1", "10.10.10.2"}
+	loadBalancerIP := "10.10.10.3"
 	clusterIP := "1.2.3.4"
 	resourceVersion := "47928443"
 	targetPort := 9001
@@ -182,8 +185,11 @@ func TestLBCreateExistingService(t *testing.T) {
 				ResourceVersion: resourceVersion,
 			},
 			Spec: v1.ServiceSpec{
-				Type:      v1.ServiceTypeLoadBalancer,
-				ClusterIP: clusterIP,
+				Type:           v1.ServiceTypeLoadBalancer,
+				ExternalName:   externalName,
+				ExternalIPs:    externalIPs,
+				LoadBalancerIP: loadBalancerIP,
+				ClusterIP:      clusterIP,
 				Ports: []v1.ServicePort{{
 					Name:       "port-80",
 					Protocol:   v1.ProtocolTCP,
@@ -199,6 +205,15 @@ func TestLBCreateExistingService(t *testing.T) {
 		newSvc, ok := action.(ktesting.UpdateAction).GetObject().(*v1.Service)
 		if !ok {
 			t.Errorf("Error updating service.")
+		}
+		if newSvc.Spec.ExternalName != externalName {
+			t.Errorf("Expected ExternalName %s. Got %s", externalName, newSvc.Spec.ExternalName)
+		}
+		if !reflect.DeepEqual(newSvc.Spec.ExternalIPs, externalIPs) {
+			t.Errorf("Expected ExternalIPs %v. Got %v", externalIPs, newSvc.Spec.ExternalIPs)
+		}
+		if newSvc.Spec.LoadBalancerIP != loadBalancerIP {
+			t.Errorf("Expected LoadBalancerIP %s. Got %s", loadBalancerIP, newSvc.Spec.LoadBalancerIP)
 		}
 		if newSvc.Spec.ClusterIP != clusterIP {
 			t.Errorf("Expected ClusterIP %s. Got %s", clusterIP, newSvc.Spec.ClusterIP)
