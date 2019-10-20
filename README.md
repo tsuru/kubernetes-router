@@ -32,7 +32,7 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 
 ## Running locally with Tsuru and Minikube
 
-1. Setup tsuru + minikube (https://docs.tsuru.io/master/contributing/compose.html)
+1. [Setup tsuru + minikube](https://docs.tsuru.io/master/contributing/compose.html)
 
 2. Run the ingress-router in your minikube cluster
 
