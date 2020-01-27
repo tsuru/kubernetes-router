@@ -6,7 +6,7 @@ addons:
     packages:
     - docker-ce
 go:
-- 1.10.x
+- 1.13x
 jobs:
   fast_finish: true
   include:
