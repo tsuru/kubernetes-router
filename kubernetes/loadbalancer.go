@@ -19,10 +19,15 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-var (
+const (
 	// defaultLBPort is the default exposed port to the LB
 	defaultLBPort = 80
 
+	// exposeAllPortsOpt is the flag used to expose all ports in the LB
+	exposeAllPortsOpt = "expose-all-ports"
+)
+
+var (
 	// ErrLoadBalancerNotReady is returned when a given LB has no IP
 	ErrLoadBalancerNotReady = errors.New("load balancer is not ready")
 )
@@ -275,6 +280,7 @@ func (s *LBService) Get(appName string) (map[string]string, error) {
 func (s *LBService) SupportedOptions() (map[string]string, error) {
 	opts := map[string]string{
 		router.ExposedPort: "",
+		exposeAllPortsOpt:  "Expose all ports used by application in the Load Balancer. Defaults to false.",
 	}
 	for k, v := range s.OptsAsLabels {
 		opts[k] = v
@@ -332,13 +338,17 @@ func (s *LBService) portsForService(svc *v1.Service, app *tsuruv1.App, opts rout
 			TargetPort: intstr.FromInt(getAppServicePort(app)),
 		},
 	}
-	for i := range basePorts {
-		if basePorts[i].Port == int32(additionalPort) {
-			// Skipping ports conflicting with additional port
-			continue
+
+	allPorts, _ := strconv.ParseBool(opts.AdditionalOpts[exposeAllPortsOpt])
+	if allPorts {
+		for i := range basePorts {
+			if basePorts[i].Port == int32(additionalPort) {
+				// Skipping ports conflicting with additional port
+				continue
+			}
+			basePorts[i].NodePort = 0
+			wantedPorts[basePorts[i].Port] = &basePorts[i]
 		}
-		basePorts[i].NodePort = 0
-		wantedPorts[basePorts[i].Port] = &basePorts[i]
 	}
 
 	var ports []v1.ServicePort

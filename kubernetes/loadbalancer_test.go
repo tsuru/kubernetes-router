@@ -7,6 +7,7 @@ package kubernetes
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -248,9 +249,10 @@ func TestLBSupportedOptions(t *testing.T) {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 	expectedOptions := map[string]string{
-		"my-opt2":      "User friendly option description.",
-		"exposed-port": "",
-		"my-opt":       "my-opt-as-label",
+		"my-opt2":          "User friendly option description.",
+		"exposed-port":     "",
+		"my-opt":           "my-opt-as-label",
+		"expose-all-ports": "Expose all ports used by application in the Load Balancer. Defaults to false.",
 	}
 	if !reflect.DeepEqual(options, expectedOptions) {
 		t.Errorf("Expected %v. Got %v", expectedOptions, options)
@@ -356,6 +358,7 @@ func TestLBUpdate(t *testing.T) {
 		expectedErr      error
 		expectedSelector map[string]string
 		expectedPorts    []v1.ServicePort
+		exposeAllPorts   bool
 	}{
 		{
 			name:        "noServices",
@@ -371,8 +374,23 @@ func TestLBUpdate(t *testing.T) {
 			},
 		},
 		{
+			name:           "noServices with expose all",
+			services:       []v1.Service{},
+			exposeAllPorts: true,
+			expectedErr:    ErrNoService{App: "test"},
+			expectedPorts: []v1.ServicePort{
+				{
+					Name:       "port-80",
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(80),
+					TargetPort: intstr.FromInt(8888),
+				},
+			},
+		},
+		{
 			name:             "singleService",
 			services:         []v1.Service{svc1},
+			exposeAllPorts:   true,
 			expectedSelector: map[string]string{"name": "test-single"},
 			expectedPorts: []v1.ServicePort{
 				{
@@ -389,8 +407,22 @@ func TestLBUpdate(t *testing.T) {
 			},
 		},
 		{
+			name:             "singleService",
+			services:         []v1.Service{svc1},
+			expectedSelector: map[string]string{"name": "test-single"},
+			expectedPorts: []v1.ServicePort{
+				{
+					Name:       "port-80",
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(80),
+					TargetPort: intstr.FromInt(8888),
+				},
+			},
+		},
+		{
 			name:             "multiServiceWithWeb",
 			services:         []v1.Service{svc1, svc2},
+			exposeAllPorts:   true,
 			expectedSelector: map[string]string{"name": "test-web"},
 			expectedPorts: []v1.ServicePort{
 				{
@@ -420,9 +452,10 @@ func TestLBUpdate(t *testing.T) {
 			},
 		},
 		{
-			name:        "service with conflicting port, port is ignored",
-			services:    []v1.Service{},
-			expectedErr: ErrNoService{App: "test"},
+			name:             "service with conflicting port, port is ignored",
+			services:         []v1.Service{svc4},
+			exposeAllPorts:   true,
+			expectedSelector: map[string]string{"name": "test-web"},
 			expectedPorts: []v1.ServicePort{
 				{
 					Name:       "port-80",
@@ -450,7 +483,9 @@ func TestLBUpdate(t *testing.T) {
 				}
 			}
 
-			err = svc.Update("test", router.Opts{})
+			err = svc.Update("test", router.Opts{AdditionalOpts: map[string]string{
+				exposeAllPortsOpt: strconv.FormatBool(tc.exposeAllPorts),
+			}})
 			if err != tc.expectedErr {
 				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
 			}
@@ -514,7 +549,9 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 	}
 	_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(&webSvc)
 	require.NoError(t, err)
-	err = svc.Update("test", router.Opts{})
+	err = svc.Update("test", router.Opts{AdditionalOpts: map[string]string{
+		exposeAllPortsOpt: "true",
+	}})
 	require.NoError(t, err)
 	service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(serviceName("test"), metav1.GetOptions{})
 	require.NoError(t, err)
