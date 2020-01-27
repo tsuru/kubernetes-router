@@ -11,8 +11,7 @@ jobs:
   fast_finish: true
   include:
   - script: make test
-  - stage: lint
-    script:
+  - script:
     - while true; do echo .; sleep 30; done & make lint
   - stage: push to docker
     script:
