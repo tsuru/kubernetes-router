@@ -155,9 +155,6 @@ func (s *LBService) Update(appName string, opts router.Opts) error {
 	if err != nil {
 		return err
 	}
-	if !isReady(lbService) {
-		return ErrLoadBalancerNotReady
-	}
 	if _, isSwapped := s.isSwapped(lbService.ObjectMeta); isSwapped {
 		return nil
 	}

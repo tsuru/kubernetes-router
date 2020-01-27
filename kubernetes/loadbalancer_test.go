@@ -475,26 +475,39 @@ func TestLBSwap(t *testing.T) {
 
 func TestLBUpdateSwapWithouIPFails(t *testing.T) {
 	svc := createFakeLBService()
-	err := svc.Create("test", router.Opts{Pool: "mypool"})
+	err := createWebService("myapp1", "default", svc.Client)
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Update("test", router.Opts{})
-	if err != ErrLoadBalancerNotReady {
-		t.Fatalf("Expected err to be %v. Got %v.", ErrLoadBalancerNotReady, err)
-	}
-	err = svc.Create("test2", router.Opts{Pool: "mypool"})
+	err = createWebService("myapp2", "default", svc.Client)
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Swap("test", "test2")
+	err = svc.Create("test-myapp1", router.Opts{Pool: "mypool"})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.Update("test-myapp1", router.Opts{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.Create("test-myapp2", router.Opts{Pool: "mypool"})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	err = svc.Swap("test-myapp1", "test-myapp2")
 	if err != ErrLoadBalancerNotReady {
 		t.Fatalf("Expected err to be %v. Got %v.", ErrLoadBalancerNotReady, err)
 	}
-	setIP(t, svc, "test")
-	err = svc.Swap("test", "test2")
+	setIP(t, svc, "test-myapp1")
+	err = svc.Swap("test-myapp1", "test-myapp2")
 	if err != ErrLoadBalancerNotReady {
 		t.Fatalf("Expected err to be %v. Got %v.", ErrLoadBalancerNotReady, err)
+	}
+	setIP(t, svc, "test-myapp2")
+	err = svc.Swap("test-myapp1", "test-myapp2")
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 }
 
