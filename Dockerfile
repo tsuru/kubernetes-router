@@ -1,4 +1,4 @@
-FROM golang:1.9.0 as builder
+FROM golang:1.13 as builder
 COPY . /go/src/github.com/tsuru/kubernetes-router/
 WORKDIR /go/src/github.com/tsuru/kubernetes-router/
 RUN CGO_ENABLED=0 GOOS=linux make build
