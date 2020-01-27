@@ -7,9 +7,11 @@ package kubernetes
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 
 	"github.com/tsuru/kubernetes-router/router"
+	tsuruv1 "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1"
 	v1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,10 +43,6 @@ type LBService struct {
 
 // Create creates a LoadBalancer type service without any selectors
 func (s *LBService) Create(appName string, opts router.Opts) error {
-	port, _ := strconv.Atoi(opts.ExposedPort)
-	if port == 0 {
-		port = defaultLBPort
-	}
 	app, err := s.getApp(appName)
 	if err != nil {
 		return err
@@ -70,14 +68,15 @@ func (s *LBService) Create(appName string, opts router.Opts) error {
 		},
 		Spec: v1.ServiceSpec{
 			Type: v1.ServiceTypeLoadBalancer,
-			Ports: []v1.ServicePort{{
-				Name:       fmt.Sprintf("port-%d", port),
-				Protocol:   v1.ProtocolTCP,
-				Port:       int32(port),
-				TargetPort: intstr.FromInt(getAppServicePort(app)),
-			}},
 		},
 	}
+
+	ports, err := s.portsForService(service, app, opts, nil)
+	if err != nil {
+		return err
+	}
+	service.Spec.Ports = ports
+
 	for k, v := range s.Labels {
 		service.ObjectMeta.Labels[k] = v
 	}
@@ -180,6 +179,17 @@ func (s *LBService) Update(appName string, opts router.Opts) error {
 		}
 		lbService.Annotations[k] = v
 	}
+
+	app, err := s.getApp(appName)
+	if err != nil {
+		return err
+	}
+	ports, err := s.portsForService(lbService, app, opts, webService.Spec.Ports)
+	if err != nil {
+		return err
+	}
+	lbService.Spec.Ports = ports
+
 	lbService.Spec.Selector = webService.Spec.Selector
 	client, err := s.getClient()
 	if err != nil {
@@ -301,4 +311,47 @@ func isReady(service *v1.Service) bool {
 		return false
 	}
 	return service.Status.LoadBalancer.Ingress[0].IP != ""
+}
+
+func (s *LBService) portsForService(svc *v1.Service, app *tsuruv1.App, opts router.Opts, basePorts []v1.ServicePort) ([]v1.ServicePort, error) {
+	additionalPort, _ := strconv.Atoi(opts.ExposedPort)
+	if additionalPort == 0 {
+		additionalPort = defaultLBPort
+	}
+
+	existingPorts := map[int32]*v1.ServicePort{}
+	for i, port := range svc.Spec.Ports {
+		existingPorts[port.Port] = &svc.Spec.Ports[i]
+	}
+
+	wantedPorts := map[int32]*v1.ServicePort{
+		int32(additionalPort): {
+			Name:       fmt.Sprintf("port-%d", additionalPort),
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(additionalPort),
+			TargetPort: intstr.FromInt(getAppServicePort(app)),
+		},
+	}
+	for i := range basePorts {
+		if basePorts[i].Port == int32(additionalPort) {
+			// Skipping ports conflicting with additional port
+			continue
+		}
+		basePorts[i].NodePort = 0
+		wantedPorts[basePorts[i].Port] = &basePorts[i]
+	}
+
+	var ports []v1.ServicePort
+	for _, wantedPort := range wantedPorts {
+		existingPort, ok := existingPorts[wantedPort.Port]
+		if ok {
+			wantedPort.NodePort = existingPort.NodePort
+		}
+		ports = append(ports, *wantedPort)
+	}
+	sort.Slice(ports, func(i, j int) bool {
+		return ports[i].Port < ports[j].Port
+	})
+
+	return ports, nil
 }

@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tsuru/kubernetes-router/router"
 	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
 	"github.com/tsuru/tsuru/types/provision"
@@ -58,7 +60,7 @@ func TestLBCreate(t *testing.T) {
 	svc.Labels["pool-env"] = "dev"
 	expectedService := defaultService("test", "default", svc.Labels, svc.Annotations, nil)
 	if !reflect.DeepEqual(serviceList.Items[0], expectedService) {
-		t.Errorf("Expected %v. Got %v", expectedService, serviceList.Items[0])
+		t.Errorf("Expected %#v. Got %#v", expectedService, serviceList.Items[0])
 	}
 }
 
@@ -346,16 +348,90 @@ func TestLBUpdate(t *testing.T) {
 	}
 	svc3 := svc2
 	svc3.ObjectMeta.Labels = svc1.ObjectMeta.Labels
+	svc4 := svc2
+	svc4.Spec.Ports = []v1.ServicePort{{Protocol: "TCP", Port: int32(80), TargetPort: intstr.FromInt(8890)}}
 	tt := []struct {
 		name             string
 		services         []v1.Service
 		expectedErr      error
 		expectedSelector map[string]string
+		expectedPorts    []v1.ServicePort
 	}{
-		{name: "noServices", services: []v1.Service{}, expectedErr: ErrNoService{App: "test"}},
-		{name: "singleService", services: []v1.Service{svc1}, expectedSelector: map[string]string{"name": "test-single"}},
-		{name: "multiServiceWithWeb", services: []v1.Service{svc1, svc2}, expectedSelector: map[string]string{"name": "test-web"}},
-		{name: "multiServiceWithoutWeb", services: []v1.Service{svc1, svc3}, expectedErr: ErrNoService{App: "test", Process: "web"}},
+		{
+			name:        "noServices",
+			services:    []v1.Service{},
+			expectedErr: ErrNoService{App: "test"},
+			expectedPorts: []v1.ServicePort{
+				{
+					Name:       "port-80",
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(80),
+					TargetPort: intstr.FromInt(8888),
+				},
+			},
+		},
+		{
+			name:             "singleService",
+			services:         []v1.Service{svc1},
+			expectedSelector: map[string]string{"name": "test-single"},
+			expectedPorts: []v1.ServicePort{
+				{
+					Name:       "port-80",
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(80),
+					TargetPort: intstr.FromInt(8888),
+				},
+				{
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(8899),
+					TargetPort: intstr.FromInt(8899),
+				},
+			},
+		},
+		{
+			name:             "multiServiceWithWeb",
+			services:         []v1.Service{svc1, svc2},
+			expectedSelector: map[string]string{"name": "test-web"},
+			expectedPorts: []v1.ServicePort{
+				{
+					Name:       "port-80",
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(80),
+					TargetPort: intstr.FromInt(8888),
+				},
+				{
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(8890),
+					TargetPort: intstr.FromInt(8890),
+				},
+			},
+		},
+		{
+			name:        "multiServiceWithoutWeb",
+			services:    []v1.Service{svc1, svc3},
+			expectedErr: ErrNoService{App: "test", Process: "web"},
+			expectedPorts: []v1.ServicePort{
+				{
+					Name:       "port-80",
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(80),
+					TargetPort: intstr.FromInt(8888),
+				},
+			},
+		},
+		{
+			name:        "service with conflicting port, port is ignored",
+			services:    []v1.Service{},
+			expectedErr: ErrNoService{App: "test"},
+			expectedPorts: []v1.ServicePort{
+				{
+					Name:       "port-80",
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(80),
+					TargetPort: intstr.FromInt(8888),
+				},
+			},
+		},
 	}
 
 	for _, tc := range tt {
@@ -385,8 +461,79 @@ func TestLBUpdate(t *testing.T) {
 			if !reflect.DeepEqual(service.Spec.Selector, tc.expectedSelector) {
 				t.Errorf("Expected %v. Got %v", tc.expectedSelector, service.Spec.Selector)
 			}
+			if !reflect.DeepEqual(service.Spec.Ports, tc.expectedPorts) {
+				t.Errorf("Expected port to equal:\n%#v\nGot:\n%#v", tc.expectedPorts, service.Spec.Ports)
+			}
 		})
 	}
+}
+
+func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
+	svc := createFakeLBService()
+	err := svc.Create("test", router.Opts{})
+	require.NoError(t, err)
+	service, err := svc.Client.CoreV1().Services(svc.Namespace).Get(serviceName("test"), metav1.GetOptions{})
+	require.NoError(t, err)
+	service.Spec.Ports = []v1.ServicePort{
+		{
+			Name:       "port-80",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(80),
+			TargetPort: intstr.FromInt(8888),
+			NodePort:   31900,
+		},
+		{
+			Name:       "http-default-1",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(8080),
+			TargetPort: intstr.FromInt(8080),
+			NodePort:   31901,
+		},
+		{
+			Name:       "to-be-removed",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(8081),
+			TargetPort: intstr.FromInt(8081),
+			NodePort:   31902,
+		},
+	}
+	_, err = svc.Client.CoreV1().Services(svc.Namespace).Update(service)
+	require.NoError(t, err)
+	webSvc := v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-web",
+			Namespace: "default",
+			Labels:    map[string]string{appLabel: "test", processLabel: "web"},
+		},
+		Spec: v1.ServiceSpec{
+			Selector: map[string]string{"name": "test-web"},
+			Ports: []v1.ServicePort{
+				{Name: "http-default-1", Protocol: "TCP", Port: int32(8080), TargetPort: intstr.FromInt(8080), NodePort: 12000},
+			},
+		},
+	}
+	_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(&webSvc)
+	require.NoError(t, err)
+	err = svc.Update("test", router.Opts{})
+	require.NoError(t, err)
+	service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(serviceName("test"), metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []v1.ServicePort{
+		{
+			Name:       "port-80",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(80),
+			TargetPort: intstr.FromInt(8888),
+			NodePort:   31900,
+		},
+		{
+			Name:       "http-default-1",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(8080),
+			TargetPort: intstr.FromInt(8080),
+			NodePort:   31901,
+		},
+	}, service.Spec.Ports)
 }
 
 func TestLBUpdateSwapped(t *testing.T) {
