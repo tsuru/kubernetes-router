@@ -133,7 +133,7 @@ func (a *RouterAPI) addRoutes(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return svc.Update(name, router.Opts{})
+	return svc.Update(name)
 }
 
 // removeRoutes is no-op

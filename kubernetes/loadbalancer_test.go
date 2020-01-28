@@ -388,7 +388,7 @@ func TestLBUpdate(t *testing.T) {
 			},
 		},
 		{
-			name:             "singleService",
+			name:             "singleService with expose all",
 			services:         []v1.Service{svc1},
 			exposeAllPorts:   true,
 			expectedSelector: map[string]string{"name": "test-single"},
@@ -471,7 +471,9 @@ func TestLBUpdate(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			svc := createFakeLBService()
-			err := svc.Create("test", router.Opts{})
+			err := svc.Create("test", router.Opts{AdditionalOpts: map[string]string{
+				exposeAllPortsOpt: strconv.FormatBool(tc.exposeAllPorts),
+			}})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
@@ -483,9 +485,7 @@ func TestLBUpdate(t *testing.T) {
 				}
 			}
 
-			err = svc.Update("test", router.Opts{AdditionalOpts: map[string]string{
-				exposeAllPortsOpt: strconv.FormatBool(tc.exposeAllPorts),
-			}})
+			err = svc.Update("test")
 			if err != tc.expectedErr {
 				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
 			}
@@ -505,7 +505,9 @@ func TestLBUpdate(t *testing.T) {
 
 func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 	svc := createFakeLBService()
-	err := svc.Create("test", router.Opts{})
+	err := svc.Create("test", router.Opts{AdditionalOpts: map[string]string{
+		exposeAllPortsOpt: "true",
+	}})
 	require.NoError(t, err)
 	service, err := svc.Client.CoreV1().Services(svc.Namespace).Get(serviceName("test"), metav1.GetOptions{})
 	require.NoError(t, err)
@@ -549,9 +551,7 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 	}
 	_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(&webSvc)
 	require.NoError(t, err)
-	err = svc.Update("test", router.Opts{AdditionalOpts: map[string]string{
-		exposeAllPortsOpt: "true",
-	}})
+	err = svc.Update("test")
 	require.NoError(t, err)
 	service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(serviceName("test"), metav1.GetOptions{})
 	require.NoError(t, err)
@@ -585,7 +585,7 @@ func TestLBUpdateSwapped(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
-		err = svc.Update("test-"+n, router.Opts{})
+		err = svc.Update("test-" + n)
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -594,7 +594,7 @@ func TestLBUpdateSwapped(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Update("test-blue", router.Opts{})
+	err = svc.Update("test-blue")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -621,14 +621,14 @@ func TestLBSwap(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
-		err = svc.Update("test-"+n, router.Opts{})
+		err = svc.Update("test-" + n)
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
 	}
 
-	blueSvc := defaultService("test-blue", "default", map[string]string{swapLabel: "test-green"}, nil, map[string]string{"app": "green"})
-	greenSvc := defaultService("test-green", "default", map[string]string{swapLabel: "test-blue"}, nil, map[string]string{"app": "blue"})
+	blueSvc := defaultService("test-blue", "default", map[string]string{swapLabel: "test-green"}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"app": "green"})
+	greenSvc := defaultService("test-green", "default", map[string]string{swapLabel: "test-blue"}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"app": "blue"})
 	isSwapped := true
 	i := 1
 	for i <= 2 {
@@ -643,14 +643,14 @@ func TestLBSwap(t *testing.T) {
 			t.Errorf("Iteration %d: Expected err to be nil. Got %v.", i, err)
 		}
 		if !reflect.DeepEqual(serviceList.Items, []v1.Service{blueSvc, greenSvc}) {
-			t.Errorf("Iteration %d: Expected %+v. \nGot %+v", i, []v1.Service{blueSvc, greenSvc}, serviceList.Items)
+			t.Errorf("Iteration %d: Expected %#v. \nGot %#v", i, []v1.Service{blueSvc, greenSvc}, serviceList.Items)
 		}
 		if _, swapped := svc.BaseService.isSwapped(blueSvc.ObjectMeta); swapped != isSwapped {
 			t.Errorf("Iteration %d: Expected isSwapped to be %v. Got %v", i, isSwapped, swapped)
 		}
 
-		blueSvc = defaultService("test-blue", "default", map[string]string{swapLabel: ""}, nil, map[string]string{"app": "blue"})
-		greenSvc = defaultService("test-green", "default", map[string]string{swapLabel: ""}, nil, map[string]string{"app": "green"})
+		blueSvc = defaultService("test-blue", "default", map[string]string{swapLabel: ""}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"app": "blue"})
+		greenSvc = defaultService("test-green", "default", map[string]string{swapLabel: ""}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"app": "green"})
 
 		isSwapped = !isSwapped
 		i++
@@ -671,7 +671,7 @@ func TestLBUpdateSwapWithouIPFails(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Update("test-myapp1", router.Opts{})
+	err = svc.Update("test-myapp1")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}

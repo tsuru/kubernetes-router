@@ -236,7 +236,7 @@ func TestIstioGateway_Update(t *testing.T) {
 			},
 		},
 	}, true)
-	err = svc.Update("myapp", router.Opts{})
+	err = svc.Update("myapp")
 	require.NoError(t, err)
 	require.Equal(t, 1, istio.UpdateCallCount())
 	vsConfig := istio.UpdateArgsForCall(0)

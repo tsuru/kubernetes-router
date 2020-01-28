@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -22,6 +24,9 @@ const (
 
 	// Acme is the acme option name
 	Acme = "tls-acme"
+
+	// optsAnnotation is the name of the annotation used to store opts.
+	optsAnnotation = "router.tsuru.io/opts"
 )
 
 // ErrIngressAlreadyExists is the error returned by the service when
@@ -33,7 +38,7 @@ var ErrIngressAlreadyExists = errors.New("ingress already exists")
 type Service interface {
 	Create(appName string, opts Opts) error
 	Remove(appName string) error
-	Update(appName string, opts Opts) error
+	Update(appName string) error
 	Swap(appSrc, appDst string) error
 	Get(appName string) (map[string]string, error)
 	Addresses(appName string) ([]string, error)
@@ -58,12 +63,12 @@ type ServiceCNAME interface {
 
 // Opts used when creating/updating routers
 type Opts struct {
-	Pool           string
-	ExposedPort    string
-	Domain         string
-	Route          string
-	Acme           bool
-	AdditionalOpts map[string]string
+	Pool           string            `json:",omitempty"`
+	ExposedPort    string            `json:",omitempty"`
+	Domain         string            `json:",omitempty"`
+	Route          string            `json:",omitempty"`
+	Acme           bool              `json:",omitempty"`
+	AdditionalOpts map[string]string `json:",omitempty"`
 }
 
 // CnamesResp used when adding cnames
@@ -75,6 +80,28 @@ type CnamesResp struct {
 type CertData struct {
 	Certificate string `json:"certificate"`
 	Key         string `json:"key"`
+}
+
+func (o *Opts) ToAnnotations(meta *metav1.ObjectMeta) error {
+	data, err := json.Marshal(o)
+	if err != nil {
+		return err
+	}
+	if meta.Annotations == nil {
+		meta.Annotations = make(map[string]string)
+	}
+	meta.Annotations[optsAnnotation] = string(data)
+	return nil
+}
+
+func OptsFromAnnotations(meta *metav1.ObjectMeta) (Opts, error) {
+	if meta.Annotations == nil || meta.Annotations[optsAnnotation] == "" {
+		return Opts{}, nil
+	}
+	type rawJsonOpts Opts
+	var o rawJsonOpts
+	err := json.Unmarshal([]byte(meta.Annotations[optsAnnotation]), &o)
+	return Opts(o), err
 }
 
 // UnmarshalJSON unmarshals Opts from a byte array parsing known fields

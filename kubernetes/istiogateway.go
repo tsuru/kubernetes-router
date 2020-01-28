@@ -266,7 +266,7 @@ func (k *IstioGateway) Create(appName string, routerOpts router.Opts) error {
 }
 
 // Update sets the app web service into the existing virtualservice
-func (k *IstioGateway) Update(appName string, opts router.Opts) error {
+func (k *IstioGateway) Update(appName string) error {
 	service, err := k.getWebService(appName)
 	if err != nil {
 		return err
@@ -280,7 +280,7 @@ func (k *IstioGateway) Update(appName string, opts router.Opts) error {
 		return err
 	}
 	vsConfig = k.updateVirtualService(vsConfig, vsSpec, appName, service.Name)
-	k.setConfigMeta(vsConfig, appName, opts)
+	k.setConfigMeta(vsConfig, appName, router.Opts{})
 	_, err = cli.Update(*vsConfig)
 	return err
 }

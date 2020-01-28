@@ -11,7 +11,7 @@ import "github.com/tsuru/kubernetes-router/router"
 type RouterService struct {
 	CreateFn                 func(string, router.Opts) error
 	RemoveFn                 func(string) error
-	UpdateFn                 func(string, router.Opts) error
+	UpdateFn                 func(string) error
 	SwapFn                   func(string, string) error
 	GetFn                    func(string) (map[string]string, error)
 	AddressesFn              func(string) ([]string, error)
@@ -50,9 +50,9 @@ func (s *RouterService) Remove(appName string) error {
 }
 
 // Update calls UpdateFn
-func (s *RouterService) Update(appName string, opts router.Opts) error {
+func (s *RouterService) Update(appName string) error {
 	s.UpdateInvoked = true
-	return s.UpdateFn(appName, opts)
+	return s.UpdateFn(appName)
 }
 
 // Swap calls SwapFn

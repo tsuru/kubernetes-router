@@ -76,6 +76,11 @@ func (s *LBService) Create(appName string, opts router.Opts) error {
 		},
 	}
 
+	err = opts.ToAnnotations(&service.ObjectMeta)
+	if err != nil {
+		return err
+	}
+
 	ports, err := s.portsForService(service, app, opts, nil)
 	if err != nil {
 		return err
@@ -154,7 +159,7 @@ func (s *LBService) Remove(appName string) error {
 
 // Update updates the LoadBalancer service copying the web service
 // labels, selectors, annotations and ports
-func (s *LBService) Update(appName string, opts router.Opts) error {
+func (s *LBService) Update(appName string) error {
 	lbService, err := s.getLBService(appName)
 	if err != nil {
 		return err
@@ -189,6 +194,11 @@ func (s *LBService) Update(appName string, opts router.Opts) error {
 	if err != nil {
 		return err
 	}
+	opts, err := router.OptsFromAnnotations(&lbService.ObjectMeta)
+	if err != nil {
+		return err
+	}
+
 	ports, err := s.portsForService(lbService, app, opts, webService.Spec.Ports)
 	if err != nil {
 		return err

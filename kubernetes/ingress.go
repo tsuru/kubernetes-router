@@ -129,7 +129,7 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 
 // Update updates an Ingress resource to point it to either
 // the only service or the one responsible for the process web
-func (k *IngressService) Update(appName string, _ router.Opts) error {
+func (k *IngressService) Update(appName string) error {
 	service, err := k.getWebService(appName)
 	if err != nil {
 		return err

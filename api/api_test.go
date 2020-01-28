@@ -167,7 +167,7 @@ func TestAddRoutes(t *testing.T) {
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
-	service.UpdateFn = func(name string, opts router.Opts) error {
+	service.UpdateFn = func(name string) error {
 		if name != "myapp" {
 			t.Errorf("Expected myapp. Got %s", name)
 		}
