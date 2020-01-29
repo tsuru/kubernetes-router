@@ -223,7 +223,8 @@ func (s *LBService) syncLB(appName string, opts *router.Opts, isUpdate bool) err
 	}
 
 	if opts == nil {
-		annotationOpts, err := router.OptsFromAnnotations(&lbService.ObjectMeta)
+		var annotationOpts router.Opts
+		annotationOpts, err = router.OptsFromAnnotations(&lbService.ObjectMeta)
 		if err != nil {
 			return err
 		}
