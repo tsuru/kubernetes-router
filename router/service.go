@@ -82,16 +82,14 @@ type CertData struct {
 	Key         string `json:"key"`
 }
 
-func (o *Opts) ToAnnotations(meta *metav1.ObjectMeta) error {
+func (o *Opts) ToAnnotations() (map[string]string, error) {
 	data, err := json.Marshal(o)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if meta.Annotations == nil {
-		meta.Annotations = make(map[string]string)
-	}
-	meta.Annotations[optsAnnotation] = string(data)
-	return nil
+	return map[string]string{
+		optsAnnotation: string(data),
+	}, nil
 }
 
 func OptsFromAnnotations(meta *metav1.ObjectMeta) (Opts, error) {

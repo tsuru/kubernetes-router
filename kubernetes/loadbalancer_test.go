@@ -59,7 +59,11 @@ func TestLBCreate(t *testing.T) {
 	svc.Labels[appPoolLabel] = "mypool"
 	svc.Labels["my-opt-as-label"] = "value"
 	svc.Labels["pool-env"] = "dev"
-	expectedService := defaultService("test", "default", svc.Labels, svc.Annotations, nil)
+	expectedAnnotations := map[string]string{
+		"annotation":           "annval",
+		"router.tsuru.io/opts": `{"Pool":"mypool","AdditionalOpts":{"my-opt":"value"}}`,
+	}
+	expectedService := defaultService("test", "default", svc.Labels, expectedAnnotations, nil)
 	if !reflect.DeepEqual(serviceList.Items[0], expectedService) {
 		t.Errorf("Expected %#v. Got %#v", expectedService, serviceList.Items[0])
 	}
@@ -513,6 +517,13 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 	require.NoError(t, err)
 	service.Spec.Ports = []v1.ServicePort{
 		{
+			Name:       "tcp-default-1",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(22),
+			TargetPort: intstr.FromInt(22),
+			NodePort:   31999,
+		},
+		{
 			Name:       "port-80",
 			Protocol:   v1.ProtocolTCP,
 			Port:       int32(80),
@@ -546,6 +557,7 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 			Selector: map[string]string{"name": "test-web"},
 			Ports: []v1.ServicePort{
 				{Name: "http-default-1", Protocol: "TCP", Port: int32(8080), TargetPort: intstr.FromInt(8080), NodePort: 12000},
+				{Name: "tcp-default-1", Protocol: "TCP", Port: int32(22), TargetPort: intstr.FromInt(22), NodePort: 12001},
 			},
 		},
 	}
@@ -556,6 +568,13 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 	service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(serviceName("test"), metav1.GetOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, []v1.ServicePort{
+		{
+			Name:       "tcp-default-1",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(22),
+			TargetPort: intstr.FromInt(22),
+			NodePort:   31999,
+		},
 		{
 			Name:       "port-80",
 			Protocol:   v1.ProtocolTCP,
@@ -571,6 +590,38 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 			NodePort:   31901,
 		},
 	}, service.Spec.Ports)
+
+	err = svc.Create("test", router.Opts{AdditionalOpts: map[string]string{
+		exposeAllPortsOpt: "true",
+	}})
+	require.NoError(t, err)
+
+	service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(serviceName("test"), metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []v1.ServicePort{
+		{
+			Name:       "tcp-default-1",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(22),
+			TargetPort: intstr.FromInt(22),
+			NodePort:   31999,
+		},
+		{
+			Name:       "port-80",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(80),
+			TargetPort: intstr.FromInt(8888),
+			NodePort:   31900,
+		},
+		{
+			Name:       "http-default-1",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(8080),
+			TargetPort: intstr.FromInt(8080),
+			NodePort:   31901,
+		},
+	}, service.Spec.Ports)
+
 }
 
 func TestLBUpdateSwapped(t *testing.T) {

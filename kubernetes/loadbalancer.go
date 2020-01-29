@@ -16,7 +16,6 @@ import (
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/client-go/kubernetes"
 )
 
 const (
@@ -48,86 +47,7 @@ type LBService struct {
 
 // Create creates a LoadBalancer type service without any selectors
 func (s *LBService) Create(appName string, opts router.Opts) error {
-	app, err := s.getApp(appName)
-	if err != nil {
-		return err
-	}
-	client, err := s.getClient()
-	if err != nil {
-		return err
-	}
-	ns := s.Namespace
-	if app != nil {
-		ns = app.Spec.NamespaceName
-	}
-	service := &v1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceName(appName),
-			Namespace: ns,
-			Labels: map[string]string{
-				appLabel:            appName,
-				managedServiceLabel: "true",
-				appPoolLabel:        opts.Pool,
-			},
-			Annotations: s.Annotations,
-		},
-		Spec: v1.ServiceSpec{
-			Type: v1.ServiceTypeLoadBalancer,
-		},
-	}
-
-	err = opts.ToAnnotations(&service.ObjectMeta)
-	if err != nil {
-		return err
-	}
-
-	ports, err := s.portsForService(service, app, opts, nil)
-	if err != nil {
-		return err
-	}
-	service.Spec.Ports = ports
-
-	for k, v := range s.Labels {
-		service.ObjectMeta.Labels[k] = v
-	}
-	for k, l := range s.OptsAsLabels {
-		if v, ok := opts.AdditionalOpts[k]; ok {
-			service.ObjectMeta.Labels[l] = v
-		}
-	}
-	for k, l := range s.PoolLabels[opts.Pool] {
-		service.ObjectMeta.Labels[k] = l
-	}
-
-	service, isNew, err := mergeServices(client, service)
-	if err != nil {
-		return err
-	}
-	if isNew {
-		_, err = client.CoreV1().Services(ns).Create(service)
-	} else {
-		_, err = client.CoreV1().Services(ns).Update(service)
-	}
-	return err
-}
-
-func mergeServices(client kubernetes.Interface, svc *v1.Service) (*v1.Service, bool, error) {
-	existing, err := client.CoreV1().Services(svc.Namespace).Get(svc.Name, metav1.GetOptions{})
-	if err != nil {
-		if k8sErrors.IsNotFound(err) {
-			return svc, true, nil
-		}
-		return nil, false, err
-	}
-	for i := 0; i < len(svc.Spec.Ports) && i < len(existing.Spec.Ports); i++ {
-		svc.Spec.Ports[i].NodePort = existing.Spec.Ports[i].NodePort
-	}
-	svc.ObjectMeta.ResourceVersion = existing.ObjectMeta.ResourceVersion
-	svc.Spec.ClusterIP = existing.Spec.ClusterIP
-	svc.Spec.ExternalIPs = existing.Spec.ExternalIPs
-	svc.Spec.LoadBalancerIP = existing.Spec.LoadBalancerIP
-	svc.Spec.ExternalName = existing.Spec.ExternalName
-	return svc, false, nil
+	return s.syncLB(appName, &opts, false)
 }
 
 // Remove removes the LoadBalancer service
@@ -160,62 +80,7 @@ func (s *LBService) Remove(appName string) error {
 // Update updates the LoadBalancer service copying the web service
 // labels, selectors, annotations and ports
 func (s *LBService) Update(appName string) error {
-	lbService, err := s.getLBService(appName)
-	if err != nil {
-		return err
-	}
-	if _, isSwapped := s.isSwapped(lbService.ObjectMeta); isSwapped {
-		return nil
-	}
-	webService, err := s.getWebService(appName)
-	if err != nil {
-		return err
-	}
-	if lbService.Labels == nil && len(webService.Labels) > 0 {
-		lbService.Labels = make(map[string]string)
-	}
-	for k, v := range webService.Labels {
-		if _, ok := s.Labels[k]; ok {
-			continue
-		}
-		lbService.Labels[k] = v
-	}
-	if lbService.Annotations == nil && len(webService.Annotations) > 0 {
-		lbService.Annotations = make(map[string]string)
-	}
-	for k, v := range webService.Annotations {
-		if _, ok := s.Annotations[k]; ok {
-			continue
-		}
-		lbService.Annotations[k] = v
-	}
-
-	app, err := s.getApp(appName)
-	if err != nil {
-		return err
-	}
-	opts, err := router.OptsFromAnnotations(&lbService.ObjectMeta)
-	if err != nil {
-		return err
-	}
-
-	ports, err := s.portsForService(lbService, app, opts, webService.Spec.Ports)
-	if err != nil {
-		return err
-	}
-	lbService.Spec.Ports = ports
-
-	lbService.Spec.Selector = webService.Spec.Selector
-	client, err := s.getClient()
-	if err != nil {
-		return err
-	}
-	ns, err := s.getAppNamespace(appName)
-	if err != nil {
-		return err
-	}
-	_, err = client.CoreV1().Services(ns).Update(lbService)
-	return err
+	return s.syncLB(appName, nil, true)
 }
 
 // Swap swaps the two LB services selectors
@@ -329,7 +194,109 @@ func isReady(service *v1.Service) bool {
 	return service.Status.LoadBalancer.Ingress[0].IP != ""
 }
 
-func (s *LBService) portsForService(svc *v1.Service, app *tsuruv1.App, opts router.Opts, basePorts []v1.ServicePort) ([]v1.ServicePort, error) {
+func (s *LBService) syncLB(appName string, opts *router.Opts, isUpdate bool) error {
+	app, err := s.getApp(appName)
+	if err != nil {
+		return err
+	}
+	lbService, err := s.getLBService(appName)
+	if err != nil && !k8sErrors.IsNotFound(err) {
+		return err
+	}
+	if lbService == nil {
+		ns := s.Namespace
+		if app != nil {
+			ns = app.Spec.NamespaceName
+		}
+		lbService = &v1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      serviceName(appName),
+				Namespace: ns,
+			},
+			Spec: v1.ServiceSpec{
+				Type: v1.ServiceTypeLoadBalancer,
+			},
+		}
+	}
+	if _, isSwapped := s.isSwapped(lbService.ObjectMeta); isSwapped {
+		return nil
+	}
+
+	if opts == nil {
+		annotationOpts, err := router.OptsFromAnnotations(&lbService.ObjectMeta)
+		if err != nil {
+			return err
+		}
+		opts = &annotationOpts
+	}
+
+	webService, err := s.getWebService(appName)
+	if err != nil {
+		if _, isNotFound := err.(ErrNoService); isUpdate || !isNotFound {
+			return err
+		}
+	}
+	if webService != nil {
+		lbService.Spec.Selector = webService.Spec.Selector
+	}
+
+	err = s.fillLabelsAndAnnotations(lbService, appName, webService, *opts)
+	if err != nil {
+		return err
+	}
+
+	ports, err := s.portsForService(lbService, app, *opts, webService)
+	if err != nil {
+		return err
+	}
+	lbService.Spec.Ports = ports
+
+	client, err := s.getClient()
+	if err != nil {
+		return err
+	}
+	_, err = client.CoreV1().Services(lbService.Namespace).Update(lbService)
+	if k8sErrors.IsNotFound(err) {
+		_, err = client.CoreV1().Services(lbService.Namespace).Create(lbService)
+	}
+	return err
+}
+
+func (s *LBService) fillLabelsAndAnnotations(svc *v1.Service, appName string, webService *v1.Service, opts router.Opts) error {
+	optsLabels := make(map[string]string)
+	for optName, labelName := range s.OptsAsLabels {
+		if optsValue, ok := opts.AdditionalOpts[optName]; ok {
+			optsLabels[labelName] = optsValue
+		}
+	}
+
+	labels := []map[string]string{
+		s.PoolLabels[opts.Pool],
+		optsLabels,
+		s.Labels,
+		{
+			appLabel:            appName,
+			managedServiceLabel: "true",
+			appPoolLabel:        opts.Pool,
+		},
+	}
+	optsAnnotations, err := opts.ToAnnotations()
+	if err != nil {
+		return err
+	}
+	annotations := []map[string]string{s.Annotations, optsAnnotations}
+
+	if webService != nil {
+		labels = append(labels, webService.Labels)
+		annotations = append(annotations, webService.Annotations)
+	}
+
+	svc.Labels = mergeMaps(labels...)
+	svc.Annotations = mergeMaps(annotations...)
+	return nil
+}
+
+func (s *LBService) portsForService(svc *v1.Service, app *tsuruv1.App, opts router.Opts, baseSvc *v1.Service) ([]v1.ServicePort, error) {
 	additionalPort, _ := strconv.Atoi(opts.ExposedPort)
 	if additionalPort == 0 {
 		additionalPort = defaultLBPort
@@ -350,7 +317,8 @@ func (s *LBService) portsForService(svc *v1.Service, app *tsuruv1.App, opts rout
 	}
 
 	allPorts, _ := strconv.ParseBool(opts.AdditionalOpts[exposeAllPortsOpt])
-	if allPorts {
+	if allPorts && baseSvc != nil {
+		basePorts := baseSvc.Spec.Ports
 		for i := range basePorts {
 			if basePorts[i].Port == int32(additionalPort) {
 				// Skipping ports conflicting with additional port
@@ -374,4 +342,16 @@ func (s *LBService) portsForService(svc *v1.Service, app *tsuruv1.App, opts rout
 	})
 
 	return ports, nil
+}
+
+func mergeMaps(entries ...map[string]string) map[string]string {
+	result := make(map[string]string)
+	for _, entry := range entries {
+		for k, v := range entry {
+			if _, isSet := result[k]; !isSet {
+				result[k] = v
+			}
+		}
+	}
+	return result
 }
