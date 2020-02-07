@@ -200,10 +200,10 @@ func (s *LBService) syncLB(appName string, opts *router.Opts, isUpdate bool) err
 		return err
 	}
 	lbService, err := s.getLBService(appName)
-	if err != nil && !k8sErrors.IsNotFound(err) {
-		return err
-	}
-	if lbService == nil {
+	if err != nil {
+		if !k8sErrors.IsNotFound(err) {
+			return err
+		}
 		ns := s.Namespace
 		if app != nil {
 			ns = app.Spec.NamespaceName
