@@ -60,6 +60,10 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 		w.WriteHeader(http.StatusOK)
 		return nil
 	})).Methods(http.MethodGet)
+	r.Handle("/support/prefix", handler(func(w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})).Methods(http.MethodGet)
 }
 
 func (a *RouterAPI) ingressService(mode string) (router.Service, error) {
@@ -82,11 +86,21 @@ func (a *RouterAPI) getBackend(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	info, err := svc.Get(name)
+	addrs, err := svc.GetAddresses(name)
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(w).Encode(info)
+	type getBackendResponse struct {
+		Address   string   `json:"address"`
+		Addresses []string `json:"addresses"`
+	}
+	rsp := getBackendResponse{
+		Addresses: addrs,
+	}
+	if len(addrs) > 0 {
+		rsp.Address = addrs[0]
+	}
+	return json.NewEncoder(w).Encode(rsp)
 }
 
 // addBackend creates a Ingress for a given app configuration pointing
@@ -129,11 +143,23 @@ func (a *RouterAPI) removeBackend(w http.ResponseWriter, r *http.Request) error 
 func (a *RouterAPI) addRoutes(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	name := vars["name"]
+
+	var routesData router.RoutesRequestData
+	err := json.NewDecoder(r.Body).Decode(&routesData)
+	if err != nil {
+		return err
+	}
+	if routesData.Prefix != "" {
+		// Do nothing for all prefixes, except the default one.
+		return nil
+	}
+
 	svc, err := a.ingressService(vars["mode"])
 	if err != nil {
 		return err
 	}
-	return svc.Update(name)
+
+	return svc.Update(name, routesData.ExtraData)
 }
 
 // removeRoutes is no-op
@@ -141,22 +167,13 @@ func (a *RouterAPI) removeRoutes(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// getRoutes always returns an empty address list to force tsuru to call
+// addRoutes on every routes rebuild call.
 func (a *RouterAPI) getRoutes(w http.ResponseWriter, r *http.Request) error {
-	vars := mux.Vars(r)
-	name := vars["name"]
-	svc, err := a.ingressService(vars["mode"])
-	if err != nil {
-		return err
-	}
-	endpoints, err := svc.Addresses(name)
-	if err != nil {
-		return err
-	}
 	type resp struct {
 		Addresses []string `json:"addresses"`
 	}
-	response := resp{Addresses: endpoints}
-	return json.NewEncoder(w).Encode(response)
+	return json.NewEncoder(w).Encode(resp{})
 }
 
 func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
@@ -351,7 +368,7 @@ func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 	_, ok := svc.(router.ServiceTLS)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
-		_, err = w.Write([]byte(fmt.Sprintf("No TLS Capabilities")))
+		_, err = w.Write([]byte("No TLS Capabilities"))
 		return err
 	}
 	_, err = w.Write([]byte("OK"))
@@ -369,7 +386,7 @@ func (a *RouterAPI) supportCNAME(w http.ResponseWriter, r *http.Request) error {
 	_, ok := svc.(router.ServiceCNAME)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
-		_, err = w.Write([]byte(fmt.Sprintf("No CNAME Capabilities")))
+		_, err = w.Write([]byte("No CNAME Capabilities"))
 		return err
 	}
 	_, err = w.Write([]byte("OK"))

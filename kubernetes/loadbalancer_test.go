@@ -59,14 +59,13 @@ func TestLBCreate(t *testing.T) {
 	svc.Labels[appPoolLabel] = "mypool"
 	svc.Labels["my-opt-as-label"] = "value"
 	svc.Labels["pool-env"] = "dev"
+	// svc.Labels[]
 	expectedAnnotations := map[string]string{
 		"annotation":           "annval",
 		"router.tsuru.io/opts": `{"Pool":"mypool","AdditionalOpts":{"my-opt":"value"}}`,
 	}
 	expectedService := defaultService("test", "default", svc.Labels, expectedAnnotations, nil)
-	if !reflect.DeepEqual(serviceList.Items[0], expectedService) {
-		t.Errorf("Expected %#v. Got %#v", expectedService, serviceList.Items[0])
-	}
+	assert.Equal(t, expectedService, serviceList.Items[0])
 }
 
 func TestLBCreateDefaultPort(t *testing.T) {
@@ -345,7 +344,7 @@ func TestLBUpdate(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-web",
 			Namespace: "default",
-			Labels:    map[string]string{appLabel: "test", processLabel: "web"},
+			Labels:    map[string]string{appLabel: "test", processLabel: "web", "custom1": "value1"},
 		},
 		Spec: v1.ServiceSpec{
 			Selector: map[string]string{"name": "test-web"},
@@ -356,18 +355,30 @@ func TestLBUpdate(t *testing.T) {
 	svc3.ObjectMeta.Labels = svc1.ObjectMeta.Labels
 	svc4 := svc2
 	svc4.Spec.Ports = []v1.ServicePort{{Protocol: "TCP", Port: int32(80), TargetPort: intstr.FromInt(8890)}}
+	svc5 := svc2
+	svc5.Name = "test-web-v1"
+	svc5.Labels = map[string]string{appLabel: "test", processLabel: "web", "custom2": "value2"}
+	svc5.Spec.Selector = map[string]string{"name": "test-web", "version": "v1"}
 	tt := []struct {
 		name             string
 		services         []v1.Service
+		extraData        router.RoutesRequestExtraData
 		expectedErr      error
 		expectedSelector map[string]string
 		expectedPorts    []v1.ServicePort
+		expectedLabels   map[string]string
 		exposeAllPorts   bool
 	}{
 		{
 			name:        "noServices",
 			services:    []v1.Service{},
 			expectedErr: ErrNoService{App: "test"},
+			expectedLabels: map[string]string{
+				appLabel:             "test",
+				managedServiceLabel:  "true",
+				externalServiceLabel: "true",
+				appPoolLabel:         "",
+			},
 			expectedPorts: []v1.ServicePort{
 				{
 					Name:       "port-80",
@@ -382,6 +393,12 @@ func TestLBUpdate(t *testing.T) {
 			services:       []v1.Service{},
 			exposeAllPorts: true,
 			expectedErr:    ErrNoService{App: "test"},
+			expectedLabels: map[string]string{
+				appLabel:             "test",
+				managedServiceLabel:  "true",
+				externalServiceLabel: "true",
+				appPoolLabel:         "",
+			},
 			expectedPorts: []v1.ServicePort{
 				{
 					Name:       "port-80",
@@ -396,6 +413,12 @@ func TestLBUpdate(t *testing.T) {
 			services:         []v1.Service{svc1},
 			exposeAllPorts:   true,
 			expectedSelector: map[string]string{"name": "test-single"},
+			expectedLabels: map[string]string{
+				appLabel:             "test",
+				managedServiceLabel:  "true",
+				externalServiceLabel: "true",
+				appPoolLabel:         "",
+			},
 			expectedPorts: []v1.ServicePort{
 				{
 					Name:       "port-80",
@@ -414,6 +437,12 @@ func TestLBUpdate(t *testing.T) {
 			name:             "singleService",
 			services:         []v1.Service{svc1},
 			expectedSelector: map[string]string{"name": "test-single"},
+			expectedLabels: map[string]string{
+				appLabel:             "test",
+				managedServiceLabel:  "true",
+				externalServiceLabel: "true",
+				appPoolLabel:         "",
+			},
 			expectedPorts: []v1.ServicePort{
 				{
 					Name:       "port-80",
@@ -428,6 +457,14 @@ func TestLBUpdate(t *testing.T) {
 			services:         []v1.Service{svc1, svc2},
 			exposeAllPorts:   true,
 			expectedSelector: map[string]string{"name": "test-web"},
+			expectedLabels: map[string]string{
+				appLabel:             "test",
+				processLabel:         "web",
+				managedServiceLabel:  "true",
+				externalServiceLabel: "true",
+				appPoolLabel:         "",
+				"custom1":            "value1",
+			},
 			expectedPorts: []v1.ServicePort{
 				{
 					Name:       "port-80",
@@ -446,6 +483,12 @@ func TestLBUpdate(t *testing.T) {
 			name:        "multiServiceWithoutWeb",
 			services:    []v1.Service{svc1, svc3},
 			expectedErr: ErrNoService{App: "test", Process: "web"},
+			expectedLabels: map[string]string{
+				appLabel:             "test",
+				managedServiceLabel:  "true",
+				externalServiceLabel: "true",
+				appPoolLabel:         "",
+			},
 			expectedPorts: []v1.ServicePort{
 				{
 					Name:       "port-80",
@@ -460,12 +503,82 @@ func TestLBUpdate(t *testing.T) {
 			services:         []v1.Service{svc4},
 			exposeAllPorts:   true,
 			expectedSelector: map[string]string{"name": "test-web"},
+			expectedLabels: map[string]string{
+				appLabel:             "test",
+				processLabel:         "web",
+				managedServiceLabel:  "true",
+				externalServiceLabel: "true",
+				appPoolLabel:         "",
+				"custom1":            "value1",
+			},
 			expectedPorts: []v1.ServicePort{
 				{
 					Name:       "port-80",
 					Protocol:   v1.ProtocolTCP,
 					Port:       int32(80),
 					TargetPort: intstr.FromInt(8888),
+				},
+			},
+		},
+
+		{
+			name:             "multiServiceWithWeb",
+			services:         []v1.Service{svc1, svc2},
+			extraData:        router.RoutesRequestExtraData{Namespace: svc2.Namespace, Service: svc2.Name},
+			exposeAllPorts:   true,
+			expectedSelector: map[string]string{"name": "test-web"},
+			expectedLabels: map[string]string{
+				appLabel:                     "test",
+				processLabel:                 "web",
+				managedServiceLabel:          "true",
+				externalServiceLabel:         "true",
+				appPoolLabel:                 "",
+				appBaseServiceNamespaceLabel: "default",
+				appBaseServiceNameLabel:      "test-web",
+				"custom1":                    "value1",
+			},
+			expectedPorts: []v1.ServicePort{
+				{
+					Name:       "port-80",
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(80),
+					TargetPort: intstr.FromInt(8888),
+				},
+				{
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(8890),
+					TargetPort: intstr.FromInt(8890),
+				},
+			},
+		},
+
+		{
+			name:             "multiServiceWithConflictingWeb",
+			services:         []v1.Service{svc2, svc5},
+			extraData:        router.RoutesRequestExtraData{Namespace: svc2.Namespace, Service: svc2.Name},
+			exposeAllPorts:   true,
+			expectedSelector: map[string]string{"name": "test-web"},
+			expectedLabels: map[string]string{
+				appLabel:                     "test",
+				processLabel:                 "web",
+				managedServiceLabel:          "true",
+				externalServiceLabel:         "true",
+				appPoolLabel:                 "",
+				appBaseServiceNamespaceLabel: "default",
+				appBaseServiceNameLabel:      "test-web",
+				"custom1":                    "value1",
+			},
+			expectedPorts: []v1.ServicePort{
+				{
+					Name:       "port-80",
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(80),
+					TargetPort: intstr.FromInt(8888),
+				},
+				{
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(8890),
+					TargetPort: intstr.FromInt(8890),
 				},
 			},
 		},
@@ -478,31 +591,37 @@ func TestLBUpdate(t *testing.T) {
 			err := svc.Create("test", router.Opts{AdditionalOpts: map[string]string{
 				exposeAllPortsOpt: strconv.FormatBool(tc.exposeAllPorts),
 			}})
-			if err != nil {
-				t.Errorf("Expected err to be nil. Got %v.", err)
-			}
+			assert.NoError(t, err)
+
 			setIP(t, svc, "test")
 			for i := range tc.services {
 				_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(&tc.services[i])
-				if err != nil {
-					t.Errorf("Expected err to be nil. Got %v.", err)
-				}
+				assert.NoError(t, err)
 			}
 
-			err = svc.Update("test")
-			if err != tc.expectedErr {
-				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
+			err = svc.Update("test", tc.extraData)
+			if tc.expectedErr != nil {
+				assert.Equal(t, err, tc.expectedErr)
+			} else {
+				assert.NoError(t, err)
 			}
+
 			service, err := svc.Client.CoreV1().Services(svc.Namespace).Get(serviceName("test"), metav1.GetOptions{})
-			if err != nil {
-				t.Errorf("Expected err to be nil. Got %v.", err)
-			}
-			if !reflect.DeepEqual(service.Spec.Selector, tc.expectedSelector) {
-				t.Errorf("Expected %v. Got %v", tc.expectedSelector, service.Spec.Selector)
-			}
-			if !reflect.DeepEqual(service.Spec.Ports, tc.expectedPorts) {
-				t.Errorf("Expected port to equal:\n%#v\nGot:\n%#v", tc.expectedPorts, service.Spec.Ports)
-			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expectedSelector, service.Spec.Selector)
+			assert.Equal(t, tc.expectedPorts, service.Spec.Ports)
+			assert.Equal(t, tc.expectedLabels, service.Labels)
+
+			err = svc.Create("test", router.Opts{AdditionalOpts: map[string]string{
+				exposeAllPortsOpt: strconv.FormatBool(tc.exposeAllPorts),
+			}})
+			assert.NoError(t, err)
+
+			service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(serviceName("test"), metav1.GetOptions{})
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expectedSelector, service.Spec.Selector)
+			assert.Equal(t, tc.expectedPorts, service.Spec.Ports)
+			assert.Equal(t, tc.expectedLabels, service.Labels)
 		})
 	}
 }
@@ -563,7 +682,7 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 	}
 	_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(&webSvc)
 	require.NoError(t, err)
-	err = svc.Update("test")
+	err = svc.Update("test", router.RoutesRequestExtraData{})
 	require.NoError(t, err)
 	service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(serviceName("test"), metav1.GetOptions{})
 	require.NoError(t, err)
@@ -636,7 +755,7 @@ func TestLBUpdateSwapped(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
-		err = svc.Update("test-" + n)
+		err = svc.Update("test-"+n, router.RoutesRequestExtraData{})
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -645,7 +764,7 @@ func TestLBUpdateSwapped(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Update("test-blue")
+	err = svc.Update("test-blue", router.RoutesRequestExtraData{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -672,7 +791,7 @@ func TestLBSwap(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
-		err = svc.Update("test-" + n)
+		err = svc.Update("test-"+n, router.RoutesRequestExtraData{})
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -722,7 +841,7 @@ func TestLBUpdateSwapWithouIPFails(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Update("test-myapp1")
+	err = svc.Update("test-myapp1", router.RoutesRequestExtraData{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -774,9 +893,10 @@ func defaultService(app, namespace string, labels, annotations, selector map[str
 			Name:      serviceName(app),
 			Namespace: namespace,
 			Labels: map[string]string{
-				appLabel:            app,
-				managedServiceLabel: "true",
-				appPoolLabel:        "",
+				appLabel:             app,
+				managedServiceLabel:  "true",
+				externalServiceLabel: "true",
+				appPoolLabel:         "",
 			},
 			Annotations: annotations,
 		},

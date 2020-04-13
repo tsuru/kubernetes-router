@@ -38,10 +38,9 @@ var ErrIngressAlreadyExists = errors.New("ingress already exists")
 type Service interface {
 	Create(appName string, opts Opts) error
 	Remove(appName string) error
-	Update(appName string) error
+	Update(appName string, extraData RoutesRequestExtraData) error
 	Swap(appSrc, appDst string) error
-	Get(appName string) (map[string]string, error)
-	Addresses(appName string) ([]string, error)
+	GetAddresses(appName string) ([]string, error)
 	SupportedOptions() (map[string]string, error)
 }
 
@@ -80,6 +79,16 @@ type CnamesResp struct {
 type CertData struct {
 	Certificate string `json:"certificate"`
 	Key         string `json:"key"`
+}
+
+type RoutesRequestData struct {
+	Prefix    string                 `json:"prefix"`
+	ExtraData RoutesRequestExtraData `json:"extraData"`
+}
+
+type RoutesRequestExtraData struct {
+	Namespace string `json:"namespace"`
+	Service   string `json:"service"`
 }
 
 func (o *Opts) ToAnnotations() (map[string]string, error) {

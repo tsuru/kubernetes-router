@@ -6,9 +6,11 @@ package kubernetes
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
+	"github.com/tsuru/kubernetes-router/router"
 	tsuruv1 "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1"
 	tsuruv1clientset "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned"
 	"github.com/tsuru/tsuru/types/provision"
@@ -16,6 +18,8 @@ import (
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/transport"
@@ -24,8 +28,13 @@ import (
 const (
 	// managedServiceLabel is added to every service created by the router
 	managedServiceLabel = "tsuru.io/router-lb"
-
+	// externalServiceLabel should be added to every service with tsuru app
+	// labels that are NOT created or managed by tsuru itself.
+	externalServiceLabel = "tsuru.io/external-controller"
 	headlessServiceLabel = "tsuru.io/is-headless-service"
+
+	appBaseServiceNamespaceLabel = "router.tsuru.io/base-service-namespace"
+	appBaseServiceNameLabel      = "router.tsuru.io/base-service-name"
 
 	defaultServicePort = 8888
 	appLabel           = "tsuru.io/app-name"
@@ -33,7 +42,6 @@ const (
 	processLabel       = "tsuru.io/app-process"
 	swapLabel          = "tsuru.io/swapped-with"
 	appPoolLabel       = "tsuru.io/app-pool"
-	poolLabel          = "tsuru.io/pool"
 	webProcessName     = "web"
 
 	appCRDName = "apps.tsuru.io"
@@ -68,42 +76,6 @@ type BaseService struct {
 	ExtensionsClient apiextensionsclientset.Interface
 	Labels           map[string]string
 	Annotations      map[string]string
-}
-
-// Addresses return the addresses of every node on the same pool as the
-// app Service pool
-func (k *BaseService) Addresses(appName string) ([]string, error) {
-	service, err := k.getWebService(appName)
-	if err != nil {
-		return nil, err
-	}
-	var port int32
-	if len(service.Spec.Ports) > 0 {
-		port = service.Spec.Ports[0].NodePort
-	}
-	client, err := k.getClient()
-	if err != nil {
-		return nil, err
-	}
-	pool := service.Labels[appPoolLabel]
-	nodes, err := client.CoreV1().Nodes().List(metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=%s", poolLabel, pool),
-	})
-	if err != nil {
-		return nil, err
-	}
-	addresses := make([]string, len(nodes.Items))
-	for i := range nodes.Items {
-		addr := nodes.Items[i].Name
-		for _, a := range nodes.Items[i].Status.Addresses {
-			if a.Type == apiv1.NodeInternalIP {
-				addr = a.Address
-				break
-			}
-		}
-		addresses[i] = fmt.Sprintf("http://%s:%d", addr, port)
-	}
-	return addresses, nil
 }
 
 // SupportedOptions returns the options supported by all services
@@ -169,17 +141,39 @@ func (k *BaseService) getConfig() (*rest.Config, error) {
 	return config, nil
 }
 
-func (k *BaseService) getWebService(appName string) (*apiv1.Service, error) {
+func (k *BaseService) getWebService(appName string, extraData router.RoutesRequestExtraData, currentLabels map[string]string) (*apiv1.Service, error) {
 	client, err := k.getClient()
 	if err != nil {
 		return nil, err
 	}
+
+	if currentLabels != nil && extraData.Namespace == "" && extraData.Service == "" {
+		extraData.Namespace = currentLabels[appBaseServiceNamespaceLabel]
+		extraData.Service = currentLabels[appBaseServiceNameLabel]
+	}
+
+	if extraData.Namespace != "" && extraData.Service != "" {
+		var svc *apiv1.Service
+		svc, err = client.CoreV1().Services(extraData.Namespace).Get(extraData.Service, metav1.GetOptions{})
+		if err != nil {
+			if k8sErrors.IsNotFound(err) {
+				return nil, ErrNoService{App: appName}
+			}
+			return nil, err
+		}
+		return svc, nil
+	}
+
 	namespace, err := k.getAppNamespace(appName)
 	if err != nil {
 		return nil, err
 	}
+	sel, err := makeWebSvcSelector(appName)
+	if err != nil {
+		return nil, err
+	}
 	list, err := client.CoreV1().Services(namespace).List(metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=%s,%s!=%s,%s!=%s", appLabel, appName, managedServiceLabel, "true", headlessServiceLabel, "true"),
+		LabelSelector: sel.String(),
 	})
 	if err != nil {
 		return nil, err
@@ -190,10 +184,20 @@ func (k *BaseService) getWebService(appName string) (*apiv1.Service, error) {
 	if len(list.Items) == 1 {
 		return &list.Items[0], nil
 	}
+	var service *apiv1.Service
+	var webSvcsCounter int
 	for i := range list.Items {
 		if list.Items[i].Labels[processLabel] == webProcessName {
-			return &list.Items[i], nil
+			webSvcsCounter++
+			service = &list.Items[i]
 		}
+	}
+	if webSvcsCounter > 1 {
+		log.Printf("WARNING: multiple (%d) services matching app %q and process %q", webSvcsCounter, appName, webProcessName)
+		return nil, ErrNoService{App: appName, Process: webProcessName}
+	}
+	if service != nil {
+		return service, nil
 	}
 	return nil, ErrNoService{App: appName, Process: webProcessName}
 }
@@ -284,4 +288,27 @@ func getAppServicePort(app *tsuruv1.App) int {
 		}
 	}
 	return servicePort
+}
+
+func makeWebSvcSelector(appName string) (labels.Selector, error) {
+	reqs := []struct {
+		key string
+		op  selection.Operator
+		val string
+	}{
+		{appLabel, selection.Equals, appName},
+		{managedServiceLabel, selection.NotEquals, "true"},
+		{externalServiceLabel, selection.NotEquals, "true"},
+		{headlessServiceLabel, selection.NotEquals, "true"},
+	}
+
+	sel := labels.NewSelector()
+	for _, reqInfo := range reqs {
+		req, err := labels.NewRequirement(reqInfo.key, reqInfo.op, []string{reqInfo.val})
+		if err != nil {
+			return nil, err
+		}
+		sel = sel.Add(*req)
+	}
+	return sel, nil
 }

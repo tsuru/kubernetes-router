@@ -231,14 +231,6 @@ func (k *IstioGateway) Create(appName string, routerOpts router.Opts) error {
 		return err
 	}
 
-	webServiceName := placeHolderServiceName
-	webService, err := k.getWebService(appName)
-	if err == nil {
-		webServiceName = webService.Name
-	} else {
-		log.Printf("ignored error trying to find app web service: %v", err)
-	}
-
 	existingSvc := true
 	virtualSvcCfg, vsSpec, err := k.getVS(cli, appName)
 	if err != nil {
@@ -249,6 +241,15 @@ func (k *IstioGateway) Create(appName string, routerOpts router.Opts) error {
 		}
 	}
 	k.setConfigMeta(virtualSvcCfg, appName, routerOpts)
+
+	webServiceName := placeHolderServiceName
+	webService, err := k.getWebService(appName, router.RoutesRequestExtraData{}, virtualSvcCfg.Labels)
+	if err == nil {
+		webServiceName = webService.Name
+	} else {
+		log.Printf("ignored error trying to find app web service: %v", err)
+	}
+
 	virtualSvcCfg = k.updateVirtualService(virtualSvcCfg, vsSpec, appName, webServiceName)
 	if existingSvc {
 		_, err = cli.Update(*virtualSvcCfg)
@@ -266,11 +267,7 @@ func (k *IstioGateway) Create(appName string, routerOpts router.Opts) error {
 }
 
 // Update sets the app web service into the existing virtualservice
-func (k *IstioGateway) Update(appName string) error {
-	service, err := k.getWebService(appName)
-	if err != nil {
-		return err
-	}
+func (k *IstioGateway) Update(appName string, extraData router.RoutesRequestExtraData) error {
 	cli, err := k.getClient()
 	if err != nil {
 		return err
@@ -279,6 +276,14 @@ func (k *IstioGateway) Update(appName string) error {
 	if err != nil {
 		return err
 	}
+	service, err := k.getWebService(appName, extraData, vsConfig.Labels)
+	if err != nil {
+		return err
+	}
+	if extraData.Namespace != "" && extraData.Service != "" {
+		vsConfig.Labels[appBaseServiceNamespaceLabel] = extraData.Namespace
+		vsConfig.Labels[appBaseServiceNameLabel] = extraData.Service
+	}
 	vsConfig = k.updateVirtualService(vsConfig, vsSpec, appName, service.Name)
 	k.setConfigMeta(vsConfig, appName, router.Opts{})
 	_, err = cli.Update(*vsConfig)
@@ -286,8 +291,8 @@ func (k *IstioGateway) Update(appName string) error {
 }
 
 // Get returns the address in the gateway
-func (k *IstioGateway) Get(appName string) (map[string]string, error) {
-	return map[string]string{"address": k.gatewayHost(appName)}, nil
+func (k *IstioGateway) GetAddresses(appName string) ([]string, error) {
+	return []string{k.gatewayHost(appName)}, nil
 }
 
 // Swap is not implemented

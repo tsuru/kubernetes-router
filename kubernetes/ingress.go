@@ -129,11 +129,7 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 
 // Update updates an Ingress resource to point it to either
 // the only service or the one responsible for the process web
-func (k *IngressService) Update(appName string) error {
-	service, err := k.getWebService(appName)
-	if err != nil {
-		return err
-	}
+func (k *IngressService) Update(appName string, extraData router.RoutesRequestExtraData) error {
 	ns, err := k.getAppNamespace(appName)
 	if err != nil {
 		return err
@@ -145,6 +141,14 @@ func (k *IngressService) Update(appName string) error {
 	ingress, err := k.get(appName)
 	if err != nil {
 		return err
+	}
+	service, err := k.getWebService(appName, extraData, ingress.Labels)
+	if err != nil {
+		return err
+	}
+	if extraData.Namespace != "" && extraData.Service != "" {
+		ingress.Labels[appBaseServiceNamespaceLabel] = extraData.Namespace
+		ingress.Labels[appBaseServiceNameLabel] = extraData.Service
 	}
 	ingress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName = service.Name
 	ingress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServicePort = intstr.FromInt(int(service.Spec.Ports[0].Port))
@@ -223,13 +227,13 @@ func (k *IngressService) Remove(appName string) error {
 
 // Get gets the address of the loadbalancer associated with
 // the app Ingress resource
-func (k *IngressService) Get(appName string) (map[string]string, error) {
+func (k *IngressService) GetAddresses(appName string) ([]string, error) {
 	ingress, err := k.get(appName)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]string{"address": fmt.Sprintf("%v", ingress.Spec.Rules[0].Host)}, nil
+	return []string{fmt.Sprintf("%v", ingress.Spec.Rules[0].Host)}, nil
 }
 
 func (k *IngressService) get(appName string) (*v1beta1.Ingress, error) {

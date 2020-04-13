@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/tsuru/kubernetes-router/router"
 	"github.com/tsuru/kubernetes-router/router/mock"
 )
@@ -39,56 +40,41 @@ func TestGetBackend(t *testing.T) {
 	service := &mock.RouterService{}
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
-	expected := map[string]string{"data": "myapp"}
-	service.GetFn = func(name string) (map[string]string, error) {
-		if name != "myapp" {
-			t.Errorf("Expected myapp. Got %s", name)
-		}
-		return expected, nil
+	service.GetAddressesFn = func(name string) ([]string, error) {
+		assert.Equal(t, "myapp", name)
+		return []string{"myapp"}, nil
 	}
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.GetInvoked {
-		t.Errorf("Service Get function not invoked")
-	}
-	var data map[string]string
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.True(t, service.GetAddressesInvoked)
+	var data map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &data)
-	if err != nil {
-		t.Errorf("Failed to unmarshal: %v", err)
-	}
-	if !reflect.DeepEqual(data, expected) {
-		t.Errorf("Expected %v. Got %v", expected, data)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]interface{}{
+		"address":   "myapp",
+		"addresses": []interface{}{"myapp"},
+	}, data)
 }
 
 func TestGetBackendExplicitMode(t *testing.T) {
 	service := &mock.RouterService{}
 	api := RouterAPI{DefaultMode: "xyz", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
-	expected := map[string]string{"data": "myapp"}
-	service.GetFn = func(name string) (map[string]string, error) {
-		if name != "myapp" {
-			t.Errorf("Expected myapp. Got %s", name)
-		}
-		return expected, nil
+	service.GetAddressesFn = func(name string) ([]string, error) {
+		assert.Equal(t, "myapp", name)
+		return []string{"myapp"}, nil
 	}
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/mymode/backend/myapp", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.GetInvoked {
-		t.Errorf("Service Get function not invoked")
-	}
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.True(t, service.GetAddressesInvoked)
 }
 
 func TestGetBackendInvalidMode(t *testing.T) {
@@ -167,24 +153,21 @@ func TestAddRoutes(t *testing.T) {
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
-	service.UpdateFn = func(name string) error {
-		if name != "myapp" {
-			t.Errorf("Expected myapp. Got %s", name)
-		}
+	service.UpdateFn = func(name string, extraData router.RoutesRequestExtraData) error {
+		assert.Equal(t, "myapp", name)
 		return nil
 	}
+	reqData := router.RoutesRequestData{}
+	bodyData, err := json.Marshal(reqData)
+	assert.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/routes", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/routes", bytes.NewReader(bodyData))
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.UpdateInvoked {
-		t.Errorf("Service Update function not invoked")
-	}
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.True(t, service.UpdateInvoked)
 }
 
 func TestSwap(t *testing.T) {
@@ -254,30 +237,17 @@ func TestGetRoutes(t *testing.T) {
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
-	service.AddressesFn = func(app string) ([]string, error) {
-		return []string{"localhost:8080"}, nil
-	}
-
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp/routes", nil)
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.AddressesInvoked {
-		t.Errorf("Service Addresses function not invoked")
-	}
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var data map[string][]string
 	err := json.Unmarshal(w.Body.Bytes(), &data)
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v", err)
-	}
-	expected := map[string][]string{"addresses": {"localhost:8080"}}
-	if !reflect.DeepEqual(data, expected) {
-		t.Errorf("Expected %v. Got %v", expected, data)
-	}
+	assert.NoError(t, err)
+	expected := map[string][]string{"addresses": nil}
+	assert.Equal(t, expected, data)
 }
 
 func TestAddCertificate(t *testing.T) {

@@ -47,7 +47,7 @@ type LBService struct {
 
 // Create creates a LoadBalancer type service without any selectors
 func (s *LBService) Create(appName string, opts router.Opts) error {
-	return s.syncLB(appName, &opts, false)
+	return s.syncLB(appName, &opts, false, router.RoutesRequestExtraData{})
 }
 
 // Remove removes the LoadBalancer service
@@ -79,8 +79,8 @@ func (s *LBService) Remove(appName string) error {
 
 // Update updates the LoadBalancer service copying the web service
 // labels, selectors, annotations and ports
-func (s *LBService) Update(appName string) error {
-	return s.syncLB(appName, nil, true)
+func (s *LBService) Update(appName string, extraData router.RoutesRequestExtraData) error {
+	return s.syncLB(appName, nil, true, extraData)
 }
 
 // Swap swaps the two LB services selectors
@@ -131,7 +131,7 @@ func (s *LBService) Swap(appSrc string, appDst string) error {
 }
 
 // Get returns the LoadBalancer IP
-func (s *LBService) Get(appName string) (map[string]string, error) {
+func (s *LBService) GetAddresses(appName string) ([]string, error) {
 	service, err := s.getLBService(appName)
 	if err != nil {
 		return nil, err
@@ -148,7 +148,7 @@ func (s *LBService) Get(appName string) (map[string]string, error) {
 			addr = lbs[0].Hostname
 		}
 	}
-	return map[string]string{"address": addr}, nil
+	return []string{addr}, nil
 }
 
 // SupportedOptions returns all the supported options
@@ -194,7 +194,7 @@ func isReady(service *v1.Service) bool {
 	return service.Status.LoadBalancer.Ingress[0].IP != ""
 }
 
-func (s *LBService) syncLB(appName string, opts *router.Opts, isUpdate bool) error {
+func (s *LBService) syncLB(appName string, opts *router.Opts, isUpdate bool, extraData router.RoutesRequestExtraData) error {
 	app, err := s.getApp(appName)
 	if err != nil {
 		return err
@@ -231,7 +231,7 @@ func (s *LBService) syncLB(appName string, opts *router.Opts, isUpdate bool) err
 		opts = &annotationOpts
 	}
 
-	webService, err := s.getWebService(appName)
+	webService, err := s.getWebService(appName, extraData, lbService.Labels)
 	if err != nil {
 		if _, isNotFound := err.(ErrNoService); isUpdate || !isNotFound {
 			return err
@@ -241,7 +241,7 @@ func (s *LBService) syncLB(appName string, opts *router.Opts, isUpdate bool) err
 		lbService.Spec.Selector = webService.Spec.Selector
 	}
 
-	err = s.fillLabelsAndAnnotations(lbService, appName, webService, *opts)
+	err = s.fillLabelsAndAnnotations(lbService, appName, webService, *opts, extraData)
 	if err != nil {
 		return err
 	}
@@ -263,7 +263,7 @@ func (s *LBService) syncLB(appName string, opts *router.Opts, isUpdate bool) err
 	return err
 }
 
-func (s *LBService) fillLabelsAndAnnotations(svc *v1.Service, appName string, webService *v1.Service, opts router.Opts) error {
+func (s *LBService) fillLabelsAndAnnotations(svc *v1.Service, appName string, webService *v1.Service, opts router.Opts, extraData router.RoutesRequestExtraData) error {
 	optsLabels := make(map[string]string)
 	for optName, labelName := range s.OptsAsLabels {
 		if optsValue, ok := opts.AdditionalOpts[optName]; ok {
@@ -272,13 +272,15 @@ func (s *LBService) fillLabelsAndAnnotations(svc *v1.Service, appName string, we
 	}
 
 	labels := []map[string]string{
+		svc.Labels,
 		s.PoolLabels[opts.Pool],
 		optsLabels,
 		s.Labels,
 		{
-			appLabel:            appName,
-			managedServiceLabel: "true",
-			appPoolLabel:        opts.Pool,
+			appLabel:             appName,
+			managedServiceLabel:  "true",
+			externalServiceLabel: "true",
+			appPoolLabel:         opts.Pool,
 		},
 	}
 	optsAnnotations, err := opts.ToAnnotations()
@@ -290,6 +292,13 @@ func (s *LBService) fillLabelsAndAnnotations(svc *v1.Service, appName string, we
 	if webService != nil {
 		labels = append(labels, webService.Labels)
 		annotations = append(annotations, webService.Annotations)
+	}
+
+	if extraData.Namespace != "" && extraData.Service != "" {
+		labels = append(labels, map[string]string{
+			appBaseServiceNamespaceLabel: extraData.Namespace,
+			appBaseServiceNameLabel:      extraData.Service,
+		})
 	}
 
 	svc.Labels = mergeMaps(labels...)

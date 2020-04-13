@@ -249,7 +249,7 @@ func TestUpdate(t *testing.T) {
 				}
 			}
 
-			err = svc.Update("test")
+			err = svc.Update("test", router.RoutesRequestExtraData{})
 			if err != tc.expectedErr {
 				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
 			}

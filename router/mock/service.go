@@ -11,10 +11,9 @@ import "github.com/tsuru/kubernetes-router/router"
 type RouterService struct {
 	CreateFn                 func(string, router.Opts) error
 	RemoveFn                 func(string) error
-	UpdateFn                 func(string) error
+	UpdateFn                 func(string, router.RoutesRequestExtraData) error
 	SwapFn                   func(string, string) error
-	GetFn                    func(string) (map[string]string, error)
-	AddressesFn              func(string) ([]string, error)
+	GetAddressesFn           func(string) ([]string, error)
 	GetCertificateFn         func(string, string) (*router.CertData, error)
 	AddCertificateFn         func(string, string, router.CertData) error
 	RemoveCertificateFn      func(string, string) error
@@ -26,8 +25,7 @@ type RouterService struct {
 	RemoveInvoked            bool
 	UpdateInvoked            bool
 	SwapInvoked              bool
-	GetInvoked               bool
-	AddressesInvoked         bool
+	GetAddressesInvoked      bool
 	AddCertificateInvoked    bool
 	GetCertificateInvoked    bool
 	RemoveCertificateInvoked bool
@@ -50,9 +48,9 @@ func (s *RouterService) Remove(appName string) error {
 }
 
 // Update calls UpdateFn
-func (s *RouterService) Update(appName string) error {
+func (s *RouterService) Update(appName string, extraData router.RoutesRequestExtraData) error {
 	s.UpdateInvoked = true
-	return s.UpdateFn(appName)
+	return s.UpdateFn(appName, extraData)
 }
 
 // Swap calls SwapFn
@@ -62,15 +60,9 @@ func (s *RouterService) Swap(appSrc string, appDst string) error {
 }
 
 // Get calls GetFn
-func (s *RouterService) Get(appName string) (map[string]string, error) {
-	s.GetInvoked = true
-	return s.GetFn(appName)
-}
-
-// Addresses calls AddressesFn
-func (s *RouterService) Addresses(appName string) ([]string, error) {
-	s.AddressesInvoked = true
-	return s.AddressesFn(appName)
+func (s *RouterService) GetAddresses(appName string) ([]string, error) {
+	s.GetAddressesInvoked = true
+	return s.GetAddressesFn(appName)
 }
 
 // GetCertificate calls GetCertificate
