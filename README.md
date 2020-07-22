@@ -21,6 +21,10 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 - `-logtostderr`: log to standard error instead of files;
 - `-opts-to-label`: Mapping between router options and service labels. Expects KEY=VALUE format;
 - `-opts-to-label-doc`: Mapping between router options and user friendly help. Expects KEY=VALUE format;
+- `-opts-to-ingress-annotations`: Mapping between router options and ingress annotations. Expects KEY=VALUE format;
+- `-opts-to-ingress-annotations-doc`: Mapping between router options and user friendly help. Expects KEY=VALUE format;
+- `-ingress-class`: Default class annotation for ingress objects;
+- `-ingress-annotations-prefix`: Default prefix for annotations in ingress objects;
 - `-pool-labels`: Default labels for a given pool. Expects POOL={"LABEL":"VALUE"} format;
 - `-stderrthreshold`: logs at or above this threshold go to stderr;
 - `-v`: log level for V logs;

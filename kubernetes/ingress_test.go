@@ -9,6 +9,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/tsuru/kubernetes-router/router"
 	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
 	"github.com/tsuru/tsuru/types/provision"
@@ -78,6 +79,95 @@ func TestIngressCreate(t *testing.T) {
 	if !reflect.DeepEqual(ingressList.Items[0], expectedIngress) {
 		t.Errorf("Expected %v. Got %v", expectedIngress, ingressList.Items[0])
 	}
+}
+
+func TestIngressCreateDefaultClass(t *testing.T) {
+	svc := createFakeService()
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	svc.IngressClass = "nginx"
+	err := svc.Create("test", router.Opts{
+		AdditionalOpts: map[string]string{"my-opt": "v1"},
+	})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	if len(ingressList.Items) != 1 {
+		t.Errorf("Expected 1 item. Got %d.", len(ingressList.Items))
+	}
+	expectedIngress := defaultIngress("test", "default")
+	expectedIngress.Labels["controller"] = "my-controller"
+	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Annotations["ann1"] = "val1"
+	expectedIngress.Annotations["ann2"] = "val2"
+	expectedIngress.Annotations["kubernetes.io/ingress.class"] = "nginx"
+	expectedIngress.Annotations["my-opt"] = "v1"
+
+	assert.Equal(t, expectedIngress, ingressList.Items[0])
+}
+
+func TestIngressCreateDefaultClassOverride(t *testing.T) {
+	svc := createFakeService()
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	svc.IngressClass = "nginx"
+	err := svc.Create("test", router.Opts{
+		AdditionalOpts: map[string]string{"class": "xyz"},
+	})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	if len(ingressList.Items) != 1 {
+		t.Errorf("Expected 1 item. Got %d.", len(ingressList.Items))
+	}
+	expectedIngress := defaultIngress("test", "default")
+	expectedIngress.Labels["controller"] = "my-controller"
+	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Annotations["ann1"] = "val1"
+	expectedIngress.Annotations["ann2"] = "val2"
+	expectedIngress.Annotations["kubernetes.io/ingress.class"] = "xyz"
+
+	assert.Equal(t, expectedIngress, ingressList.Items[0])
+}
+
+func TestIngressCreateDefaultPrefix(t *testing.T) {
+	svc := createFakeService()
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	svc.AnnotationsPrefix = "my.prefix.com"
+	err := svc.Create("test", router.Opts{
+		AdditionalOpts: map[string]string{
+			"foo1":          "xyz",
+			"prefixed/foo2": "abc",
+		},
+	})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	if len(ingressList.Items) != 1 {
+		t.Errorf("Expected 1 item. Got %d.", len(ingressList.Items))
+	}
+	expectedIngress := defaultIngress("test", "default")
+	expectedIngress.Labels["controller"] = "my-controller"
+	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Annotations["ann1"] = "val1"
+	expectedIngress.Annotations["ann2"] = "val2"
+	expectedIngress.Annotations["my.prefix.com/foo1"] = "xyz"
+	expectedIngress.Annotations["prefixed/foo2"] = "abc"
+
+	assert.Equal(t, expectedIngress, ingressList.Items[0])
 }
 
 func TestIngressCreateDefaultPort(t *testing.T) {
@@ -402,7 +492,7 @@ func TestUnsetCname(t *testing.T) {
 	}
 
 	cnameIng := defaultIngress("test-blue", "default")
-	cnameIng.Annotations[annotationWithPrefix("server-alias")] = ""
+	cnameIng.Annotations[svc.annotationWithPrefix("server-alias")] = ""
 
 	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
 	if err != nil {
@@ -426,7 +516,7 @@ func TestSetCname(t *testing.T) {
 	}
 
 	cnameIng := defaultIngress("test-blue", "default")
-	cnameIng.Annotations[annotationWithPrefix("server-alias")] = "cname1"
+	cnameIng.Annotations[svc.annotationWithPrefix("server-alias")] = "cname1"
 
 	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
 	if err != nil {
@@ -454,7 +544,7 @@ func TestGetCnames(t *testing.T) {
 	}
 
 	cnameIng := defaultIngress("test-blue", "default")
-	cnameIng.Annotations[annotationWithPrefix("server-alias")] = "cname1 cname2"
+	cnameIng.Annotations[svc.annotationWithPrefix("server-alias")] = "cname1 cname2"
 
 	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
 	if err != nil {

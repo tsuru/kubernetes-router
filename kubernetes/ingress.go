@@ -23,18 +23,30 @@ import (
 )
 
 var (
-	// AnnotationsPrefix defines the common prefix used in the nginx ingress controller
-	AnnotationsPrefix = "nginx.ingress.kubernetes.io"
-	// AnnotationsNginx defines the common annotation used in the nginx ingress controller
-	AnnotationsNginx = map[string]string{"kubernetes.io/ingress.class": "nginx"}
 	// AnnotationsACMEKey defines the common annotation used to enable acme-tls
 	AnnotationsACMEKey = "kubernetes.io/tls-acme"
+
+	defaultClassOpt          = "class"
+	defaultOptsAsAnnotations = map[string]string{
+		defaultClassOpt: "kubernetes.io/ingress.class",
+	}
+	defaultOptsAsAnnotationsDocs = map[string]string{
+		defaultClassOpt: "Ingress class for the Ingress object",
+	}
 )
 
 // IngressService manages ingresses in a Kubernetes cluster that uses ingress-nginx
 type IngressService struct {
 	*BaseService
 	DefaultDomain string
+
+	// AnnotationsPrefix defines the common prefix used in the nginx ingress controller
+	AnnotationsPrefix string
+	// IngressClass defines the default ingress class used by the controller
+	IngressClass string
+
+	OptsAsAnnotations     map[string]string
+	OptsAsAnnotationsDocs map[string]string
 }
 
 // Create creates an Ingress resource pointing to a service
@@ -85,35 +97,12 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 	}
 	i := &v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        ingressName(appName),
-			Namespace:   namespace,
-			Labels:      map[string]string{appLabel: appName},
-			Annotations: k.Annotations,
+			Name:      ingressName(appName),
+			Namespace: namespace,
 		},
 		Spec: spec,
 	}
-	if i.ObjectMeta.Annotations == nil {
-		i.ObjectMeta.Annotations = map[string]string{}
-	}
-	for k, v := range k.Labels {
-		i.ObjectMeta.Labels[k] = v
-	}
-	for k, v := range routerOpts.AdditionalOpts {
-		if !strings.Contains(k, "/") {
-			i.ObjectMeta.Annotations[annotationWithPrefix(k)] = v
-		} else {
-			i.ObjectMeta.Annotations[k] = v
-		}
-	}
-	if routerOpts.Acme {
-		i.Spec.TLS = []v1beta1.IngressTLS{
-			{
-				Hosts:      []string{i.Spec.Rules[0].Host},
-				SecretName: secretName(appName, i.Spec.Rules[0].Host),
-			},
-		}
-		i.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
-	}
+	k.fillIngressMeta(i, routerOpts, appName)
 
 	i, isNew, err := mergeIngresses(client, i)
 	if err != nil {
@@ -284,8 +273,11 @@ func secretName(appName, certName string) string {
 	return "kr-" + hashedAppCertName
 }
 
-func annotationWithPrefix(suffix string) string {
-	return fmt.Sprintf("%v/%v", AnnotationsPrefix, suffix)
+func (s *IngressService) annotationWithPrefix(suffix string) string {
+	if s.AnnotationsPrefix == "" {
+		return suffix
+	}
+	return fmt.Sprintf("%v/%v", s.AnnotationsPrefix, suffix)
 }
 
 func (k *IngressService) swap(srcIngress, dstIngress *v1beta1.Ingress) {
@@ -420,7 +412,7 @@ func (k *IngressService) SetCname(appName string, cname string) error {
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
-	aliases, ok := annotations[annotationWithPrefix("server-alias")]
+	aliases, ok := annotations[k.annotationWithPrefix("server-alias")]
 	if !ok {
 		aliases = cname
 	} else {
@@ -433,7 +425,7 @@ func (k *IngressService) SetCname(appName string, cname string) error {
 		aliasesArray = append(aliasesArray, []string{cname}...)
 		aliases = strings.Join(aliasesArray, " ")
 	}
-	annotations[annotationWithPrefix("server-alias")] = strings.TrimSpace(aliases)
+	annotations[k.annotationWithPrefix("server-alias")] = strings.TrimSpace(aliases)
 	ingress.SetAnnotations(annotations)
 
 	if val, ok := annotations[AnnotationsACMEKey]; ok && strings.Contains(val, "true") {
@@ -459,7 +451,7 @@ func (k *IngressService) GetCnames(appName string) (*router.CnamesResp, error) {
 		return nil, err
 	}
 
-	aliases, ok := ingress.GetAnnotations()[annotationWithPrefix("server-alias")]
+	aliases, ok := ingress.GetAnnotations()[k.annotationWithPrefix("server-alias")]
 	if !ok {
 		return &router.CnamesResp{}, err
 	}
@@ -483,7 +475,7 @@ func (k *IngressService) UnsetCname(appName string, cname string) error {
 	}
 
 	annotations := ingress.GetAnnotations()
-	aliases := strings.Split(annotations[annotationWithPrefix("server-alias")], " ")
+	aliases := strings.Split(annotations[k.annotationWithPrefix("server-alias")], " ")
 
 	for index, value := range aliases {
 		if strings.Compare(value, cname) == 0 {
@@ -492,7 +484,7 @@ func (k *IngressService) UnsetCname(appName string, cname string) error {
 		}
 	}
 
-	annotations[annotationWithPrefix("server-alias")] = strings.TrimSpace(strings.Join(aliases, " "))
+	annotations[k.annotationWithPrefix("server-alias")] = strings.TrimSpace(strings.Join(aliases, " "))
 	ingress.SetAnnotations(annotations)
 
 	_, err = ingressClient.Update(ingress)
@@ -501,8 +493,68 @@ func (k *IngressService) UnsetCname(appName string, cname string) error {
 }
 
 // SupportedOptions returns the supported options
-func (k *IngressService) SupportedOptions() (map[string]string, error) {
-	return map[string]string{router.Domain: "", router.Acme: "", router.Route: ""}, nil
+func (s *IngressService) SupportedOptions() (map[string]string, error) {
+	opts := map[string]string{
+		router.Domain: "",
+		router.Acme:   "",
+		router.Route:  "",
+	}
+	docs := mergeMaps(defaultOptsAsAnnotationsDocs, s.OptsAsAnnotationsDocs)
+	for k, v := range mergeMaps(defaultOptsAsAnnotations, s.OptsAsAnnotations) {
+		opts[k] = v
+		if docs[k] != "" {
+			opts[k] = docs[k]
+		}
+	}
+	return opts, nil
+}
+
+func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.Opts, appName string) {
+	if i.ObjectMeta.Labels == nil {
+		i.ObjectMeta.Labels = map[string]string{}
+	}
+	if i.ObjectMeta.Annotations == nil {
+		i.ObjectMeta.Annotations = map[string]string{}
+	}
+	for k, v := range s.Labels {
+		i.ObjectMeta.Labels[k] = v
+	}
+	for k, v := range s.Annotations {
+		i.ObjectMeta.Annotations[k] = v
+	}
+	i.ObjectMeta.Labels[appLabel] = appName
+
+	additionalOpts := routerOpts.AdditionalOpts
+	if s.IngressClass != "" {
+		additionalOpts = mergeMaps(routerOpts.AdditionalOpts, map[string]string{
+			defaultClassOpt: s.IngressClass,
+		})
+	}
+
+	optsAsAnnotations := mergeMaps(defaultOptsAsAnnotations, s.OptsAsAnnotations)
+	for optName, optValue := range additionalOpts {
+		labelName, ok := optsAsAnnotations[optName]
+		if !ok {
+			if strings.Contains(optName, "/") {
+				labelName = optName
+			} else {
+				labelName = s.annotationWithPrefix(optName)
+			}
+		}
+		i.ObjectMeta.Annotations[labelName] = optValue
+	}
+	if !routerOpts.Acme {
+		return
+	}
+	if len(i.Spec.Rules) > 0 {
+		i.Spec.TLS = []v1beta1.IngressTLS{
+			{
+				Hosts:      []string{i.Spec.Rules[0].Host},
+				SecretName: secretName(appName, i.Spec.Rules[0].Host),
+			},
+		}
+	}
+	i.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 }
 
 func mergeIngresses(client typedV1beta1.IngressInterface, ing *v1beta1.Ingress) (*v1beta1.Ingress, bool, error) {

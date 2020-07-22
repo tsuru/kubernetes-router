@@ -48,6 +48,16 @@ func main() {
 	optsToLabelsDocs := &MapFlag{}
 	flag.Var(optsToLabelsDocs, "opts-to-label-doc", "Mapping between router options and user friendly help. Expects KEY=VALUE format.")
 
+	optsToIngressAnnotations := &MapFlag{}
+	flag.Var(optsToIngressAnnotations, "opts-to-ingress-annotations", "Mapping between router options and ingress annotations. Expects KEY=VALUE format.")
+
+	optsToIngressAnnotationsDocs := &MapFlag{}
+	flag.Var(optsToIngressAnnotationsDocs, "opts-to-ingress-annotations-doc", "Mapping between router options and user friendly help. Expects KEY=VALUE format.")
+
+	ingressClass := flag.String("ingress-class", "", "Default class used for ingress objects")
+
+	ingressAnnotationsPrefix := flag.String("ingress-annotations-prefix", "", "Default prefix for annotations based on options")
+
 	poolLabels := &MultiMapFlag{}
 	flag.Var(poolLabels, "pool-labels", "Default labels for a given pool. Expects POOL={\"LABEL\":\"VALUE\"} format.")
 
@@ -81,13 +91,19 @@ func main() {
 				DefaultDomain:   *ingressDefaultDomain,
 				GatewaySelector: *istioGatewaySelector,
 			}
-		case "ingress":
-			routerAPI.IngressServices[mode] = &kubernetes.IngressService{BaseService: base}
 		case "ingress-nginx":
-			for k, v := range kubernetes.AnnotationsNginx {
-				base.Annotations[k] = v
+			*ingressClass = "nginx"
+			*ingressAnnotationsPrefix = "nginx.ingress.kubernetes.io"
+			fallthrough
+		case "ingress":
+			routerAPI.IngressServices[mode] = &kubernetes.IngressService{
+				BaseService:           base,
+				DefaultDomain:         *ingressDefaultDomain,
+				OptsAsAnnotations:     *optsToIngressAnnotations,
+				OptsAsAnnotationsDocs: *optsToIngressAnnotationsDocs,
+				IngressClass:          *ingressClass,
+				AnnotationsPrefix:     *ingressAnnotationsPrefix,
 			}
-			routerAPI.IngressServices[mode] = &kubernetes.IngressService{BaseService: base, DefaultDomain: *ingressDefaultDomain}
 		case "service":
 			routerAPI.IngressServices[mode] = &kubernetes.LBService{
 				BaseService:      base,

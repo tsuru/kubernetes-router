@@ -72,11 +72,7 @@ func (k *IstioGateway) setConfigMeta(config *model.Config, appName string, route
 		config.ConfigMeta.Annotations[k] = v
 	}
 	for k, v := range routerOpts.AdditionalOpts {
-		if !strings.Contains(k, "/") {
-			config.ConfigMeta.Annotations[annotationWithPrefix(k)] = v
-		} else {
-			config.ConfigMeta.Annotations[k] = v
-		}
+		config.ConfigMeta.Annotations[k] = v
 	}
 }
 
