@@ -41,7 +41,7 @@ type Service interface {
 	Update(appName string, extraData RoutesRequestExtraData) error
 	Swap(appSrc, appDst string) error
 	GetAddresses(appName string) ([]string, error)
-	SupportedOptions() (map[string]string, error)
+	SupportedOptions() map[string]string
 }
 
 // ServiceTLS Certificates interface

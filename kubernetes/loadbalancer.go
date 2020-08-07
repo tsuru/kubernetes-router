@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/tsuru/kubernetes-router/router"
 	tsuruv1 "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1"
@@ -152,7 +153,7 @@ func (s *LBService) GetAddresses(appName string) ([]string, error) {
 }
 
 // SupportedOptions returns all the supported options
-func (s *LBService) SupportedOptions() (map[string]string, error) {
+func (s *LBService) SupportedOptions() map[string]string {
 	opts := map[string]string{
 		router.ExposedPort: "",
 		exposeAllPortsOpt:  "Expose all ports used by application in the Load Balancer. Defaults to false.",
@@ -163,7 +164,7 @@ func (s *LBService) SupportedOptions() (map[string]string, error) {
 			opts[k] = s.OptsAsLabelsDocs[k]
 		}
 	}
-	return opts, nil
+	return opts
 }
 
 func (s *LBService) getLBService(appName string) (*v1.Service, error) {
@@ -265,9 +266,27 @@ func (s *LBService) syncLB(appName string, opts *router.Opts, isUpdate bool, ext
 
 func (s *LBService) fillLabelsAndAnnotations(svc *v1.Service, appName string, webService *v1.Service, opts router.Opts, extraData router.RoutesRequestExtraData) error {
 	optsLabels := make(map[string]string)
-	for optName, labelName := range s.OptsAsLabels {
-		if optsValue, ok := opts.AdditionalOpts[optName]; ok {
-			optsLabels[labelName] = optsValue
+	registeredOpts := s.SupportedOptions()
+
+	optsAnnotations, err := opts.ToAnnotations()
+	if err != nil {
+		return err
+	}
+	annotations := mergeMaps(s.Annotations, optsAnnotations)
+
+	for optName, optValue := range opts.AdditionalOpts {
+		if labelName, ok := s.OptsAsLabels[optName]; ok {
+			optsLabels[labelName] = optValue
+			continue
+		}
+		if _, ok := registeredOpts[optName]; ok {
+			continue
+		}
+
+		if strings.HasSuffix(optName, "-") {
+			delete(annotations, strings.TrimSuffix(optName, "-"))
+		} else {
+			annotations[optName] = optValue
 		}
 	}
 
@@ -283,15 +302,10 @@ func (s *LBService) fillLabelsAndAnnotations(svc *v1.Service, appName string, we
 			appPoolLabel:         opts.Pool,
 		},
 	}
-	optsAnnotations, err := opts.ToAnnotations()
-	if err != nil {
-		return err
-	}
-	annotations := []map[string]string{s.Annotations, optsAnnotations}
 
 	if webService != nil {
 		labels = append(labels, webService.Labels)
-		annotations = append(annotations, webService.Annotations)
+		annotations = mergeMaps(annotations, webService.Annotations)
 	}
 
 	if extraData.Namespace != "" && extraData.Service != "" {
@@ -302,7 +316,7 @@ func (s *LBService) fillLabelsAndAnnotations(svc *v1.Service, appName string, we
 	}
 
 	svc.Labels = mergeMaps(labels...)
-	svc.Annotations = mergeMaps(annotations...)
+	svc.Annotations = annotations
 	return nil
 }
 

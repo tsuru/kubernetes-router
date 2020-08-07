@@ -59,10 +59,45 @@ func TestLBCreate(t *testing.T) {
 	svc.Labels[appPoolLabel] = "mypool"
 	svc.Labels["my-opt-as-label"] = "value"
 	svc.Labels["pool-env"] = "dev"
-	// svc.Labels[]
 	expectedAnnotations := map[string]string{
 		"annotation":           "annval",
 		"router.tsuru.io/opts": `{"Pool":"mypool","AdditionalOpts":{"my-opt":"value"}}`,
+	}
+	expectedService := defaultService("test", "default", svc.Labels, expectedAnnotations, nil)
+	assert.Equal(t, expectedService, serviceList.Items[0])
+}
+
+func TestLBCreateCustomAnnotation(t *testing.T) {
+	svc := createFakeLBService()
+	svc.Labels = map[string]string{"label": "labelval"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
+	svc.PoolLabels = map[string]map[string]string{"mypool": {"pool-env": "dev"}, "otherpool": {"pool-env": "prod"}}
+	err := svc.Create("test", router.Opts{
+		Pool: "mypool",
+		AdditionalOpts: map[string]string{
+			"my-opt":    "value",
+			"other-opt": "other-value",
+			"ann1-":     "",
+		}})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	setIP(t, svc, "test")
+	serviceList, err := svc.Client.CoreV1().Services(svc.Namespace).List(metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	if len(serviceList.Items) != 1 {
+		t.Errorf("Expected 1 item. Got %d.", len(serviceList.Items))
+	}
+	svc.Labels[appPoolLabel] = "mypool"
+	svc.Labels["my-opt-as-label"] = "value"
+	svc.Labels["pool-env"] = "dev"
+	expectedAnnotations := map[string]string{
+		"ann2":                 "val2",
+		"other-opt":            "other-value",
+		"router.tsuru.io/opts": `{"Pool":"mypool","AdditionalOpts":{"ann1-":"","my-opt":"value","other-opt":"other-value"}}`,
 	}
 	expectedService := defaultService("test", "default", svc.Labels, expectedAnnotations, nil)
 	assert.Equal(t, expectedService, serviceList.Items[0])
@@ -247,10 +282,7 @@ func TestLBSupportedOptions(t *testing.T) {
 	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
 	svc.OptsAsLabels["my-opt2"] = "my-opt-as-label2"
 	svc.OptsAsLabelsDocs["my-opt2"] = "User friendly option description."
-	options, err := svc.SupportedOptions()
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
+	options := svc.SupportedOptions()
 	expectedOptions := map[string]string{
 		"my-opt2":          "User friendly option description.",
 		"exposed-port":     "",

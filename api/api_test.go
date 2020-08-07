@@ -203,8 +203,8 @@ func TestSwap(t *testing.T) {
 
 func TestInfo(t *testing.T) {
 	service := &mock.RouterService{}
-	service.SupportedOptionsFn = func() (map[string]string, error) {
-		return map[string]string{router.ExposedPort: "", router.Domain: "Custom help."}, nil
+	service.SupportedOptionsFn = func() map[string]string {
+		return map[string]string{router.ExposedPort: "", router.Domain: "Custom help."}
 	}
 
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}

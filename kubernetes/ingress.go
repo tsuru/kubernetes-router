@@ -493,7 +493,7 @@ func (k *IngressService) UnsetCname(appName string, cname string) error {
 }
 
 // SupportedOptions returns the supported options
-func (s *IngressService) SupportedOptions() (map[string]string, error) {
+func (s *IngressService) SupportedOptions() map[string]string {
 	opts := map[string]string{
 		router.Domain: "",
 		router.Acme:   "",
@@ -506,7 +506,7 @@ func (s *IngressService) SupportedOptions() (map[string]string, error) {
 			opts[k] = docs[k]
 		}
 	}
-	return opts, nil
+	return opts
 }
 
 func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.Opts, appName string) {
@@ -541,7 +541,11 @@ func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.O
 				labelName = s.annotationWithPrefix(optName)
 			}
 		}
-		i.ObjectMeta.Annotations[labelName] = optValue
+		if strings.HasSuffix(labelName, "-") {
+			delete(i.ObjectMeta.Annotations, strings.TrimSuffix(labelName, "-"))
+		} else {
+			i.ObjectMeta.Annotations[labelName] = optValue
+		}
 	}
 	if !routerOpts.Acme {
 		return

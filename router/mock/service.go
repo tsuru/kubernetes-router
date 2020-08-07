@@ -20,7 +20,7 @@ type RouterService struct {
 	SetCnameFn               func(appName string, cname string) error
 	GetCnamesFn              func(appName string) (*router.CnamesResp, error)
 	UnsetCnameFn             func(appName string, cname string) error
-	SupportedOptionsFn       func() (map[string]string, error)
+	SupportedOptionsFn       func() map[string]string
 	CreateInvoked            bool
 	RemoveInvoked            bool
 	UpdateInvoked            bool
@@ -102,7 +102,7 @@ func (s *RouterService) UnsetCname(appName string, cname string) error {
 }
 
 // SupportedOptions calls SupportedOptionsFn
-func (s *RouterService) SupportedOptions() (map[string]string, error) {
+func (s *RouterService) SupportedOptions() map[string]string {
 	s.SupportedOptionsInvoked = true
 	return s.SupportedOptionsFn()
 }

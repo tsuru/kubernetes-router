@@ -79,8 +79,8 @@ type BaseService struct {
 }
 
 // SupportedOptions returns the options supported by all services
-func (k *BaseService) SupportedOptions() (map[string]string, error) {
-	return nil, nil
+func (k *BaseService) SupportedOptions() map[string]string {
+	return nil
 }
 
 // Healthcheck uses the kubernetes client to check the connectivity

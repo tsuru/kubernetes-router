@@ -203,10 +203,7 @@ func (a *RouterAPI) info(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	opts, err := svc.SupportedOptions()
-	if err != nil {
-		return err
-	}
+	opts := svc.SupportedOptions()
 	allOpts := router.DescribedOptions()
 	info := make(map[string]string)
 	for k, v := range opts {

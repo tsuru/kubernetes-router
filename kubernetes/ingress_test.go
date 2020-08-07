@@ -170,6 +170,33 @@ func TestIngressCreateDefaultPrefix(t *testing.T) {
 	assert.Equal(t, expectedIngress, ingressList.Items[0])
 }
 
+func TestIngressCreateRemoveAnnotation(t *testing.T) {
+	svc := createFakeService()
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	err := svc.Create("test", router.Opts{
+		AdditionalOpts: map[string]string{
+			"ann1-": "",
+		},
+	})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	if len(ingressList.Items) != 1 {
+		t.Errorf("Expected 1 item. Got %d.", len(ingressList.Items))
+	}
+	expectedIngress := defaultIngress("test", "default")
+	expectedIngress.Labels["controller"] = "my-controller"
+	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Annotations["ann2"] = "val2"
+
+	assert.Equal(t, expectedIngress, ingressList.Items[0])
+}
+
 func TestIngressCreateDefaultPort(t *testing.T) {
 	svc := createFakeService()
 	if err := createCRD(svc.BaseService, "myapp", "custom-namespace", nil); err != nil {
