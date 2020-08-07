@@ -6,19 +6,54 @@ package router
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestUnmarshalOpts(t *testing.T) {
 	js := `{"tsuru.io/app-pool": "pool","exposed-port": "80","tsuru.io/teams": ["teamA", "teamB"],"custom-opt": "val"}`
 	routerOpts := Opts{}
 	err := json.Unmarshal([]byte(js), &routerOpts)
-	if err != nil {
-		t.Fatalf("Expected nil error. Got %v", err)
-	}
+	assert.NoError(t, err)
 	expected := Opts{Pool: "pool", ExposedPort: "80", AdditionalOpts: map[string]string{"custom-opt": "val"}}
-	if !reflect.DeepEqual(routerOpts, expected) {
-		t.Fatalf("Expected %v. Got %v", expected, routerOpts)
+	assert.Equal(t, expected, routerOpts)
+}
+
+func TestUnmarshalOptsWithHeaderOpts(t *testing.T) {
+	js := `{"tsuru.io/app-pool": "pool","exposed-port": "80","tsuru.io/teams": ["teamA", "teamB"],"custom-opt": "val"}`
+	routerOpts := Opts{
+		HeaderOpts: []string{
+			"x",
+			"a=b",
+			"b=",
+			"c=a=b=c",
+			"d-",
+			"domain=invalid.com",
+		},
 	}
+	err := json.Unmarshal([]byte(js), &routerOpts)
+	assert.NoError(t, err)
+	expected := Opts{
+		Pool:        "pool",
+		ExposedPort: "80",
+		Domain:      "invalid.com",
+		AdditionalOpts: map[string]string{
+			"custom-opt": "val",
+			"x":          "",
+			"a":          "b",
+			"b":          "",
+			"c":          "a=b=c",
+			"d-":         "",
+		},
+		HeaderOpts: []string{
+			"x",
+			"a=b",
+			"b=",
+			"c=a=b=c",
+			"d-",
+			"domain=invalid.com",
+		},
+	}
+	assert.Equal(t, expected, routerOpts)
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -68,6 +69,7 @@ type Opts struct {
 	Route          string            `json:",omitempty"`
 	Acme           bool              `json:",omitempty"`
 	AdditionalOpts map[string]string `json:",omitempty"`
+	HeaderOpts     []string          `json:",omitempty"`
 }
 
 // CnamesResp used when adding cnames
@@ -118,6 +120,22 @@ func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 
 	if err = json.Unmarshal(bs, &m); err != nil {
 		return err
+	}
+
+	for _, headerOpt := range o.HeaderOpts {
+		parts := strings.SplitN(headerOpt, "=", 2)
+		if len(parts) == 0 {
+			continue
+		}
+		key := parts[0]
+		if _, ok := m[key]; ok {
+			continue
+		}
+		var value string
+		if len(parts) > 1 {
+			value = parts[1]
+		}
+		m[key] = value
 	}
 
 	if o.AdditionalOpts == nil {

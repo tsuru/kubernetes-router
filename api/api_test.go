@@ -128,6 +128,34 @@ func TestAddBackend(t *testing.T) {
 	}
 }
 
+func TestAddBackendWithHeaderOpts(t *testing.T) {
+	service := &mock.RouterService{}
+	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
+	r := api.Routes()
+
+	service.CreateFn = func(name string, opts router.Opts) error {
+		assert.Equal(t, "myapp", name)
+		assert.Equal(t, "mypool", opts.Pool)
+		assert.Equal(t, "443", opts.ExposedPort)
+		assert.Equal(t, "a.b", opts.Domain)
+		expectedAdditional := map[string]string{"custom": "val", "custom2": "val2"}
+		assert.Equal(t, expectedAdditional, opts.AdditionalOpts)
+		return nil
+	}
+
+	reqData, _ := json.Marshal(map[string]string{"tsuru.io/app-pool": "mypool", "exposed-port": "443", "custom": "val"})
+	body := bytes.NewReader(reqData)
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp", body)
+	req.Header.Add("X-Router-Opt", "domain=a.b")
+	req.Header.Add("X-Router-Opt", "custom2=val2")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	resp := w.Result()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.True(t, service.CreateInvoked)
+}
+
 func TestRemoveBackend(t *testing.T) {
 	service := &mock.RouterService{}
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}

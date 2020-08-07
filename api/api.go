@@ -108,7 +108,9 @@ func (a *RouterAPI) getBackend(w http.ResponseWriter, r *http.Request) error {
 func (a *RouterAPI) addBackend(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	name := vars["name"]
-	routerOpts := router.Opts{}
+	routerOpts := router.Opts{
+		HeaderOpts: r.Header.Values("X-Router-Opt"),
+	}
 	err := json.NewDecoder(r.Body).Decode(&routerOpts)
 	if err != nil {
 		return err
