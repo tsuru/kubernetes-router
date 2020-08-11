@@ -39,7 +39,7 @@ func fakeService() (IstioGateway, *fakes.IstioConfigStore) {
 
 func TestIstioGateway_Create(t *testing.T) {
 	svc, istio := fakeService()
-	err := svc.Create("myapp", router.Opts{})
+	err := svc.Create(idForApp("myapp"), router.Opts{})
 	require.NoError(t, err)
 	require.Equal(t, 2, istio.CreateCallCount())
 	gatewayConfig := istio.CreateArgsForCall(0)
@@ -123,7 +123,7 @@ func TestIstioGateway_Create_existingVirtualService(t *testing.T) {
 		},
 		Spec: &networking.VirtualService{},
 	}, true)
-	err := svc.Create("myapp", router.Opts{})
+	err := svc.Create(idForApp("myapp"), router.Opts{})
 	require.NoError(t, err)
 	require.Equal(t, 1, istio.CreateCallCount())
 	require.Equal(t, 1, istio.UpdateCallCount())
@@ -236,7 +236,7 @@ func TestIstioGateway_Update(t *testing.T) {
 			},
 		},
 	}, true)
-	err = svc.Update("myapp", router.RoutesRequestExtraData{})
+	err = svc.Update(idForApp("myapp"), router.RoutesRequestExtraData{})
 	require.NoError(t, err)
 	require.Equal(t, 1, istio.UpdateCallCount())
 	vsConfig := istio.UpdateArgsForCall(0)
@@ -319,7 +319,7 @@ func TestIstioGateway_SetCname(t *testing.T) {
 					Hosts: tt.hosts,
 				},
 			}, true)
-			err := svc.SetCname("myapp", tt.toAdd)
+			err := svc.SetCname(idForApp("myapp"), tt.toAdd)
 			require.NoError(t, err)
 			require.Equal(t, 1, istio.UpdateCallCount())
 			vsConfig := istio.UpdateArgsForCall(0)
@@ -386,7 +386,7 @@ func TestIstioGateway_UnsetCname(t *testing.T) {
 					Hosts: tt.hosts,
 				},
 			}, true)
-			err := svc.UnsetCname("myapp", tt.toRemove)
+			err := svc.UnsetCname(idForApp("myapp"), tt.toRemove)
 			require.NoError(t, err)
 			require.Equal(t, 1, istio.UpdateCallCount())
 			vsConfig := istio.UpdateArgsForCall(0)
@@ -430,7 +430,7 @@ func TestIstioGateway_GetCnames(t *testing.T) {
 				},
 				Spec: &networking.VirtualService{},
 			}, true)
-			rsp, err := svc.GetCnames("myapp")
+			rsp, err := svc.GetCnames(idForApp("myapp"))
 			require.NoError(t, err)
 			assert.ElementsMatch(t, tt.expected, rsp.Cnames)
 		})

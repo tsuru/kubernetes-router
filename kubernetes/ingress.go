@@ -5,8 +5,6 @@
 package kubernetes
 
 import (
-	"crypto/sha1"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -51,10 +49,10 @@ type IngressService struct {
 
 // Create creates an Ingress resource pointing to a service
 // with the same name as the App
-func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
+func (k *IngressService) Create(id router.InstanceID, routerOpts router.Opts) error {
 	var spec v1beta1.IngressSpec
 	var vhost string
-	app, err := k.getApp(appName)
+	app, err := k.getApp(id.AppName)
 	if err != nil {
 		return err
 	}
@@ -68,8 +66,10 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 	}
 	if len(routerOpts.Domain) > 0 {
 		vhost = routerOpts.Domain
+	} else if id.InstanceName == "" {
+		vhost = fmt.Sprintf("%v.%v", id.AppName, k.DefaultDomain)
 	} else {
-		vhost = fmt.Sprintf("%v.%v", appName, k.DefaultDomain)
+		vhost = fmt.Sprintf("%v.instance.%v.%v", id.InstanceName, id.AppName, k.DefaultDomain)
 	}
 	spec = v1beta1.IngressSpec{
 		Rules: []v1beta1.IngressRule{
@@ -81,7 +81,7 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 							{
 								Path: routerOpts.Route,
 								Backend: v1beta1.IngressBackend{
-									ServiceName: appName,
+									ServiceName: id.AppName,
 									ServicePort: intstr.FromInt(getAppServicePort(app)),
 								},
 							},
@@ -91,18 +91,18 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 			},
 		},
 	}
-	namespace, err := k.getAppNamespace(appName)
+	namespace, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return err
 	}
 	i := &v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      ingressName(appName),
+			Name:      k.ingressName(id),
 			Namespace: namespace,
 		},
 		Spec: spec,
 	}
-	k.fillIngressMeta(i, routerOpts, appName)
+	k.fillIngressMeta(i, routerOpts, id)
 
 	i, isNew, err := mergeIngresses(client, i)
 	if err != nil {
@@ -118,8 +118,8 @@ func (k *IngressService) Create(appName string, routerOpts router.Opts) error {
 
 // Update updates an Ingress resource to point it to either
 // the only service or the one responsible for the process web
-func (k *IngressService) Update(appName string, extraData router.RoutesRequestExtraData) error {
-	ns, err := k.getAppNamespace(appName)
+func (k *IngressService) Update(id router.InstanceID, extraData router.RoutesRequestExtraData) error {
+	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return err
 	}
@@ -127,11 +127,11 @@ func (k *IngressService) Update(appName string, extraData router.RoutesRequestEx
 	if err != nil {
 		return err
 	}
-	ingress, err := k.get(appName)
+	ingress, err := k.get(id)
 	if err != nil {
 		return err
 	}
-	service, err := k.getWebService(appName, extraData, ingress.Labels)
+	service, err := k.getWebService(id.AppName, extraData, ingress.Labels)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func (k *IngressService) Update(appName string, extraData router.RoutesRequestEx
 }
 
 // Swap swaps backend services of two applications ingresses
-func (k *IngressService) Swap(srcApp, dstApp string) error {
+func (k *IngressService) Swap(srcApp, dstApp router.InstanceID) error {
 	srcIngress, err := k.get(srcApp)
 	if err != nil {
 		return err
@@ -156,11 +156,11 @@ func (k *IngressService) Swap(srcApp, dstApp string) error {
 		return err
 	}
 	k.swap(srcIngress, dstIngress)
-	ns, err := k.getAppNamespace(srcApp)
+	ns, err := k.getAppNamespace(srcApp.AppName)
 	if err != nil {
 		return err
 	}
-	ns2, err := k.getAppNamespace(dstApp)
+	ns2, err := k.getAppNamespace(dstApp.AppName)
 	if err != nil {
 		return err
 	}
@@ -187,8 +187,8 @@ func (k *IngressService) Swap(srcApp, dstApp string) error {
 }
 
 // Remove removes the Ingress resource associated with the app
-func (k *IngressService) Remove(appName string) error {
-	ingress, err := k.get(appName)
+func (k *IngressService) Remove(id router.InstanceID) error {
+	ingress, err := k.get(id)
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return nil
@@ -196,9 +196,9 @@ func (k *IngressService) Remove(appName string) error {
 		return err
 	}
 	if dstApp, swapped := k.BaseService.isSwapped(ingress.ObjectMeta); swapped {
-		return ErrAppSwapped{App: appName, DstApp: dstApp}
+		return ErrAppSwapped{App: id.AppName, DstApp: dstApp}
 	}
-	ns, err := k.getAppNamespace(appName)
+	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return err
 	}
@@ -207,7 +207,7 @@ func (k *IngressService) Remove(appName string) error {
 		return err
 	}
 	deletePropagation := metav1.DeletePropagationForeground
-	err = client.Delete(ingressName(appName), &metav1.DeleteOptions{PropagationPolicy: &deletePropagation})
+	err = client.Delete(k.ingressName(id), &metav1.DeleteOptions{PropagationPolicy: &deletePropagation})
 	if k8sErrors.IsNotFound(err) {
 		return nil
 	}
@@ -216,8 +216,8 @@ func (k *IngressService) Remove(appName string) error {
 
 // Get gets the address of the loadbalancer associated with
 // the app Ingress resource
-func (k *IngressService) GetAddresses(appName string) ([]string, error) {
-	ingress, err := k.get(appName)
+func (k *IngressService) GetAddresses(id router.InstanceID) ([]string, error) {
+	ingress, err := k.get(id)
 	if err != nil {
 		return nil, err
 	}
@@ -225,8 +225,8 @@ func (k *IngressService) GetAddresses(appName string) ([]string, error) {
 	return []string{fmt.Sprintf("%v", ingress.Spec.Rules[0].Host)}, nil
 }
 
-func (k *IngressService) get(appName string) (*v1beta1.Ingress, error) {
-	ns, err := k.getAppNamespace(appName)
+func (k *IngressService) get(id router.InstanceID) (*v1beta1.Ingress, error) {
+	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +234,7 @@ func (k *IngressService) get(appName string) (*v1beta1.Ingress, error) {
 	if err != nil {
 		return nil, err
 	}
-	ingress, err := client.Get(ingressName(appName), metav1.GetOptions{})
+	ingress, err := client.Get(k.ingressName(id), metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -257,20 +257,12 @@ func (k *IngressService) secretClient(namespace string) (typedV1.SecretInterface
 	return client.CoreV1().Secrets(namespace), nil
 }
 
-func ingressName(appName string) string {
-	return "kubernetes-router-" + appName + "-ingress"
+func (s *IngressService) ingressName(id router.InstanceID) string {
+	return s.hashedResourceName(id, "kubernetes-router-"+id.AppName+"-ingress", 253)
 }
 
-func secretName(appName, certName string) string {
-	hashedAppCertName := appName + "-" + certName
-	if (len(hashedAppCertName)) > 49 {
-		algorithm := sha1.New()
-		_, err := algorithm.Write([]byte(hashedAppCertName))
-		if err == nil {
-			hashedAppCertName = hex.EncodeToString(algorithm.Sum(nil))
-		}
-	}
-	return "kr-" + hashedAppCertName
+func (s *IngressService) secretName(id router.InstanceID, certName string) string {
+	return s.hashedResourceName(id, "kr-"+id.AppName+"-"+certName, 253)
 }
 
 func (s *IngressService) annotationWithPrefix(suffix string) string {
@@ -287,8 +279,8 @@ func (k *IngressService) swap(srcIngress, dstIngress *v1beta1.Ingress) {
 }
 
 // AddCertificate adds certificates to app ingress
-func (k *IngressService) AddCertificate(appName string, certCname string, cert router.CertData) error {
-	ns, err := k.getAppNamespace(appName)
+func (k *IngressService) AddCertificate(id router.InstanceID, certCname string, cert router.CertData) error {
+	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return err
 	}
@@ -300,20 +292,16 @@ func (k *IngressService) AddCertificate(appName string, certCname string, cert r
 	if err != nil {
 		return err
 	}
-	ingress, err := k.get(appName)
-	if err != nil {
-		return err
-	}
-	namespace, err := k.getAppNamespace(appName)
+	ingress, err := k.get(id)
 	if err != nil {
 		return err
 	}
 	tlsSecret := v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName(appName, certCname),
-			Namespace: namespace,
+			Name:      k.secretName(id, certCname),
+			Namespace: ns,
 			Labels: map[string]string{
-				appLabel:    appName,
+				appLabel:    id.AppName,
 				domainLabel: certCname,
 			},
 			Annotations: make(map[string]string),
@@ -341,8 +329,8 @@ func (k *IngressService) AddCertificate(appName string, certCname string, cert r
 }
 
 // GetCertificate get certificates from app ingress
-func (k *IngressService) GetCertificate(appName string, certCname string) (*router.CertData, error) {
-	ns, err := k.getAppNamespace(appName)
+func (k *IngressService) GetCertificate(id router.InstanceID, certCname string) (*router.CertData, error) {
+	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return nil, err
 	}
@@ -351,7 +339,7 @@ func (k *IngressService) GetCertificate(appName string, certCname string) (*rout
 		return nil, err
 	}
 
-	retSecret, err := secret.Get(secretName(appName, certCname), metav1.GetOptions{})
+	retSecret, err := secret.Get(k.secretName(id, certCname), metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -362,8 +350,8 @@ func (k *IngressService) GetCertificate(appName string, certCname string) (*rout
 }
 
 // RemoveCertificate delete certificates from app ingress
-func (k *IngressService) RemoveCertificate(appName string, certCname string) error {
-	ns, err := k.getAppNamespace(appName)
+func (k *IngressService) RemoveCertificate(id router.InstanceID, certCname string) error {
+	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return err
 	}
@@ -371,7 +359,7 @@ func (k *IngressService) RemoveCertificate(appName string, certCname string) err
 	if err != nil {
 		return err
 	}
-	ingress, err := k.get(appName)
+	ingress, err := k.get(id)
 	if err != nil {
 		return err
 	}
@@ -390,13 +378,13 @@ func (k *IngressService) RemoveCertificate(appName string, certCname string) err
 	if err != nil {
 		return err
 	}
-	err = secret.Delete(secretName(appName, certCname), &metav1.DeleteOptions{})
+	err = secret.Delete(k.secretName(id, certCname), &metav1.DeleteOptions{})
 	return err
 }
 
 // SetCname adds CNAME to app ingress
-func (k *IngressService) SetCname(appName string, cname string) error {
-	ns, err := k.getAppNamespace(appName)
+func (k *IngressService) SetCname(id router.InstanceID, cname string) error {
+	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return err
 	}
@@ -404,7 +392,7 @@ func (k *IngressService) SetCname(appName string, cname string) error {
 	if err != nil {
 		return err
 	}
-	ingress, err := k.get(appName)
+	ingress, err := k.get(id)
 	if err != nil {
 		return err
 	}
@@ -434,7 +422,7 @@ func (k *IngressService) SetCname(appName string, cname string) error {
 			[]v1beta1.IngressTLS{
 				{
 					Hosts:      []string{cname},
-					SecretName: secretName(appName, cname),
+					SecretName: k.secretName(id, cname),
 				},
 			}...)
 	}
@@ -445,8 +433,8 @@ func (k *IngressService) SetCname(appName string, cname string) error {
 }
 
 // GetCnames get CNAMEs from app ingress
-func (k *IngressService) GetCnames(appName string) (*router.CnamesResp, error) {
-	ingress, err := k.get(appName)
+func (k *IngressService) GetCnames(id router.InstanceID) (*router.CnamesResp, error) {
+	ingress, err := k.get(id)
 	if err != nil {
 		return nil, err
 	}
@@ -460,8 +448,8 @@ func (k *IngressService) GetCnames(appName string) (*router.CnamesResp, error) {
 }
 
 // UnsetCname delete CNAME from app ingress
-func (k *IngressService) UnsetCname(appName string, cname string) error {
-	ns, err := k.getAppNamespace(appName)
+func (k *IngressService) UnsetCname(id router.InstanceID, cname string) error {
+	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return err
 	}
@@ -469,7 +457,7 @@ func (k *IngressService) UnsetCname(appName string, cname string) error {
 	if err != nil {
 		return err
 	}
-	ingress, err := k.get(appName)
+	ingress, err := k.get(id)
 	if err != nil {
 		return err
 	}
@@ -509,7 +497,7 @@ func (s *IngressService) SupportedOptions() map[string]string {
 	return opts
 }
 
-func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.Opts, appName string) {
+func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.Opts, id router.InstanceID) {
 	if i.ObjectMeta.Labels == nil {
 		i.ObjectMeta.Labels = map[string]string{}
 	}
@@ -522,7 +510,7 @@ func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.O
 	for k, v := range s.Annotations {
 		i.ObjectMeta.Annotations[k] = v
 	}
-	i.ObjectMeta.Labels[appLabel] = appName
+	i.ObjectMeta.Labels[appLabel] = id.AppName
 
 	additionalOpts := routerOpts.AdditionalOpts
 	if s.IngressClass != "" {
@@ -554,7 +542,7 @@ func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.O
 		i.Spec.TLS = []v1beta1.IngressTLS{
 			{
 				Hosts:      []string{i.Spec.Rules[0].Host},
-				SecretName: secretName(appName, i.Spec.Rules[0].Host),
+				SecretName: s.secretName(id, i.Spec.Rules[0].Host),
 			},
 		}
 	}

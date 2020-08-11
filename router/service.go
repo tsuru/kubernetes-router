@@ -34,31 +34,36 @@ const (
 // trying to create a service that already exists
 var ErrIngressAlreadyExists = errors.New("ingress already exists")
 
+type InstanceID struct {
+	InstanceName string
+	AppName      string
+}
+
 // Service implements the basic functionally needed to
 // manage ingresses.
 type Service interface {
-	Create(appName string, opts Opts) error
-	Remove(appName string) error
-	Update(appName string, extraData RoutesRequestExtraData) error
-	Swap(appSrc, appDst string) error
-	GetAddresses(appName string) ([]string, error)
+	Create(id InstanceID, opts Opts) error
+	Remove(id InstanceID) error
+	Update(id InstanceID, extraData RoutesRequestExtraData) error
+	Swap(appSrc, appDst InstanceID) error
+	GetAddresses(id InstanceID) ([]string, error)
 	SupportedOptions() map[string]string
 }
 
 // ServiceTLS Certificates interface
 type ServiceTLS interface {
 	Service
-	AddCertificate(appName string, certName string, cert CertData) error
-	GetCertificate(appName string, certName string) (*CertData, error)
-	RemoveCertificate(appName string, certName string) error
+	AddCertificate(id InstanceID, certName string, cert CertData) error
+	GetCertificate(id InstanceID, certName string) (*CertData, error)
+	RemoveCertificate(id InstanceID, certName string) error
 }
 
 // ServiceCNAME Certificates interface
 type ServiceCNAME interface {
 	Service
-	SetCname(appName string, cname string) error
-	GetCnames(appName string) (*CnamesResp, error)
-	UnsetCname(appName string, cname string) error
+	SetCname(id InstanceID, cname string) error
+	GetCnames(id InstanceID) (*CnamesResp, error)
+	UnsetCname(id InstanceID, cname string) error
 }
 
 // Opts used when creating/updating routers

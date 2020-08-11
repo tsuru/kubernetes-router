@@ -77,16 +77,23 @@ func (a *RouterAPI) ingressService(mode string) (router.Service, error) {
 	return svc, nil
 }
 
+func instanceID(r *http.Request) router.InstanceID {
+	vars := mux.Vars(r)
+	return router.InstanceID{
+		AppName:      vars["name"],
+		InstanceName: r.Header.Get("X-Router-Instance"),
+	}
+}
+
 // getBackend returns the address for the load balancer registered in
 // the ingress by a ingress controller
 func (a *RouterAPI) getBackend(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
-	name := vars["name"]
 	svc, err := a.ingressService(vars["mode"])
 	if err != nil {
 		return err
 	}
-	addrs, err := svc.GetAddresses(name)
+	addrs, err := svc.GetAddresses(instanceID(r))
 	if err != nil {
 		return err
 	}
@@ -107,7 +114,6 @@ func (a *RouterAPI) getBackend(w http.ResponseWriter, r *http.Request) error {
 // to a non existent service
 func (a *RouterAPI) addBackend(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
-	name := vars["name"]
 	routerOpts := router.Opts{
 		HeaderOpts: r.Header.Values("X-Router-Opt"),
 	}
@@ -122,7 +128,7 @@ func (a *RouterAPI) addBackend(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return svc.Create(name, routerOpts)
+	return svc.Create(instanceID(r), routerOpts)
 }
 
 // updateBackend is no-op
@@ -133,18 +139,16 @@ func (a *RouterAPI) updateBackend(w http.ResponseWriter, r *http.Request) error 
 // removeBackend removes the Ingress for a given app
 func (a *RouterAPI) removeBackend(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
-	name := vars["name"]
 	svc, err := a.ingressService(vars["mode"])
 	if err != nil {
 		return err
 	}
-	return svc.Remove(name)
+	return svc.Remove(instanceID(r))
 }
 
 // addRoutes updates the Ingress to point to the correct service
 func (a *RouterAPI) addRoutes(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
-	name := vars["name"]
 
 	var routesData router.RoutesRequestData
 	err := json.NewDecoder(r.Body).Decode(&routesData)
@@ -161,7 +165,7 @@ func (a *RouterAPI) addRoutes(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	return svc.Update(name, routesData.ExtraData)
+	return svc.Update(instanceID(r), routesData.ExtraData)
 }
 
 // removeRoutes is no-op
@@ -180,7 +184,6 @@ func (a *RouterAPI) getRoutes(w http.ResponseWriter, r *http.Request) error {
 
 func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
-	name := vars["name"]
 	type swapReq struct {
 		Target string
 	}
@@ -196,7 +199,12 @@ func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return svc.Swap(name, req.Target)
+	src := instanceID(r)
+	dst := router.InstanceID{
+		InstanceName: src.InstanceName,
+		AppName:      req.Target,
+	}
+	return svc.Swap(src, dst)
 }
 
 func (a *RouterAPI) info(w http.ResponseWriter, r *http.Request) error {
@@ -257,7 +265,7 @@ func (a *RouterAPI) addCertificate(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
-	return svc.(router.ServiceTLS).AddCertificate(name, certName, cert)
+	return svc.(router.ServiceTLS).AddCertificate(instanceID(r), certName, cert)
 }
 
 // getCertificate Return certificate for app
@@ -270,7 +278,7 @@ func (a *RouterAPI) getCertificate(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
-	cert, err := svc.(router.ServiceTLS).GetCertificate(name, certName)
+	cert, err := svc.(router.ServiceTLS).GetCertificate(instanceID(r), certName)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		return err
@@ -294,7 +302,7 @@ func (a *RouterAPI) removeCertificate(w http.ResponseWriter, r *http.Request) er
 	if err != nil {
 		return err
 	}
-	err = svc.(router.ServiceTLS).RemoveCertificate(name, certName)
+	err = svc.(router.ServiceTLS).RemoveCertificate(instanceID(r), certName)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -311,7 +319,7 @@ func (a *RouterAPI) setCname(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	err = svc.(router.ServiceCNAME).SetCname(name, cname)
+	err = svc.(router.ServiceCNAME).SetCname(instanceID(r), cname)
 	if err != nil {
 		if strings.Contains(err.Error(), "exists") {
 			w.WriteHeader(http.StatusConflict)
@@ -330,7 +338,7 @@ func (a *RouterAPI) getCnames(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	cnames, err := svc.(router.ServiceCNAME).GetCnames(name)
+	cnames, err := svc.(router.ServiceCNAME).GetCnames(instanceID(r))
 	if err != nil {
 		return err
 	}
@@ -353,7 +361,7 @@ func (a *RouterAPI) unsetCname(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return svc.(router.ServiceCNAME).UnsetCname(name, cname)
+	return svc.(router.ServiceCNAME).UnsetCname(instanceID(r), cname)
 }
 
 // Check for TLS Support

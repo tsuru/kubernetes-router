@@ -40,8 +40,8 @@ func TestGetBackend(t *testing.T) {
 	service := &mock.RouterService{}
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
-	service.GetAddressesFn = func(name string) ([]string, error) {
-		assert.Equal(t, "myapp", name)
+	service.GetAddressesFn = func(id router.InstanceID) ([]string, error) {
+		assert.Equal(t, "myapp", id.AppName)
 		return []string{"myapp"}, nil
 	}
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp", nil)
@@ -64,8 +64,8 @@ func TestGetBackendExplicitMode(t *testing.T) {
 	service := &mock.RouterService{}
 	api := RouterAPI{DefaultMode: "xyz", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
-	service.GetAddressesFn = func(name string) ([]string, error) {
-		assert.Equal(t, "myapp", name)
+	service.GetAddressesFn = func(id router.InstanceID) ([]string, error) {
+		assert.Equal(t, "myapp", id.AppName)
 		return []string{"myapp"}, nil
 	}
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/mymode/backend/myapp", nil)
@@ -96,9 +96,9 @@ func TestAddBackend(t *testing.T) {
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
-	service.CreateFn = func(name string, opts router.Opts) error {
-		if name != "myapp" {
-			t.Errorf("Expected myapp. Got %s", name)
+	service.CreateFn = func(id router.InstanceID, opts router.Opts) error {
+		if id.AppName != "myapp" {
+			t.Errorf("Expected myapp. Got %s", id.AppName)
 		}
 		if opts.Pool != "mypool" {
 			t.Errorf("Expected mypool. Got %v.", opts.Pool)
@@ -133,8 +133,8 @@ func TestAddBackendWithHeaderOpts(t *testing.T) {
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
-	service.CreateFn = func(name string, opts router.Opts) error {
-		assert.Equal(t, "myapp", name)
+	service.CreateFn = func(id router.InstanceID, opts router.Opts) error {
+		assert.Equal(t, "myapp", id.AppName)
 		assert.Equal(t, "mypool", opts.Pool)
 		assert.Equal(t, "443", opts.ExposedPort)
 		assert.Equal(t, "a.b", opts.Domain)
@@ -161,7 +161,10 @@ func TestRemoveBackend(t *testing.T) {
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
-	service.RemoveFn = testCalledWith("myapp", t)
+	service.RemoveFn = func(id router.InstanceID) error {
+		assert.Equal(t, "myapp", id.AppName)
+		return nil
+	}
 
 	req := httptest.NewRequest(http.MethodDelete, "http://localhost/api/backend/myapp", nil)
 	w := httptest.NewRecorder()
@@ -181,8 +184,8 @@ func TestAddRoutes(t *testing.T) {
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
-	service.UpdateFn = func(name string, extraData router.RoutesRequestExtraData) error {
-		assert.Equal(t, "myapp", name)
+	service.UpdateFn = func(id router.InstanceID, extraData router.RoutesRequestExtraData) error {
+		assert.Equal(t, "myapp", id.AppName)
 		return nil
 	}
 	reqData := router.RoutesRequestData{}
@@ -203,13 +206,9 @@ func TestSwap(t *testing.T) {
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
-	service.SwapFn = func(app, dst string) error {
-		if app != "myapp" {
-			t.Errorf("Expected myapp. Got %s", app)
-		}
-		if dst != "otherapp" {
-			t.Errorf("Expected otherapp. Got %s", dst)
-		}
+	service.SwapFn = func(src, dst router.InstanceID) error {
+		assert.Equal(t, "myapp", src.AppName)
+		assert.Equal(t, "otherapp", dst.AppName)
 		return nil
 	}
 
@@ -285,7 +284,7 @@ func TestAddCertificate(t *testing.T) {
 
 	certExpected := router.CertData{Certificate: "Certz", Key: "keyz"}
 
-	service.AddCertificateFn = func(appName string, certName string, cert router.CertData) error {
+	service.AddCertificateFn = func(id router.InstanceID, certName string, cert router.CertData) error {
 		if !reflect.DeepEqual(certExpected, cert) {
 			t.Errorf("Expected %v. Got %v", certExpected, cert)
 		}
@@ -313,7 +312,7 @@ func TestGetCertificate(t *testing.T) {
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
-	service.GetCertificateFn = func(appName, certName string) (*router.CertData, error) {
+	service.GetCertificateFn = func(id router.InstanceID, certName string) (*router.CertData, error) {
 		cert := router.CertData{Certificate: "Certz", Key: "keyz"}
 		return &cert, nil
 	}
@@ -345,7 +344,7 @@ func TestRemoveCertificate(t *testing.T) {
 	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
 	r := api.Routes()
 
-	service.RemoveCertificateFn = func(appName, certName string) error {
+	service.RemoveCertificateFn = func(id router.InstanceID, certName string) error {
 		return nil
 	}
 
@@ -368,7 +367,7 @@ func TestSetCname(t *testing.T) {
 	r := api.Routes()
 	cnameExpected := "cname1"
 
-	service.SetCnameFn = func(appName string, cname string) error {
+	service.SetCnameFn = func(id router.InstanceID, cname string) error {
 		if !reflect.DeepEqual(cname, cnameExpected) {
 			t.Errorf("Expected %v. Got %v", cnameExpected, cname)
 		}
@@ -398,7 +397,7 @@ func TestGetCnames(t *testing.T) {
 			"cname2",
 		},
 	}
-	service.GetCnamesFn = func(appName string) (*router.CnamesResp, error) {
+	service.GetCnamesFn = func(id router.InstanceID) (*router.CnamesResp, error) {
 		return &cnames, nil
 	}
 
@@ -429,7 +428,7 @@ func TestUnsetCname(t *testing.T) {
 	r := api.Routes()
 	cnameExpected := "cname1"
 
-	service.UnsetCnameFn = func(appName string, cname string) error {
+	service.UnsetCnameFn = func(id router.InstanceID, cname string) error {
 		if !reflect.DeepEqual(cname, cnameExpected) {
 			t.Errorf("Expected %v. Got %v", cnameExpected, cname)
 		}
@@ -446,15 +445,5 @@ func TestUnsetCname(t *testing.T) {
 	}
 	if !service.UnsetCnameInvoked {
 		t.Errorf("Service Addresses function not invoked")
-	}
-}
-
-func testCalledWith(expected string, t *testing.T) func(string) error {
-	t.Helper()
-	return func(name string) error {
-		if name != expected {
-			t.Errorf("Expected %s. Got %s", expected, name)
-		}
-		return nil
 	}
 }

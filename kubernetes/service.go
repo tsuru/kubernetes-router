@@ -5,6 +5,7 @@
 package kubernetes
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"net/http"
@@ -311,4 +312,18 @@ func makeWebSvcSelector(appName string) (labels.Selector, error) {
 		sel = sel.Add(*req)
 	}
 	return sel, nil
+}
+
+func (s *BaseService) hashedResourceName(id router.InstanceID, name string, limit int) string {
+	if id.InstanceName != "" {
+		name += "-" + id.InstanceName
+	}
+	if len(name) <= limit {
+		return name
+	}
+
+	h := sha256.New()
+	h.Write([]byte(name))
+	hash := fmt.Sprintf("%x", h.Sum(nil))
+	return fmt.Sprintf("%s-%s", name[:limit-17], hash[:16])
 }

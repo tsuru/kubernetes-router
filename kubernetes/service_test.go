@@ -135,3 +135,7 @@ func createCRD(svc *BaseService, app string, namespace string, configs *provisio
 	})
 	return err
 }
+
+func idForApp(appName string) router.InstanceID {
+	return router.InstanceID{AppName: appName}
+}
