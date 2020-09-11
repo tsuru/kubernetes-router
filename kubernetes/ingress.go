@@ -5,6 +5,7 @@
 package kubernetes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -33,6 +34,12 @@ var (
 	}
 )
 
+var (
+	_ router.Router      = &IngressService{}
+	_ router.RouterCNAME = &IngressService{}
+	_ router.RouterTLS   = &IngressService{}
+)
+
 // IngressService manages ingresses in a Kubernetes cluster that uses ingress-nginx
 type IngressService struct {
 	*BaseService
@@ -49,7 +56,7 @@ type IngressService struct {
 
 // Create creates an Ingress resource pointing to a service
 // with the same name as the App
-func (k *IngressService) Create(id router.InstanceID, routerOpts router.Opts) error {
+func (k *IngressService) Create(ctx context.Context, id router.InstanceID, routerOpts router.Opts) error {
 	var spec v1beta1.IngressSpec
 	var vhost string
 	app, err := k.getApp(id.AppName)
@@ -118,7 +125,7 @@ func (k *IngressService) Create(id router.InstanceID, routerOpts router.Opts) er
 
 // Update updates an Ingress resource to point it to either
 // the only service or the one responsible for the process web
-func (k *IngressService) Update(id router.InstanceID, extraData router.RoutesRequestExtraData) error {
+func (k *IngressService) Update(ctx context.Context, id router.InstanceID, extraData router.RoutesRequestExtraData) error {
 	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return err
@@ -146,7 +153,7 @@ func (k *IngressService) Update(id router.InstanceID, extraData router.RoutesReq
 }
 
 // Swap swaps backend services of two applications ingresses
-func (k *IngressService) Swap(srcApp, dstApp router.InstanceID) error {
+func (k *IngressService) Swap(ctx context.Context, srcApp, dstApp router.InstanceID) error {
 	srcIngress, err := k.get(srcApp)
 	if err != nil {
 		return err
@@ -187,7 +194,7 @@ func (k *IngressService) Swap(srcApp, dstApp router.InstanceID) error {
 }
 
 // Remove removes the Ingress resource associated with the app
-func (k *IngressService) Remove(id router.InstanceID) error {
+func (k *IngressService) Remove(ctx context.Context, id router.InstanceID) error {
 	ingress, err := k.get(id)
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
@@ -216,7 +223,7 @@ func (k *IngressService) Remove(id router.InstanceID) error {
 
 // Get gets the address of the loadbalancer associated with
 // the app Ingress resource
-func (k *IngressService) GetAddresses(id router.InstanceID) ([]string, error) {
+func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID) ([]string, error) {
 	ingress, err := k.get(id)
 	if err != nil {
 		return nil, err
@@ -279,7 +286,7 @@ func (k *IngressService) swap(srcIngress, dstIngress *v1beta1.Ingress) {
 }
 
 // AddCertificate adds certificates to app ingress
-func (k *IngressService) AddCertificate(id router.InstanceID, certCname string, cert router.CertData) error {
+func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceID, certCname string, cert router.CertData) error {
 	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return err
@@ -329,7 +336,7 @@ func (k *IngressService) AddCertificate(id router.InstanceID, certCname string, 
 }
 
 // GetCertificate get certificates from app ingress
-func (k *IngressService) GetCertificate(id router.InstanceID, certCname string) (*router.CertData, error) {
+func (k *IngressService) GetCertificate(ctx context.Context, id router.InstanceID, certCname string) (*router.CertData, error) {
 	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return nil, err
@@ -350,7 +357,7 @@ func (k *IngressService) GetCertificate(id router.InstanceID, certCname string) 
 }
 
 // RemoveCertificate delete certificates from app ingress
-func (k *IngressService) RemoveCertificate(id router.InstanceID, certCname string) error {
+func (k *IngressService) RemoveCertificate(ctx context.Context, id router.InstanceID, certCname string) error {
 	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return err
@@ -383,7 +390,7 @@ func (k *IngressService) RemoveCertificate(id router.InstanceID, certCname strin
 }
 
 // SetCname adds CNAME to app ingress
-func (k *IngressService) SetCname(id router.InstanceID, cname string) error {
+func (k *IngressService) SetCname(ctx context.Context, id router.InstanceID, cname string) error {
 	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return err
@@ -433,7 +440,7 @@ func (k *IngressService) SetCname(id router.InstanceID, cname string) error {
 }
 
 // GetCnames get CNAMEs from app ingress
-func (k *IngressService) GetCnames(id router.InstanceID) (*router.CnamesResp, error) {
+func (k *IngressService) GetCnames(ctx context.Context, id router.InstanceID) (*router.CnamesResp, error) {
 	ingress, err := k.get(id)
 	if err != nil {
 		return nil, err
@@ -448,7 +455,7 @@ func (k *IngressService) GetCnames(id router.InstanceID) (*router.CnamesResp, er
 }
 
 // UnsetCname delete CNAME from app ingress
-func (k *IngressService) UnsetCname(id router.InstanceID, cname string) error {
+func (k *IngressService) UnsetCname(ctx context.Context, id router.InstanceID, cname string) error {
 	ns, err := k.getAppNamespace(id.AppName)
 	if err != nil {
 		return err
@@ -481,7 +488,7 @@ func (k *IngressService) UnsetCname(id router.InstanceID, cname string) error {
 }
 
 // SupportedOptions returns the supported options
-func (s *IngressService) SupportedOptions() map[string]string {
+func (s *IngressService) SupportedOptions(ctx context.Context) map[string]string {
 	opts := map[string]string{
 		router.Domain: "",
 		router.Acme:   "",

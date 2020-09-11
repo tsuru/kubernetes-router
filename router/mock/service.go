@@ -4,13 +4,17 @@
 
 package mock
 
-import "github.com/tsuru/kubernetes-router/router"
+import (
+	"context"
 
-var _ router.Service = &RouterService{}
+	"github.com/tsuru/kubernetes-router/router"
+)
 
-// RouterService is a router.Service mock implementation to be
+var _ router.Router = &RouterMock{}
+
+// RouterMock is a router.Router mock implementation to be
 // used by tests
-type RouterService struct {
+type RouterMock struct {
 	CreateFn                 func(router.InstanceID, router.Opts) error
 	RemoveFn                 func(router.InstanceID) error
 	UpdateFn                 func(router.InstanceID, router.RoutesRequestExtraData) error
@@ -38,73 +42,73 @@ type RouterService struct {
 }
 
 // Create calls CreateFn
-func (s *RouterService) Create(id router.InstanceID, opts router.Opts) error {
+func (s *RouterMock) Create(ctx context.Context, id router.InstanceID, opts router.Opts) error {
 	s.CreateInvoked = true
 	return s.CreateFn(id, opts)
 }
 
 // Remove calls RemoveFn
-func (s *RouterService) Remove(id router.InstanceID) error {
+func (s *RouterMock) Remove(ctx context.Context, id router.InstanceID) error {
 	s.RemoveInvoked = true
 	return s.RemoveFn(id)
 }
 
 // Update calls UpdateFn
-func (s *RouterService) Update(id router.InstanceID, extraData router.RoutesRequestExtraData) error {
+func (s *RouterMock) Update(ctx context.Context, id router.InstanceID, extraData router.RoutesRequestExtraData) error {
 	s.UpdateInvoked = true
 	return s.UpdateFn(id, extraData)
 }
 
 // Swap calls SwapFn
-func (s *RouterService) Swap(appSrc, appDst router.InstanceID) error {
+func (s *RouterMock) Swap(ctx context.Context, appSrc, appDst router.InstanceID) error {
 	s.SwapInvoked = true
 	return s.SwapFn(appSrc, appDst)
 }
 
 // Get calls GetFn
-func (s *RouterService) GetAddresses(id router.InstanceID) ([]string, error) {
+func (s *RouterMock) GetAddresses(ctx context.Context, id router.InstanceID) ([]string, error) {
 	s.GetAddressesInvoked = true
 	return s.GetAddressesFn(id)
 }
 
 // GetCertificate calls GetCertificate
-func (s *RouterService) GetCertificate(id router.InstanceID, certName string) (*router.CertData, error) {
+func (s *RouterMock) GetCertificate(ctx context.Context, id router.InstanceID, certName string) (*router.CertData, error) {
 	s.GetCertificateInvoked = true
 	return s.GetCertificateFn(id, certName)
 }
 
 // AddCertificate calls AddCertificate
-func (s *RouterService) AddCertificate(id router.InstanceID, certName string, cert router.CertData) error {
+func (s *RouterMock) AddCertificate(ctx context.Context, id router.InstanceID, certName string, cert router.CertData) error {
 	s.AddCertificateInvoked = true
 	return s.AddCertificateFn(id, certName, cert)
 }
 
 // RemoveCertificate calls RemoveCertificate
-func (s *RouterService) RemoveCertificate(id router.InstanceID, certName string) error {
+func (s *RouterMock) RemoveCertificate(ctx context.Context, id router.InstanceID, certName string) error {
 	s.RemoveCertificateInvoked = true
 	return s.RemoveCertificateFn(id, certName)
 }
 
 // SetCname calls SetCnameFn
-func (s *RouterService) SetCname(id router.InstanceID, cname string) error {
+func (s *RouterMock) SetCname(ctx context.Context, id router.InstanceID, cname string) error {
 	s.SetCnameInvoked = true
 	return s.SetCnameFn(id, cname)
 }
 
 // GetCnames calls GetCnames
-func (s *RouterService) GetCnames(id router.InstanceID) (*router.CnamesResp, error) {
+func (s *RouterMock) GetCnames(ctx context.Context, id router.InstanceID) (*router.CnamesResp, error) {
 	s.GetCnamesInvoked = true
 	return s.GetCnamesFn(id)
 }
 
 // UnsetCname calls UnsetCnameFn
-func (s *RouterService) UnsetCname(id router.InstanceID, cname string) error {
+func (s *RouterMock) UnsetCname(ctx context.Context, id router.InstanceID, cname string) error {
 	s.UnsetCnameInvoked = true
 	return s.UnsetCnameFn(id, cname)
 }
 
 // SupportedOptions calls SupportedOptionsFn
-func (s *RouterService) SupportedOptions() map[string]string {
+func (s *RouterMock) SupportedOptions(ctx context.Context) map[string]string {
 	s.SupportedOptionsInvoked = true
 	return s.SupportedOptionsFn()
 }

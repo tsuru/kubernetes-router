@@ -5,6 +5,7 @@
 package kubernetes
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"log"
@@ -74,6 +75,7 @@ func (e ErrAppSwapped) Error() string {
 type BaseService struct {
 	Namespace        string
 	Timeout          time.Duration
+	RestConfig       *rest.Config
 	Client           kubernetes.Interface
 	TsuruClient      tsuruv1clientset.Interface
 	ExtensionsClient apiextensionsclientset.Interface
@@ -82,12 +84,12 @@ type BaseService struct {
 }
 
 // SupportedOptions returns the options supported by all services
-func (k *BaseService) SupportedOptions() map[string]string {
+func (k *BaseService) SupportedOptions(ctx context.Context) map[string]string {
 	return nil
 }
 
 // Healthcheck uses the kubernetes client to check the connectivity
-func (k *BaseService) Healthcheck() error {
+func (k *BaseService) Healthcheck(ctx context.Context) error {
 	client, err := k.getClient()
 	if err != nil {
 		return err
@@ -133,15 +135,19 @@ func (k *BaseService) getExtensionsClient() (apiextensionsclientset.Interface, e
 }
 
 func (k *BaseService) getConfig() (*rest.Config, error) {
-	config, err := rest.InClusterConfig()
+	if k.RestConfig != nil {
+		return k.RestConfig, nil
+	}
+	var err error
+	k.RestConfig, err = rest.InClusterConfig()
 	if err != nil {
 		return nil, err
 	}
-	config.Timeout = k.Timeout
-	config.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
+	k.RestConfig.Timeout = k.Timeout
+	k.RestConfig.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
 		return transport.DebugWrappers(rt)
 	}
-	return config, nil
+	return k.RestConfig, nil
 }
 
 func (k *BaseService) getWebService(appName string, extraData router.RoutesRequestExtraData, currentLabels map[string]string) (*apiv1.Service, error) {

@@ -5,6 +5,7 @@
 package router
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -39,31 +40,31 @@ type InstanceID struct {
 	AppName      string
 }
 
-// Service implements the basic functionally needed to
-// manage ingresses.
-type Service interface {
-	Create(id InstanceID, opts Opts) error
-	Remove(id InstanceID) error
-	Update(id InstanceID, extraData RoutesRequestExtraData) error
-	Swap(appSrc, appDst InstanceID) error
-	GetAddresses(id InstanceID) ([]string, error)
-	SupportedOptions() map[string]string
+// Router implements the basic functionally needed to
+// ingresses and/or loadbalancers.
+type Router interface {
+	Create(ctx context.Context, id InstanceID, opts Opts) error
+	Remove(ctx context.Context, id InstanceID) error
+	Update(ctx context.Context, id InstanceID, extraData RoutesRequestExtraData) error
+	Swap(ctx context.Context, appSrc, appDst InstanceID) error
+	GetAddresses(ctx context.Context, id InstanceID) ([]string, error)
+	SupportedOptions(ctx context.Context) map[string]string
 }
 
-// ServiceTLS Certificates interface
-type ServiceTLS interface {
-	Service
-	AddCertificate(id InstanceID, certName string, cert CertData) error
-	GetCertificate(id InstanceID, certName string) (*CertData, error)
-	RemoveCertificate(id InstanceID, certName string) error
+// RouterTLS Certificates interface
+type RouterTLS interface {
+	Router
+	AddCertificate(ctx context.Context, id InstanceID, certName string, cert CertData) error
+	GetCertificate(ctx context.Context, id InstanceID, certName string) (*CertData, error)
+	RemoveCertificate(ctx context.Context, id InstanceID, certName string) error
 }
 
-// ServiceCNAME Certificates interface
-type ServiceCNAME interface {
-	Service
-	SetCname(id InstanceID, cname string) error
-	GetCnames(id InstanceID) (*CnamesResp, error)
-	UnsetCname(id InstanceID, cname string) error
+// RouterCNAME Certificates interface
+type RouterCNAME interface {
+	Router
+	SetCname(ctx context.Context, id InstanceID, cname string) error
+	GetCnames(ctx context.Context, id InstanceID) (*CnamesResp, error)
+	UnsetCname(ctx context.Context, id InstanceID, cname string) error
 }
 
 // Opts used when creating/updating routers
@@ -185,8 +186,8 @@ func DescribedOptions() map[string]string {
 	}
 }
 
-// HealthcheckableService is a Service that implements
+// HealthcheckableRouter is a Service that implements
 // a way to check of its health
-type HealthcheckableService interface {
+type HealthcheckableRouter interface {
 	Healthcheck() error
 }
