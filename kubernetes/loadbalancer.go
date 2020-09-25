@@ -7,12 +7,10 @@ package kubernetes
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/tsuru/kubernetes-router/router"
-	tsuruv1 "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1"
 	v1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -247,7 +245,7 @@ func (s *LBService) syncLB(id router.InstanceID, opts *router.Opts, isUpdate boo
 		return err
 	}
 
-	ports, err := s.portsForService(lbService, app, *opts, webService)
+	ports, err := s.portsForService(lbService, *opts, webService)
 	if err != nil {
 		return err
 	}
@@ -320,7 +318,7 @@ func (s *LBService) fillLabelsAndAnnotations(svc *v1.Service, appName string, we
 	return nil
 }
 
-func (s *LBService) portsForService(svc *v1.Service, app *tsuruv1.App, opts router.Opts, baseSvc *v1.Service) ([]v1.ServicePort, error) {
+func (s *LBService) portsForService(svc *v1.Service, opts router.Opts, baseSvc *v1.Service) ([]v1.ServicePort, error) {
 	additionalPort, _ := strconv.Atoi(opts.ExposedPort)
 	if additionalPort == 0 {
 		additionalPort = defaultLBPort
@@ -331,41 +329,57 @@ func (s *LBService) portsForService(svc *v1.Service, app *tsuruv1.App, opts rout
 		existingPorts[port.Port] = &svc.Spec.Ports[i]
 	}
 
-	wantedPorts := map[int32]*v1.ServicePort{
-		int32(additionalPort): {
+	exposeAllPorts, _ := strconv.ParseBool(opts.AdditionalOpts[exposeAllPortsOpt])
+
+	var basePorts, wantedPorts []v1.ServicePort
+	if baseSvc != nil {
+		basePorts = baseSvc.Spec.Ports
+	}
+
+	for _, basePort := range basePorts {
+		if len(wantedPorts) == 0 {
+			var name string
+			if basePort.Name != "" {
+				name = fmt.Sprintf("%s-extra", basePort.Name)
+			} else {
+				name = fmt.Sprintf("port-%d", additionalPort)
+			}
+			wantedPorts = append(wantedPorts, v1.ServicePort{
+				Name:       name,
+				Protocol:   basePort.Protocol,
+				Port:       int32(additionalPort),
+				TargetPort: basePort.TargetPort,
+			})
+		}
+		if !exposeAllPorts {
+			break
+		}
+
+		if basePort.Port == int32(additionalPort) {
+			// Skipping ports conflicting with additional port
+			continue
+		}
+		basePort.NodePort = 0
+		wantedPorts = append(wantedPorts, basePort)
+	}
+
+	if len(wantedPorts) == 0 {
+		wantedPorts = append(wantedPorts, v1.ServicePort{
 			Name:       fmt.Sprintf("port-%d", additionalPort),
 			Protocol:   v1.ProtocolTCP,
 			Port:       int32(additionalPort),
-			TargetPort: intstr.FromInt(getAppServicePort(app)),
-		},
+			TargetPort: intstr.FromInt(defaultServicePort),
+		})
 	}
 
-	allPorts, _ := strconv.ParseBool(opts.AdditionalOpts[exposeAllPortsOpt])
-	if allPorts && baseSvc != nil {
-		basePorts := baseSvc.Spec.Ports
-		for i := range basePorts {
-			if basePorts[i].Port == int32(additionalPort) {
-				// Skipping ports conflicting with additional port
-				continue
-			}
-			basePorts[i].NodePort = 0
-			wantedPorts[basePorts[i].Port] = &basePorts[i]
-		}
-	}
-
-	var ports []v1.ServicePort
-	for _, wantedPort := range wantedPorts {
-		existingPort, ok := existingPorts[wantedPort.Port]
+	for i := range wantedPorts {
+		existingPort, ok := existingPorts[wantedPorts[i].Port]
 		if ok {
-			wantedPort.NodePort = existingPort.NodePort
+			wantedPorts[i].NodePort = existingPort.NodePort
 		}
-		ports = append(ports, *wantedPort)
 	}
-	sort.Slice(ports, func(i, j int) bool {
-		return ports[i].Port < ports[j].Port
-	})
 
-	return ports, nil
+	return wantedPorts, nil
 }
 
 func mergeMaps(entries ...map[string]string) map[string]string {

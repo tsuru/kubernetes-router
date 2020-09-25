@@ -14,7 +14,6 @@ import (
 	"github.com/tsuru/kubernetes-router/router"
 	tsuruv1 "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1"
 	tsuruv1clientset "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned"
-	"github.com/tsuru/tsuru/types/provision"
 	apiv1 "k8s.io/api/core/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -257,38 +256,6 @@ func (k *BaseService) hasCRD() (bool, error) {
 		return false, err
 	}
 	return true, nil
-}
-
-func getAppServicePort(app *tsuruv1.App) int {
-	servicePort := defaultServicePort
-	if app == nil || app.Spec.Configs == nil {
-		return servicePort
-	}
-
-	var process *provision.TsuruYamlKubernetesProcessConfig
-	for _, group := range app.Spec.Configs.Groups {
-		for procName, proc := range group {
-			if procName == webProcessName {
-				process = &proc
-				break
-			}
-		}
-	}
-	if process == nil {
-		for _, group := range app.Spec.Configs.Groups {
-			for _, proc := range group {
-				process = &proc
-				break
-			}
-		}
-	}
-	if process != nil && len(process.Ports) > 0 {
-		servicePort = process.Ports[0].TargetPort
-		if servicePort == 0 {
-			servicePort = process.Ports[0].Port
-		}
-	}
-	return servicePort
 }
 
 func makeWebSvcSelector(appName string) (labels.Selector, error) {

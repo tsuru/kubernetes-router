@@ -82,7 +82,7 @@ func (k *IngressService) Create(id router.InstanceID, routerOpts router.Opts) er
 								Path: routerOpts.Route,
 								Backend: v1beta1.IngressBackend{
 									ServiceName: id.AppName,
-									ServicePort: intstr.FromInt(getAppServicePort(app)),
+									ServicePort: intstr.FromInt(defaultServicePort),
 								},
 							},
 						},

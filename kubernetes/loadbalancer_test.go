@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tsuru/kubernetes-router/router"
 	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
-	"github.com/tsuru/tsuru/types/provision"
 	v1 "k8s.io/api/core/v1"
 	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -118,158 +117,6 @@ func TestLBCreateDefaultPort(t *testing.T) {
 			t.Errorf("Expected service with targetPort 8888. Got %#v", ports)
 		}
 		return false, nil, nil
-	})
-	err := svc.Create(idForApp("myapp"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-}
-
-func TestLBCreateCustomTargetPort(t *testing.T) {
-	svc := createFakeLBService()
-	configs := &provision.TsuruYamlKubernetesConfig{
-		Groups: map[string]provision.TsuruYamlKubernetesGroup{
-			"pod1": map[string]provision.TsuruYamlKubernetesProcessConfig{
-				"worker": {},
-			},
-			"pod2": map[string]provision.TsuruYamlKubernetesProcessConfig{
-				"web": {
-					Ports: []provision.TsuruYamlKubernetesProcessPortConfig{
-						{TargetPort: 8000},
-						{TargetPort: 8001},
-					},
-				},
-			},
-		},
-	}
-	if err := createCRD(svc.BaseService, "myapp", "custom-namespace", configs); err != nil {
-		t.Errorf("failed to create CRD for test: %v", err)
-	}
-	svc.BaseService.Client.(*fake.Clientset).PrependReactor("create", "services", func(action ktesting.Action) (bool, runtime.Object, error) {
-		newSvc, ok := action.(ktesting.CreateAction).GetObject().(*v1.Service)
-		if !ok {
-			t.Errorf("Error creating service.")
-		}
-		ports := newSvc.Spec.Ports
-		if len(ports) != 1 || ports[0].TargetPort != intstr.FromInt(8000) {
-			t.Errorf("Expected service with targetPort 8000. Got %#v", ports)
-		}
-		return false, nil, nil
-	})
-	err := svc.Create(idForApp("myapp"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-}
-
-func TestLBCreateCustomPort(t *testing.T) {
-	svc := createFakeLBService()
-	configs := &provision.TsuruYamlKubernetesConfig{
-		Groups: map[string]provision.TsuruYamlKubernetesGroup{
-			"pod1": map[string]provision.TsuruYamlKubernetesProcessConfig{
-				"myproc": {
-					Ports: []provision.TsuruYamlKubernetesProcessPortConfig{
-						{Port: 9000},
-					},
-				},
-			},
-		},
-	}
-	if err := createCRD(svc.BaseService, "myapp", "custom-namespace", configs); err != nil {
-		t.Errorf("failed to create CRD for test: %v", err)
-	}
-	svc.BaseService.Client.(*fake.Clientset).PrependReactor("create", "services", func(action ktesting.Action) (bool, runtime.Object, error) {
-		newSvc, ok := action.(ktesting.CreateAction).GetObject().(*v1.Service)
-		if !ok {
-			t.Errorf("Error creating service.")
-		}
-		ports := newSvc.Spec.Ports
-		if len(ports) != 1 || ports[0].TargetPort != intstr.FromInt(9000) {
-			t.Errorf("Expected service with targetPort 9000. Got %#v", ports)
-		}
-		return false, nil, nil
-	})
-	err := svc.Create(idForApp("myapp"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-}
-
-func TestLBCreateExistingService(t *testing.T) {
-	svc := createFakeLBService()
-	externalName := "lbname"
-	externalIPs := []string{"10.10.10.1", "10.10.10.2"}
-	loadBalancerIP := "10.10.10.3"
-	clusterIP := "1.2.3.4"
-	resourceVersion := "47928443"
-	targetPort := 9001
-	nodePort := int32(30000)
-	configs := &provision.TsuruYamlKubernetesConfig{
-		Groups: map[string]provision.TsuruYamlKubernetesGroup{
-			"pod1": map[string]provision.TsuruYamlKubernetesProcessConfig{
-				"myproc": {
-					Ports: []provision.TsuruYamlKubernetesProcessPortConfig{
-						{TargetPort: targetPort},
-					},
-				},
-			},
-		},
-	}
-	if err := createCRD(svc.BaseService, "myapp", "custom-namespace", configs); err != nil {
-		t.Errorf("failed to create CRD for test: %v", err)
-	}
-	svc.BaseService.Client.(*fake.Clientset).PrependReactor("get", "services", func(action ktesting.Action) (bool, runtime.Object, error) {
-		service := &v1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            "myapp-router-lb",
-				Namespace:       "custom-namespace",
-				ResourceVersion: resourceVersion,
-			},
-			Spec: v1.ServiceSpec{
-				Type:           v1.ServiceTypeLoadBalancer,
-				ExternalName:   externalName,
-				ExternalIPs:    externalIPs,
-				LoadBalancerIP: loadBalancerIP,
-				ClusterIP:      clusterIP,
-				Ports: []v1.ServicePort{{
-					Name:       "port-80",
-					Protocol:   v1.ProtocolTCP,
-					Port:       int32(80),
-					TargetPort: intstr.FromInt(targetPort),
-					NodePort:   nodePort,
-				}},
-			},
-		}
-		return true, service, nil
-	})
-	svc.BaseService.Client.(*fake.Clientset).PrependReactor("update", "services", func(action ktesting.Action) (bool, runtime.Object, error) {
-		newSvc, ok := action.(ktesting.UpdateAction).GetObject().(*v1.Service)
-		if !ok {
-			t.Errorf("Error updating service.")
-		}
-		if newSvc.Spec.ExternalName != externalName {
-			t.Errorf("Expected ExternalName %s. Got %s", externalName, newSvc.Spec.ExternalName)
-		}
-		if !reflect.DeepEqual(newSvc.Spec.ExternalIPs, externalIPs) {
-			t.Errorf("Expected ExternalIPs %v. Got %v", externalIPs, newSvc.Spec.ExternalIPs)
-		}
-		if newSvc.Spec.LoadBalancerIP != loadBalancerIP {
-			t.Errorf("Expected LoadBalancerIP %s. Got %s", loadBalancerIP, newSvc.Spec.LoadBalancerIP)
-		}
-		if newSvc.Spec.ClusterIP != clusterIP {
-			t.Errorf("Expected ClusterIP %s. Got %s", clusterIP, newSvc.Spec.ClusterIP)
-		}
-		if newSvc.ObjectMeta.ResourceVersion != resourceVersion {
-			t.Errorf("Expected ResourceVersion %s. Got %s", resourceVersion, newSvc.ObjectMeta.ResourceVersion)
-		}
-		ports := newSvc.Spec.Ports
-		if len(ports) != 1 || ports[0].TargetPort != intstr.FromInt(targetPort) {
-			t.Errorf("Expected service with TargetPort %d. Got %#v", targetPort, ports)
-		}
-		if len(ports) != 1 || ports[0].NodePort != nodePort {
-			t.Errorf("Expected service with NodePort %d. Got %#v", nodePort, ports)
-		}
-		return true, newSvc, nil
 	})
 	err := svc.Create(idForApp("myapp"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
 	if err != nil {
@@ -386,7 +233,10 @@ func TestLBUpdate(t *testing.T) {
 	svc3 := svc2
 	svc3.ObjectMeta.Labels = svc1.ObjectMeta.Labels
 	svc4 := svc2
-	svc4.Spec.Ports = []v1.ServicePort{{Protocol: "TCP", Port: int32(80), TargetPort: intstr.FromInt(8890)}}
+	svc4.Spec.Ports = []v1.ServicePort{
+		{Protocol: "TCP", Port: int32(8890), TargetPort: intstr.FromInt(8890)},
+		{Protocol: "TCP", Port: int32(80), TargetPort: intstr.FromInt(8891)},
+	}
 	svc5 := svc2
 	svc5.Name = "test-web-v1"
 	svc5.Labels = map[string]string{appLabel: "test", processLabel: "web", "custom2": "value2"}
@@ -456,7 +306,7 @@ func TestLBUpdate(t *testing.T) {
 					Name:       "port-80",
 					Protocol:   v1.ProtocolTCP,
 					Port:       int32(80),
-					TargetPort: intstr.FromInt(8888),
+					TargetPort: intstr.FromInt(8899),
 				},
 				{
 					Protocol:   v1.ProtocolTCP,
@@ -480,7 +330,7 @@ func TestLBUpdate(t *testing.T) {
 					Name:       "port-80",
 					Protocol:   v1.ProtocolTCP,
 					Port:       int32(80),
-					TargetPort: intstr.FromInt(8888),
+					TargetPort: intstr.FromInt(8899),
 				},
 			},
 		},
@@ -502,7 +352,7 @@ func TestLBUpdate(t *testing.T) {
 					Name:       "port-80",
 					Protocol:   v1.ProtocolTCP,
 					Port:       int32(80),
-					TargetPort: intstr.FromInt(8888),
+					TargetPort: intstr.FromInt(8890),
 				},
 				{
 					Protocol:   v1.ProtocolTCP,
@@ -548,7 +398,12 @@ func TestLBUpdate(t *testing.T) {
 					Name:       "port-80",
 					Protocol:   v1.ProtocolTCP,
 					Port:       int32(80),
-					TargetPort: intstr.FromInt(8888),
+					TargetPort: intstr.FromInt(8890),
+				},
+				{
+					Protocol:   v1.ProtocolTCP,
+					Port:       int32(8890),
+					TargetPort: intstr.FromInt(8890),
 				},
 			},
 		},
@@ -574,7 +429,7 @@ func TestLBUpdate(t *testing.T) {
 					Name:       "port-80",
 					Protocol:   v1.ProtocolTCP,
 					Port:       int32(80),
-					TargetPort: intstr.FromInt(8888),
+					TargetPort: intstr.FromInt(8890),
 				},
 				{
 					Protocol:   v1.ProtocolTCP,
@@ -605,7 +460,7 @@ func TestLBUpdate(t *testing.T) {
 					Name:       "port-80",
 					Protocol:   v1.ProtocolTCP,
 					Port:       int32(80),
-					TargetPort: intstr.FromInt(8888),
+					TargetPort: intstr.FromInt(8890),
 				},
 				{
 					Protocol:   v1.ProtocolTCP,
@@ -720,17 +575,10 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []v1.ServicePort{
 		{
-			Name:       "tcp-default-1",
-			Protocol:   v1.ProtocolTCP,
-			Port:       int32(22),
-			TargetPort: intstr.FromInt(22),
-			NodePort:   31999,
-		},
-		{
-			Name:       "port-80",
+			Name:       "http-default-1-extra",
 			Protocol:   v1.ProtocolTCP,
 			Port:       int32(80),
-			TargetPort: intstr.FromInt(8888),
+			TargetPort: intstr.FromInt(8080),
 			NodePort:   31900,
 		},
 		{
@@ -739,6 +587,13 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 			Port:       int32(8080),
 			TargetPort: intstr.FromInt(8080),
 			NodePort:   31901,
+		},
+		{
+			Name:       "tcp-default-1",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(22),
+			TargetPort: intstr.FromInt(22),
+			NodePort:   31999,
 		},
 	}, service.Spec.Ports)
 
@@ -751,17 +606,10 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []v1.ServicePort{
 		{
-			Name:       "tcp-default-1",
-			Protocol:   v1.ProtocolTCP,
-			Port:       int32(22),
-			TargetPort: intstr.FromInt(22),
-			NodePort:   31999,
-		},
-		{
-			Name:       "port-80",
+			Name:       "http-default-1-extra",
 			Protocol:   v1.ProtocolTCP,
 			Port:       int32(80),
-			TargetPort: intstr.FromInt(8888),
+			TargetPort: intstr.FromInt(8080),
 			NodePort:   31900,
 		},
 		{
@@ -770,6 +618,13 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 			Port:       int32(8080),
 			TargetPort: intstr.FromInt(8080),
 			NodePort:   31901,
+		},
+		{
+			Name:       "tcp-default-1",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(22),
+			TargetPort: intstr.FromInt(22),
+			NodePort:   31999,
 		},
 	}, service.Spec.Ports)
 

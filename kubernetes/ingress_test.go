@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/tsuru/kubernetes-router/router"
 	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
-	"github.com/tsuru/tsuru/types/provision"
 	apiv1 "k8s.io/api/core/v1"
 	v1beta1 "k8s.io/api/extensions/v1beta1"
 	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
@@ -206,43 +205,6 @@ func TestIngressCreateDefaultPort(t *testing.T) {
 		port := newIng.Spec.Rules[0].HTTP.Paths[0].Backend.ServicePort
 		if port != intstr.FromInt(8888) {
 			t.Errorf("Expected ingress rule with port 8888. Got %v", port)
-		}
-		return false, nil, nil
-	})
-	err := svc.Create(idForApp("myapp"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-}
-
-func TestIngressCreateCustomTargetPort(t *testing.T) {
-	svc := createFakeService()
-	configs := &provision.TsuruYamlKubernetesConfig{
-		Groups: map[string]provision.TsuruYamlKubernetesGroup{
-			"pod1": map[string]provision.TsuruYamlKubernetesProcessConfig{
-				"worker": {},
-			},
-			"pod2": map[string]provision.TsuruYamlKubernetesProcessConfig{
-				"web": {
-					Ports: []provision.TsuruYamlKubernetesProcessPortConfig{
-						{TargetPort: 8000},
-						{TargetPort: 8001},
-					},
-				},
-			},
-		},
-	}
-	if err := createCRD(svc.BaseService, "myapp", "custom-namespace", configs); err != nil {
-		t.Errorf("failed to create CRD for test: %v", err)
-	}
-	svc.BaseService.Client.(*fake.Clientset).PrependReactor("create", "ingresses", func(action ktesting.Action) (bool, runtime.Object, error) {
-		newIng, ok := action.(ktesting.UpdateAction).GetObject().(*v1beta1.Ingress)
-		if !ok {
-			t.Errorf("Error creating ingress.")
-		}
-		port := newIng.Spec.Rules[0].HTTP.Paths[0].Backend.ServicePort
-		if port != intstr.FromInt(8000) {
-			t.Errorf("Expected ingress rule with port 8000. Got %v", port)
 		}
 		return false, nil, nil
 	})
