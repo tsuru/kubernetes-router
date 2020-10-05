@@ -630,6 +630,58 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 
 }
 
+func TestLBUpdateNoChangeInFrozenService(t *testing.T) {
+	svc := createFakeLBService()
+	err := svc.Create(idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
+		exposeAllPortsOpt: "true",
+	}})
+	require.NoError(t, err)
+	service, err := svc.Client.CoreV1().Services(svc.Namespace).Get(svc.serviceName(idForApp("test")), metav1.GetOptions{})
+	require.NoError(t, err)
+	service.Labels = map[string]string{
+		routerFreezeLabel: "true",
+	}
+	service.Spec.Ports = []v1.ServicePort{
+		{
+			Name:       "tcp-default-1",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(1234),
+			TargetPort: intstr.FromInt(22),
+			NodePort:   31999,
+		},
+	}
+	_, err = svc.Client.CoreV1().Services(svc.Namespace).Update(service)
+	require.NoError(t, err)
+	webSvc := v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-web",
+			Namespace: "default",
+			Labels:    map[string]string{appLabel: "test", processLabel: "web"},
+		},
+		Spec: v1.ServiceSpec{
+			Selector: map[string]string{"name": "test-web"},
+			Ports: []v1.ServicePort{
+				{Name: "tcp-default-1", Protocol: "TCP", Port: int32(22), TargetPort: intstr.FromInt(22), NodePort: 12001},
+			},
+		},
+	}
+	_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(&webSvc)
+	require.NoError(t, err)
+	err = svc.Update(idForApp("test"), router.RoutesRequestExtraData{})
+	require.NoError(t, err)
+	service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(svc.serviceName(idForApp("test")), metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []v1.ServicePort{
+		{
+			Name:       "tcp-default-1",
+			Protocol:   v1.ProtocolTCP,
+			Port:       int32(1234),
+			TargetPort: intstr.FromInt(22),
+			NodePort:   31999,
+		},
+	}, service.Spec.Ports)
+}
+
 func TestLBUpdateSwapped(t *testing.T) {
 	svc := createFakeLBService()
 	for _, n := range []string{"blue", "green"} {

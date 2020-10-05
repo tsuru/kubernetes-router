@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/tsuru/kubernetes-router/router"
 	tsuruv1 "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1"
 	tsuruv1clientset "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned"
 	apiv1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +37,7 @@ const (
 
 	appBaseServiceNamespaceLabel = "router.tsuru.io/base-service-namespace"
 	appBaseServiceNameLabel      = "router.tsuru.io/base-service-name"
+	routerFreezeLabel            = "router.tsuru.io/freeze"
 
 	defaultServicePort = 8888
 	appLabel           = "tsuru.io/app-name"
@@ -293,4 +296,12 @@ func (s *BaseService) hashedResourceName(id router.InstanceID, name string, limi
 	h.Write([]byte(name))
 	hash := fmt.Sprintf("%x", h.Sum(nil))
 	return fmt.Sprintf("%s-%s", name[:limit-17], hash[:16])
+}
+
+func isFrozenSvc(svc *v1.Service) bool {
+	if svc == nil || svc.Labels == nil {
+		return false
+	}
+	frozen, _ := strconv.ParseBool(svc.Labels[routerFreezeLabel])
+	return frozen
 }

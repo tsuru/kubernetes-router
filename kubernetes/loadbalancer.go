@@ -98,6 +98,9 @@ func (s *LBService) Swap(srcID, dstID router.InstanceID) error {
 	if !isReady(dstServ) {
 		return ErrLoadBalancerNotReady
 	}
+	if isFrozenSvc(srcServ) || isFrozenSvc(dstServ) {
+		return nil
+	}
 	s.swap(srcServ, dstServ)
 	client, err := s.getClient()
 	if err != nil {
@@ -216,6 +219,9 @@ func (s *LBService) syncLB(id router.InstanceID, opts *router.Opts, isUpdate boo
 				Type: v1.ServiceTypeLoadBalancer,
 			},
 		}
+	}
+	if isFrozenSvc(lbService) {
+		return nil
 	}
 	if _, isSwapped := s.isSwapped(lbService.ObjectMeta); isSwapped {
 		return nil
