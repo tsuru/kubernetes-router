@@ -75,9 +75,10 @@ func TestLBCreateCustomAnnotation(t *testing.T) {
 	err := svc.Create(idForApp("test"), router.Opts{
 		Pool: "mypool",
 		AdditionalOpts: map[string]string{
-			"my-opt":    "value",
-			"other-opt": "other-value",
-			"ann1-":     "",
+			"my-opt":                 "value",
+			"other-opt":              "other-value",
+			"svc-annotation-a:b/x:y": "true",
+			"ann1-":                  "",
 		}})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
@@ -96,7 +97,8 @@ func TestLBCreateCustomAnnotation(t *testing.T) {
 	expectedAnnotations := map[string]string{
 		"ann2":                 "val2",
 		"other-opt":            "other-value",
-		"router.tsuru.io/opts": `{"Pool":"mypool","AdditionalOpts":{"ann1-":"","my-opt":"value","other-opt":"other-value"}}`,
+		"a.b/x.y":              "true",
+		"router.tsuru.io/opts": `{"Pool":"mypool","AdditionalOpts":{"ann1-":"","my-opt":"value","other-opt":"other-value","svc-annotation-a:b/x:y":"true"}}`,
 	}
 	expectedService := defaultService("test", "default", svc.Labels, expectedAnnotations, nil)
 	assert.Equal(t, expectedService, serviceList.Items[0])

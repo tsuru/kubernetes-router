@@ -23,6 +23,8 @@ const (
 
 	// exposeAllPortsOpt is the flag used to expose all ports in the LB
 	exposeAllPortsOpt = "expose-all-ports"
+
+	annotationOptPrefix = "svc-annotation-"
 )
 
 var (
@@ -285,6 +287,14 @@ func (s *LBService) fillLabelsAndAnnotations(svc *v1.Service, appName string, we
 		}
 		if _, ok := registeredOpts[optName]; ok {
 			continue
+		}
+
+		if strings.HasPrefix(optName, annotationOptPrefix) {
+			// Legacy tsuru versions do not support opt names with `.`. As a
+			// workaround we accept opts with the prefix `svc-annotation-` to
+			// use `:` instead of `.`.
+			optName = strings.TrimPrefix(optName, annotationOptPrefix)
+			optName = strings.ReplaceAll(optName, ":", ".")
 		}
 
 		if strings.HasSuffix(optName, "-") {
