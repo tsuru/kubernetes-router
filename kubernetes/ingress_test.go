@@ -54,7 +54,7 @@ func TestIngressCreate(t *testing.T) {
 	svc := createFakeService()
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
-	err := svc.Create(idForApp("test"), router.Opts{})
+	err := svc.Create(ctx, idForApp("test"), router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -81,7 +81,7 @@ func TestIngressCreateDefaultClass(t *testing.T) {
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	svc.IngressClass = "nginx"
-	err := svc.Create(idForApp("test"), router.Opts{
+	err := svc.Create(ctx, idForApp("test"), router.Opts{
 		AdditionalOpts: map[string]string{"my-opt": "v1"},
 	})
 	if err != nil {
@@ -110,7 +110,7 @@ func TestIngressCreateDefaultClassOverride(t *testing.T) {
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	svc.IngressClass = "nginx"
-	err := svc.Create(idForApp("test"), router.Opts{
+	err := svc.Create(ctx, idForApp("test"), router.Opts{
 		AdditionalOpts: map[string]string{"class": "xyz"},
 	})
 	if err != nil {
@@ -138,7 +138,7 @@ func TestIngressCreateDefaultPrefix(t *testing.T) {
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	svc.AnnotationsPrefix = "my.prefix.com"
-	err := svc.Create(idForApp("test"), router.Opts{
+	err := svc.Create(ctx, idForApp("test"), router.Opts{
 		AdditionalOpts: map[string]string{
 			"foo1":          "xyz",
 			"prefixed/foo2": "abc",
@@ -169,7 +169,7 @@ func TestIngressCreateRemoveAnnotation(t *testing.T) {
 	svc := createFakeService()
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
-	err := svc.Create(idForApp("test"), router.Opts{
+	err := svc.Create(ctx, idForApp("test"), router.Opts{
 		AdditionalOpts: map[string]string{
 			"ann1-": "",
 		},
@@ -208,7 +208,7 @@ func TestIngressCreateDefaultPort(t *testing.T) {
 		}
 		return false, nil, nil
 	})
-	err := svc.Create(idForApp("myapp"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
+	err := svc.Create(ctx, idForApp("myapp"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -251,7 +251,7 @@ func TestCreateExistingIngress(t *testing.T) {
 		return true, newIng, nil
 	})
 
-	err := svc.Create(idForApp(svcName), router.Opts{})
+	err := svc.Create(ctx, idForApp(svcName), router.Opts{})
 	if err != nil {
 		t.Fatalf("Expected err to be nil. Got %v.", err)
 	}
@@ -262,7 +262,7 @@ func TestCreateIngressAppNamespace(t *testing.T) {
 	if err := createCRD(svc.BaseService, "app", "custom-namespace", nil); err != nil {
 		t.Errorf("failed to create CRD for test: %v", err)
 	}
-	if err := svc.Create(idForApp("app"), router.Opts{}); err != nil {
+	if err := svc.Create(ctx, idForApp("app"), router.Opts{}); err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses("custom-namespace").List(metav1.ListOptions{})
@@ -313,7 +313,7 @@ func TestUpdate(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			svc := createFakeService()
-			err := svc.Create(idForApp("test"), router.Opts{})
+			err := svc.Create(ctx, idForApp("test"), router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
@@ -324,7 +324,7 @@ func TestUpdate(t *testing.T) {
 				}
 			}
 
-			err = svc.Update(idForApp("test"), router.RoutesRequestExtraData{})
+			err = svc.Update(ctx, idForApp("test"), router.RoutesRequestExtraData{})
 			if err != tc.expectedErr {
 				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
 			}
@@ -344,16 +344,16 @@ func TestUpdate(t *testing.T) {
 
 func TestSwap(t *testing.T) {
 	svc := createFakeService()
-	err := svc.Create(idForApp("test-blue"), router.Opts{})
+	err := svc.Create(ctx, idForApp("test-blue"), router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Create(idForApp("test-green"), router.Opts{})
+	err = svc.Create(ctx, idForApp("test-green"), router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 
-	err = svc.Swap(idForApp("test-blue"), idForApp("test-green"))
+	err = svc.Swap(ctx, idForApp("test-blue"), idForApp("test-green"))
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -384,7 +384,7 @@ func TestSwap(t *testing.T) {
 		}
 	}
 
-	err = svc.Swap(idForApp("test-blue"), idForApp("test-green"))
+	err = svc.Swap(ctx, idForApp("test-blue"), idForApp("test-green"))
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -430,23 +430,23 @@ func TestRemove(t *testing.T) {
 		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			svc := createFakeService()
-			err := svc.Create(idForApp("test"), router.Opts{})
+			err := svc.Create(ctx, idForApp("test"), router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Create(idForApp("blue"), router.Opts{})
+			err = svc.Create(ctx, idForApp("blue"), router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Create(idForApp("green"), router.Opts{})
+			err = svc.Create(ctx, idForApp("green"), router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Swap(idForApp("blue"), idForApp("green"))
+			err = svc.Swap(ctx, idForApp("blue"), idForApp("green"))
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Remove(idForApp(tc.remove))
+			err = svc.Remove(ctx, idForApp(tc.remove))
 			if err != tc.expectedErr {
 				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
 			}
@@ -463,15 +463,15 @@ func TestRemove(t *testing.T) {
 
 func TestUnsetCname(t *testing.T) {
 	svc := createFakeService()
-	err := svc.Create(idForApp("test-blue"), router.Opts{})
+	err := svc.Create(ctx, idForApp("test-blue"), router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.SetCname(idForApp("test-blue"), "cname1")
+	err = svc.SetCname(ctx, idForApp("test-blue"), "cname1")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.UnsetCname(idForApp("test-blue"), "cname1")
+	err = svc.UnsetCname(ctx, idForApp("test-blue"), "cname1")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -491,11 +491,11 @@ func TestUnsetCname(t *testing.T) {
 
 func TestSetCname(t *testing.T) {
 	svc := createFakeService()
-	err := svc.Create(idForApp("test-blue"), router.Opts{})
+	err := svc.Create(ctx, idForApp("test-blue"), router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.SetCname(idForApp("test-blue"), "cname1")
+	err = svc.SetCname(ctx, idForApp("test-blue"), "cname1")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -515,15 +515,15 @@ func TestSetCname(t *testing.T) {
 
 func TestGetCnames(t *testing.T) {
 	svc := createFakeService()
-	err := svc.Create(idForApp("test-blue"), router.Opts{})
+	err := svc.Create(ctx, idForApp("test-blue"), router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.SetCname(idForApp("test-blue"), "cname1")
+	err = svc.SetCname(ctx, idForApp("test-blue"), "cname1")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.SetCname(idForApp("test-blue"), "cname2")
+	err = svc.SetCname(ctx, idForApp("test-blue"), "cname2")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -540,7 +540,7 @@ func TestGetCnames(t *testing.T) {
 		t.Errorf("Expected %v. Got %v", v1beta1.IngressList{Items: []v1beta1.Ingress{cnameIng}}, ingressList)
 	}
 
-	cnames, err := svc.GetCnames(idForApp("test-blue"))
+	cnames, err := svc.GetCnames(ctx, idForApp("test-blue"))
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -551,16 +551,16 @@ func TestGetCnames(t *testing.T) {
 
 func TestRemoveCertificate(t *testing.T) {
 	svc := createFakeService()
-	err := svc.Create(idForApp("test-blue"), router.Opts{})
+	err := svc.Create(ctx, idForApp("test-blue"), router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 	expectedCert := router.CertData{Certificate: "Certz", Key: "keyz"}
-	err = svc.AddCertificate(idForApp("test-blue"), "mycert", expectedCert)
+	err = svc.AddCertificate(ctx, idForApp("test-blue"), "mycert", expectedCert)
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.RemoveCertificate(idForApp("test-blue"), "mycert")
+	err = svc.RemoveCertificate(ctx, idForApp("test-blue"), "mycert")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -568,12 +568,12 @@ func TestRemoveCertificate(t *testing.T) {
 
 func TestAddCertificate(t *testing.T) {
 	svc := createFakeService()
-	err := svc.Create(idForApp("test-blue"), router.Opts{})
+	err := svc.Create(ctx, idForApp("test-blue"), router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 	expectedCert := router.CertData{Certificate: "Certz", Key: "keyz"}
-	err = svc.AddCertificate(idForApp("test-blue"), "mycert", expectedCert)
+	err = svc.AddCertificate(ctx, idForApp("test-blue"), "mycert", expectedCert)
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -599,12 +599,12 @@ func TestAddCertificate(t *testing.T) {
 
 func TestGetCertificate(t *testing.T) {
 	svc := createFakeService()
-	err := svc.Create(idForApp("test-blue"), router.Opts{})
+	err := svc.Create(ctx, idForApp("test-blue"), router.Opts{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 	expectedCert := router.CertData{Certificate: "Certz", Key: "keyz"}
-	err = svc.AddCertificate(idForApp("test-blue"), "mycert", expectedCert)
+	err = svc.AddCertificate(ctx, idForApp("test-blue"), "mycert", expectedCert)
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -627,7 +627,7 @@ func TestGetCertificate(t *testing.T) {
 		t.Errorf("Expected %v. Got %v", &v1beta1.IngressList{Items: []v1beta1.Ingress{certTest}}, ingressList)
 	}
 
-	cert, err := svc.GetCertificate(idForApp("test-blue"), "mycert")
+	cert, err := svc.GetCertificate(ctx, idForApp("test-blue"), "mycert")
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}

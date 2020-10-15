@@ -5,61 +5,56 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"log"
-	"net/http"
-	"net/http/pprof"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
-	"github.com/gorilla/mux"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/tsuru/kubernetes-router/api"
+	"github.com/tsuru/kubernetes-router/backend"
+	"github.com/tsuru/kubernetes-router/cmd"
 	"github.com/tsuru/kubernetes-router/kubernetes"
 	"github.com/tsuru/kubernetes-router/router"
-	"github.com/urfave/negroni"
+	"gopkg.in/yaml.v2"
 )
 
 func main() {
 	listenAddr := flag.String("listen-addr", ":8077", "Listen address")
-	k8sNamespace := flag.String("k8s-namespace", "default", "Kubernetes namespace to create resources")
+	k8sNamespace := flag.String("k8s-namespace", "tsuru", "Kubernetes namespace to create resources")
 	k8sTimeout := flag.Duration("k8s-timeout", time.Second*10, "Kubernetes per-request timeout")
-	k8sLabels := &MapFlag{}
+	k8sLabels := &cmd.MapFlag{}
 	flag.Var(k8sLabels, "k8s-labels", "Labels to be added to each resource created. Expects KEY=VALUE format.")
-	k8sAnnotations := &MapFlag{}
+	k8sAnnotations := &cmd.MapFlag{}
 	flag.Var(k8sAnnotations, "k8s-annotations", "Annotations to be added to each resource created. Expects KEY=VALUE format.")
-	runModes := StringSliceFlag{}
+	runModes := cmd.StringSliceFlag{}
 	flag.Var(&runModes, "controller-modes", "Defines enabled controller running modes: service, ingress, ingress-nginx or istio-gateway.")
 
 	ingressDefaultDomain := flag.String("ingress-domain", "local", "Default domain to be used on created vhosts, local is the default. (eg: serviceName.local)")
 
-	istioGatewaySelector := &MapFlag{}
+	istioGatewaySelector := &cmd.MapFlag{}
 	flag.Var(istioGatewaySelector, "istio-gateway.gateway-selector", "Gateway selector used in gateways created for apps.")
 
 	certFile := flag.String("cert-file", "", "Path to certificate used to serve https requests")
 	keyFile := flag.String("key-file", "", "Path to private key used to serve https requests")
 
-	optsToLabels := &MapFlag{}
+	optsToLabels := &cmd.MapFlag{}
 	flag.Var(optsToLabels, "opts-to-label", "Mapping between router options and service labels. Expects KEY=VALUE format.")
 
-	optsToLabelsDocs := &MapFlag{}
+	optsToLabelsDocs := &cmd.MapFlag{}
 	flag.Var(optsToLabelsDocs, "opts-to-label-doc", "Mapping between router options and user friendly help. Expects KEY=VALUE format.")
 
-	optsToIngressAnnotations := &MapFlag{}
+	optsToIngressAnnotations := &cmd.MapFlag{}
 	flag.Var(optsToIngressAnnotations, "opts-to-ingress-annotations", "Mapping between router options and ingress annotations. Expects KEY=VALUE format.")
 
-	optsToIngressAnnotationsDocs := &MapFlag{}
+	optsToIngressAnnotationsDocs := &cmd.MapFlag{}
 	flag.Var(optsToIngressAnnotationsDocs, "opts-to-ingress-annotations-doc", "Mapping between router options and user friendly help. Expects KEY=VALUE format.")
 
 	ingressClass := flag.String("ingress-class", "", "Default class used for ingress objects")
 
 	ingressAnnotationsPrefix := flag.String("ingress-annotations-prefix", "", "Default prefix for annotations based on options")
 
-	poolLabels := &MultiMapFlag{}
+	poolLabels := &cmd.MultiMapFlag{}
 	flag.Var(poolLabels, "pool-labels", "Default labels for a given pool. Expects POOL={\"LABEL\":\"VALUE\"} format.")
+	clustersFilePath := flag.String("clusters-file", "", "Path to file that describes clusters, when inform this file enable the multi-cluster support")
 
 	flag.Parse()
 
@@ -79,14 +74,15 @@ func main() {
 		runModes = append(runModes, "service")
 	}
 
-	routerAPI := api.RouterAPI{
-		DefaultMode:     runModes[0],
-		IngressServices: map[string]router.Service{},
+	localBackend := &backend.LocalCluster{
+		DefaultMode: runModes[0],
+		Routers:     map[string]router.Router{},
 	}
+
 	for _, mode := range runModes {
 		switch mode {
 		case "istio-gateway":
-			routerAPI.IngressServices[mode] = &kubernetes.IstioGateway{
+			localBackend.Routers[mode] = &kubernetes.IstioGateway{
 				BaseService:     base,
 				DefaultDomain:   *ingressDefaultDomain,
 				GatewaySelector: *istioGatewaySelector,
@@ -96,7 +92,7 @@ func main() {
 			*ingressAnnotationsPrefix = "nginx.ingress.kubernetes.io"
 			fallthrough
 		case "ingress":
-			routerAPI.IngressServices[mode] = &kubernetes.IngressService{
+			localBackend.Routers[mode] = &kubernetes.IngressService{
 				BaseService:           base,
 				DefaultDomain:         *ingressDefaultDomain,
 				OptsAsAnnotations:     *optsToIngressAnnotations,
@@ -105,7 +101,7 @@ func main() {
 				AnnotationsPrefix:     *ingressAnnotationsPrefix,
 			}
 		case "service":
-			routerAPI.IngressServices[mode] = &kubernetes.LBService{
+			localBackend.Routers[mode] = &kubernetes.LBService{
 				BaseService:      base,
 				OptsAsLabels:     *optsToLabels,
 				OptsAsLabelsDocs: *optsToLabelsDocs,
@@ -116,64 +112,35 @@ func main() {
 		}
 	}
 
-	r := mux.NewRouter().StrictSlash(true)
-
-	r.PathPrefix("/api").Handler(negroni.New(
-		api.AuthMiddleware{
-			User: os.Getenv("ROUTER_API_USER"),
-			Pass: os.Getenv("ROUTER_API_PASSWORD"),
-		},
-		negroni.Wrap(routerAPI.Routes()),
-	))
-	r.HandleFunc("/healthcheck", routerAPI.Healthcheck)
-	r.Handle("/metrics", promhttp.Handler())
-
-	r.HandleFunc("/debug/pprof/", pprof.Index)
-	r.HandleFunc("/debug/pprof/heap", pprof.Index)
-	r.HandleFunc("/debug/pprof/mutex", pprof.Index)
-	r.HandleFunc("/debug/pprof/goroutine", pprof.Index)
-	r.HandleFunc("/debug/pprof/threadcreate", pprof.Index)
-	r.HandleFunc("/debug/pprof/block", pprof.Index)
-	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	r.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	r.HandleFunc("/debug/pprof/trace", pprof.Trace)
-
-	n := negroni.New(negroni.NewLogger(), negroni.NewRecovery())
-	n.UseHandler(r)
-
-	server := http.Server{
-		Addr:         *listenAddr,
-		Handler:      n,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
-	}
-
-	go handleSignals(&server)
-
-	if *keyFile != "" && *certFile != "" {
-		log.Printf("Started listening and serving TLS at %s", *listenAddr)
-		if err := server.ListenAndServeTLS(*certFile, *keyFile); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("fail serve: %v", err)
+	var routerBackend backend.Backend = localBackend
+	// enable multi-cluster support when file is provided
+	if *clustersFilePath != "" {
+		f, err := os.Open(*clustersFilePath)
+		if err != nil {
+			log.Printf("failed to load clusters file: %v\n", err)
+			return
 		}
-		return
-	}
-	log.Printf("Started listening and serving at %s", *listenAddr)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("fail serve: %v", err)
-	}
-}
+		clustersFile := &backend.ClustersFile{}
+		err = yaml.NewDecoder(f).Decode(clustersFile)
+		if err != nil {
+			log.Printf("failed to load clusters file: %v\n", err)
+			return
+		}
 
-func handleSignals(server *http.Server) {
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
-	sig := <-signals
-	log.Printf("Received %s. Terminating...", sig)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
-	err := server.Shutdown(ctx)
-	if err != nil {
-		log.Fatalf("Error during server shutdown: %v", err)
+		routerBackend = &backend.MultiCluster{
+			Namespace:  *k8sNamespace,
+			Fallback:   routerBackend,
+			K8sTimeout: k8sTimeout,
+			Modes:      runModes,
+			Clusters:   clustersFile.Clusters,
+		}
 	}
-	log.Print("Server shutdown succeeded.")
+
+	cmd.StartDaemon(cmd.DaemonOpts{
+		Name:       "kubernetes-router",
+		ListenAddr: *listenAddr,
+		Backend:    routerBackend,
+		KeyFile:    *keyFile,
+		CertFile:   *certFile,
+	})
 }

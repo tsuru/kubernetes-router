@@ -10,62 +10,84 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
+	"github.com/tsuru/kubernetes-router/backend"
 	"github.com/tsuru/kubernetes-router/router"
 	"github.com/tsuru/kubernetes-router/router/mock"
 )
 
-func TestHealthcheckOK(t *testing.T) {
-	api := RouterAPI{}
+type RouterAPISuite struct {
+	suite.Suite
+
+	api        *RouterAPI
+	mockRouter *mock.RouterMock
+	handler    http.Handler
+}
+
+func TestRouterAPISuite(t *testing.T) {
+	suite.Run(t, &RouterAPISuite{})
+}
+
+func (s *RouterAPISuite) SetupTest() {
+	s.mockRouter = &mock.RouterMock{}
+	s.api = &RouterAPI{
+		Backend: &backend.LocalCluster{
+			DefaultMode: "mymode",
+			Routers: map[string]router.Router{
+				"mymode": s.mockRouter,
+			},
+		},
+	}
+	s.handler = s.api.Routes()
+}
+
+func (s *RouterAPISuite) TestHealthcheckOK() {
 	req := httptest.NewRequest("GET", "http://localhost", nil)
 	w := httptest.NewRecorder()
 
-	api.Healthcheck(w, req)
+	s.api.Healthcheck(w, req)
 
 	resp := w.Result()
 	body, _ := ioutil.ReadAll(resp.Body)
 
-	if string(body) != "WORKING" {
-		t.Errorf("Expected body \"WORKING\". Got %q", string(body))
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
+	s.Equal(http.StatusOK, resp.StatusCode)
+	s.Equal("WORKING", string(body))
 }
 
-func TestGetBackend(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
-	service.GetAddressesFn = func(id router.InstanceID) ([]string, error) {
-		assert.Equal(t, "myapp", id.AppName)
+func (s *RouterAPISuite) TestGetBackend() {
+	s.mockRouter.GetAddressesFn = func(id router.InstanceID) ([]string, error) {
+		s.Assert().Equal("myapp", id.AppName)
 		return []string{"myapp"}, nil
 	}
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp", nil)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.True(t, service.GetAddressesInvoked)
+	s.Equal(http.StatusOK, resp.StatusCode)
+	s.True(s.mockRouter.GetAddressesInvoked)
 	var data map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &data)
-	assert.NoError(t, err)
-	assert.Equal(t, map[string]interface{}{
+	s.NoError(err)
+	s.Equal(map[string]interface{}{
 		"address":   "myapp",
 		"addresses": []interface{}{"myapp"},
 	}, data)
 }
 
-func TestGetBackendExplicitMode(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "xyz", IngressServices: map[string]router.Service{"mymode": service}}
+func (s *RouterAPISuite) TestGetBackendExplicitMode() {
+	mockRouter := &mock.RouterMock{}
+	api := RouterAPI{
+		Backend: &backend.LocalCluster{
+			DefaultMode: "xyz",
+			Routers:     map[string]router.Router{"mymode": mockRouter},
+		},
+	}
 	r := api.Routes()
-	service.GetAddressesFn = func(id router.InstanceID) ([]string, error) {
-		assert.Equal(t, "myapp", id.AppName)
+	mockRouter.GetAddressesFn = func(id router.InstanceID) ([]string, error) {
+		s.Equal("myapp", id.AppName)
 		return []string{"myapp"}, nil
 	}
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/mymode/backend/myapp", nil)
@@ -73,43 +95,25 @@ func TestGetBackendExplicitMode(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 	resp := w.Result()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.True(t, service.GetAddressesInvoked)
+	s.Equal(http.StatusOK, resp.StatusCode)
+	s.True(mockRouter.GetAddressesInvoked)
 }
 
-func TestGetBackendInvalidMode(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
+func (s *RouterAPISuite) TestGetBackendInvalidMode() {
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/othermode/backend/myapp", nil)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("Expected status %q. Got %q", http.StatusNotFound, resp.Status)
-	}
+	s.Equal(http.StatusNotFound, resp.StatusCode)
 }
 
-func TestAddBackend(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
-
-	service.CreateFn = func(id router.InstanceID, opts router.Opts) error {
-		if id.AppName != "myapp" {
-			t.Errorf("Expected myapp. Got %s", id.AppName)
-		}
-		if opts.Pool != "mypool" {
-			t.Errorf("Expected mypool. Got %v.", opts.Pool)
-		}
-		if opts.ExposedPort != "443" {
-			t.Errorf("Expected 443. Got %v.", opts.ExposedPort)
-		}
-		expectedAdditional := map[string]string{"custom": "val"}
-		if !reflect.DeepEqual(opts.AdditionalOpts, expectedAdditional) {
-			t.Errorf("Expect %v. Got %v", expectedAdditional, opts.AdditionalOpts)
-		}
+func (s *RouterAPISuite) TestAddBackend() {
+	s.mockRouter.CreateFn = func(id router.InstanceID, opts router.Opts) error {
+		s.Equal("myapp", id.AppName)
+		s.Equal("mypool", opts.Pool)
+		s.Equal("443", opts.ExposedPort)
+		s.Equal(map[string]string{"custom": "val"}, opts.AdditionalOpts)
 		return nil
 	}
 
@@ -118,28 +122,23 @@ func TestAddBackend(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp", body)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.CreateInvoked {
-		t.Errorf("Service Create function not invoked")
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	if !s.mockRouter.CreateInvoked {
+		s.Fail("Service Create function not invoked")
 	}
 }
 
-func TestAddBackendWithHeaderOpts(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
-
-	service.CreateFn = func(id router.InstanceID, opts router.Opts) error {
-		assert.Equal(t, "myapp", id.AppName)
-		assert.Equal(t, "mypool", opts.Pool)
-		assert.Equal(t, "443", opts.ExposedPort)
-		assert.Equal(t, "a.b", opts.Domain)
+func (s *RouterAPISuite) TestAddBackendWithHeaderOpts() {
+	s.mockRouter.CreateFn = func(id router.InstanceID, opts router.Opts) error {
+		s.Equal("myapp", id.AppName)
+		s.Equal("mypool", opts.Pool)
+		s.Equal("443", opts.ExposedPort)
+		s.Equal("a.b", opts.Domain)
 		expectedAdditional := map[string]string{"custom": "val", "custom2": "val2"}
-		assert.Equal(t, expectedAdditional, opts.AdditionalOpts)
+		s.Equal(expectedAdditional, opts.AdditionalOpts)
 		return nil
 	}
 
@@ -150,65 +149,52 @@ func TestAddBackendWithHeaderOpts(t *testing.T) {
 	req.Header.Add("X-Router-Opt", "custom2=val2")
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.True(t, service.CreateInvoked)
+	s.Equal(http.StatusOK, resp.StatusCode)
+	s.True(s.mockRouter.CreateInvoked)
 }
 
-func TestRemoveBackend(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
-
-	service.RemoveFn = func(id router.InstanceID) error {
-		assert.Equal(t, "myapp", id.AppName)
+func (s *RouterAPISuite) TestRemoveBackend() {
+	s.mockRouter.RemoveFn = func(id router.InstanceID) error {
+		s.Equal("myapp", id.AppName)
 		return nil
 	}
 
 	req := httptest.NewRequest(http.MethodDelete, "http://localhost/api/backend/myapp", nil)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.RemoveInvoked {
-		t.Errorf("Service Remove function not invoked")
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	if !s.mockRouter.RemoveInvoked {
+		s.Fail("Service Remove function not invoked")
 	}
 }
 
-func TestAddRoutes(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
-
-	service.UpdateFn = func(id router.InstanceID, extraData router.RoutesRequestExtraData) error {
-		assert.Equal(t, "myapp", id.AppName)
+func (s *RouterAPISuite) TestAddRoutes() {
+	s.mockRouter.UpdateFn = func(id router.InstanceID, extraData router.RoutesRequestExtraData) error {
+		s.Equal("myapp", id.AppName)
 		return nil
 	}
 	reqData := router.RoutesRequestData{}
 	bodyData, err := json.Marshal(reqData)
-	assert.NoError(t, err)
+	s.NoError(err)
 
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/routes", bytes.NewReader(bodyData))
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.True(t, service.UpdateInvoked)
+	s.Equal(http.StatusOK, resp.StatusCode)
+	s.True(s.mockRouter.UpdateInvoked)
 }
 
-func TestSwap(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
-
-	service.SwapFn = func(src, dst router.InstanceID) error {
-		assert.Equal(t, "myapp", src.AppName)
-		assert.Equal(t, "otherapp", dst.AppName)
+func (s *RouterAPISuite) TestSwap() {
+	s.mockRouter.SwapFn = func(src, dst router.InstanceID) error {
+		s.Equal("myapp", src.AppName)
+		s.Equal("otherapp", dst.AppName)
 		return nil
 	}
 
@@ -218,76 +204,57 @@ func TestSwap(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/swap", body)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.SwapInvoked {
-		t.Errorf("Service Swap function not invoked")
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	if !s.mockRouter.SwapInvoked {
+		s.Fail("Service Swap function not invoked")
 	}
 }
 
-func TestInfo(t *testing.T) {
-	service := &mock.RouterService{}
-	service.SupportedOptionsFn = func() map[string]string {
+func (s *RouterAPISuite) TestInfo() {
+	s.mockRouter.SupportedOptionsFn = func() map[string]string {
 		return map[string]string{router.ExposedPort: "", router.Domain: "Custom help."}
 	}
 
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/info", nil)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
+	s.Equal(http.StatusOK, resp.StatusCode)
 
 	var info map[string]string
 	err := json.Unmarshal(w.Body.Bytes(), &info)
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v", err)
-	}
+	s.Require().NoError(err)
+
 	expected := map[string]string{
 		"exposed-port": "Port to be exposed by the Load Balancer. Defaults to 80.",
 		"domain":       "Custom help.",
 	}
-	if !reflect.DeepEqual(info, expected) {
-		t.Errorf("Expected %v. Got %v", expected, info)
-	}
+	s.Equal(expected, info)
 }
 
-func TestGetRoutes(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
-
+func (s *RouterAPISuite) TestGetRoutes() {
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp/routes", nil)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	s.Equal(http.StatusOK, resp.StatusCode)
 	var data map[string][]string
 	err := json.Unmarshal(w.Body.Bytes(), &data)
-	assert.NoError(t, err)
+	s.Require().NoError(err)
 	expected := map[string][]string{"addresses": nil}
-	assert.Equal(t, expected, data)
+	s.Equal(expected, data)
 }
 
-func TestAddCertificate(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
-
+func (s *RouterAPISuite) TestAddCertificate() {
 	certExpected := router.CertData{Certificate: "Certz", Key: "keyz"}
 
-	service.AddCertificateFn = func(id router.InstanceID, certName string, cert router.CertData) error {
-		if !reflect.DeepEqual(certExpected, cert) {
-			t.Errorf("Expected %v. Got %v", certExpected, cert)
-		}
+	s.mockRouter.AddCertificateFn = func(id router.InstanceID, certName string, cert router.CertData) error {
+		s.Require().Equal(certExpected, cert)
 		return nil
 	}
 
@@ -297,22 +264,16 @@ func TestAddCertificate(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "http://localhost/api/backend/myapp/certificate/certname", body)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.AddCertificateInvoked {
-		t.Errorf("Service Addresses function not invoked")
+	s.Equal(http.StatusOK, resp.StatusCode)
+	if !s.mockRouter.AddCertificateInvoked {
+		s.Fail("Service Addresses function not invoked")
 	}
 }
 
-func TestGetCertificate(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
-
-	service.GetCertificateFn = func(id router.InstanceID, certName string) (*router.CertData, error) {
+func (s *RouterAPISuite) TestGetCertificate() {
+	s.mockRouter.GetCertificateFn = func(id router.InstanceID, certName string) (*router.CertData, error) {
 		cert := router.CertData{Certificate: "Certz", Key: "keyz"}
 		return &cert, nil
 	}
@@ -320,130 +281,102 @@ func TestGetCertificate(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp/certificate/certname", nil)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.GetCertificateInvoked {
-		t.Errorf("Service Addresses function not invoked")
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	if !s.mockRouter.GetCertificateInvoked {
+		s.Fail("Service Addresses function not invoked")
 	}
 	var data router.CertData
 	err := json.Unmarshal(w.Body.Bytes(), &data)
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v", err)
-	}
+	s.Require().NoError(err)
+
 	expected := router.CertData{Certificate: "Certz", Key: "keyz"}
-	if !reflect.DeepEqual(data, expected) {
-		t.Errorf("Expected %v. Got %v", expected, data)
-	}
+	s.Equal(expected, data)
 }
 
-func TestRemoveCertificate(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
-
-	service.RemoveCertificateFn = func(id router.InstanceID, certName string) error {
+func (s *RouterAPISuite) TestRemoveCertificate() {
+	s.mockRouter.RemoveCertificateFn = func(id router.InstanceID, certName string) error {
 		return nil
 	}
 
 	req := httptest.NewRequest(http.MethodDelete, "http://localhost/api/backend/myapp/certificate/certname", nil)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.RemoveCertificateInvoked {
-		t.Errorf("Service Addresses function not invoked")
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	if !s.mockRouter.RemoveCertificateInvoked {
+		s.Fail("Service Addresses function not invoked")
 	}
 }
 
-func TestSetCname(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
+func (s *RouterAPISuite) TestSetCname() {
 	cnameExpected := "cname1"
 
-	service.SetCnameFn = func(id router.InstanceID, cname string) error {
-		if !reflect.DeepEqual(cname, cnameExpected) {
-			t.Errorf("Expected %v. Got %v", cnameExpected, cname)
-		}
+	s.mockRouter.SetCnameFn = func(id router.InstanceID, cname string) error {
+		s.Equal(cnameExpected, cname)
 		return nil
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/cname/cname1", nil)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.SetCnameInvoked {
-		t.Errorf("Service Addresses function not invoked")
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	if !s.mockRouter.SetCnameInvoked {
+		s.Fail("Service Addresses function not invoked")
 	}
 }
 
-func TestGetCnames(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
+func (s *RouterAPISuite) TestGetCnames() {
 	cnames := router.CnamesResp{
 		Cnames: []string{
 			"cname1",
 			"cname2",
 		},
 	}
-	service.GetCnamesFn = func(id router.InstanceID) (*router.CnamesResp, error) {
+	s.mockRouter.GetCnamesFn = func(id router.InstanceID) (*router.CnamesResp, error) {
 		return &cnames, nil
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp/cname", nil)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.GetCnamesInvoked {
-		t.Errorf("Service Addresses function not invoked")
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	if !s.mockRouter.GetCnamesInvoked {
+		s.Fail("Service Addresses function not invoked")
 	}
 	var data router.CnamesResp
 	err := json.Unmarshal(w.Body.Bytes(), &data)
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v", err)
-	}
-	if !reflect.DeepEqual(data, cnames) {
-		t.Errorf("Expected %v. Got %v", cnames, data)
-	}
+	s.Require().NoError(err)
+	s.Equal(data, cnames)
+
 }
 
-func TestUnsetCname(t *testing.T) {
-	service := &mock.RouterService{}
-	api := RouterAPI{DefaultMode: "mymode", IngressServices: map[string]router.Service{"mymode": service}}
-	r := api.Routes()
+func (s *RouterAPISuite) TestUnsetCname() {
 	cnameExpected := "cname1"
 
-	service.UnsetCnameFn = func(id router.InstanceID, cname string) error {
-		if !reflect.DeepEqual(cname, cnameExpected) {
-			t.Errorf("Expected %v. Got %v", cnameExpected, cname)
-		}
+	s.mockRouter.UnsetCnameFn = func(id router.InstanceID, cname string) error {
+		s.Equal(cnameExpected, cname)
 		return nil
 	}
 
 	req := httptest.NewRequest(http.MethodDelete, "http://localhost/api/backend/myapp/cname/cname1", nil)
 	w := httptest.NewRecorder()
 
-	r.ServeHTTP(w, req)
+	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status %q. Got %q", http.StatusOK, resp.Status)
-	}
-	if !service.UnsetCnameInvoked {
-		t.Errorf("Service Addresses function not invoked")
+	s.Equal(http.StatusOK, resp.StatusCode)
+
+	if !s.mockRouter.UnsetCnameInvoked {
+		s.Fail("Service Addresses function not invoked")
 	}
 }

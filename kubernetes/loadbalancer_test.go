@@ -5,6 +5,7 @@
 package kubernetes
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -23,6 +24,8 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
 )
+
+var ctx = context.Background()
 
 func createFakeLBService() LBService {
 	return LBService{
@@ -43,7 +46,7 @@ func TestLBCreate(t *testing.T) {
 	svc.Annotations = map[string]string{"annotation": "annval"}
 	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
 	svc.PoolLabels = map[string]map[string]string{"mypool": {"pool-env": "dev"}, "otherpool": {"pool-env": "prod"}}
-	err := svc.Create(idForApp("test"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
+	err := svc.Create(ctx, idForApp("test"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -72,7 +75,7 @@ func TestLBCreateCustomAnnotation(t *testing.T) {
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
 	svc.PoolLabels = map[string]map[string]string{"mypool": {"pool-env": "dev"}, "otherpool": {"pool-env": "prod"}}
-	err := svc.Create(idForApp("test"), router.Opts{
+	err := svc.Create(ctx, idForApp("test"), router.Opts{
 		Pool: "mypool",
 		AdditionalOpts: map[string]string{
 			"my-opt":                 "value",
@@ -120,7 +123,7 @@ func TestLBCreateDefaultPort(t *testing.T) {
 		}
 		return false, nil, nil
 	})
-	err := svc.Create(idForApp("myapp"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
+	err := svc.Create(ctx, idForApp("myapp"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -131,7 +134,7 @@ func TestLBSupportedOptions(t *testing.T) {
 	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
 	svc.OptsAsLabels["my-opt2"] = "my-opt-as-label2"
 	svc.OptsAsLabelsDocs["my-opt2"] = "User friendly option description."
-	options := svc.SupportedOptions()
+	options := svc.SupportedOptions(ctx)
 	expectedOptions := map[string]string{
 		"my-opt2":          "User friendly option description.",
 		"exposed-port":     "",
@@ -148,7 +151,7 @@ func TestLBCreateAppNamespace(t *testing.T) {
 	if err := createCRD(svc.BaseService, "app", "custom-namespace", nil); err != nil {
 		t.Errorf("failed to create CRD for test: %v", err)
 	}
-	if err := svc.Create(idForApp("app"), router.Opts{}); err != nil {
+	if err := svc.Create(ctx, idForApp("app"), router.Opts{}); err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 	serviceList, err := svc.Client.CoreV1().Services("custom-namespace").List(metav1.ListOptions{})
@@ -175,26 +178,26 @@ func TestLBRemove(t *testing.T) {
 		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			svc := createFakeLBService()
-			err := svc.Create(idForApp("test"), router.Opts{})
+			err := svc.Create(ctx, idForApp("test"), router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
 			setIP(t, svc, "test")
-			err = svc.Create(idForApp("blue"), router.Opts{})
+			err = svc.Create(ctx, idForApp("blue"), router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
 			setIP(t, svc, "blue")
-			err = svc.Create(idForApp("green"), router.Opts{})
+			err = svc.Create(ctx, idForApp("green"), router.Opts{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
 			setIP(t, svc, "green")
-			err = svc.Swap(idForApp("blue"), idForApp("green"))
+			err = svc.Swap(ctx, idForApp("blue"), idForApp("green"))
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
-			err = svc.Remove(idForApp(tc.remove))
+			err = svc.Remove(ctx, idForApp(tc.remove))
 			if err != tc.expectedErr {
 				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
 			}
@@ -477,7 +480,7 @@ func TestLBUpdate(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			svc := createFakeLBService()
-			err := svc.Create(idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
+			err := svc.Create(ctx, idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
 				exposeAllPortsOpt: strconv.FormatBool(tc.exposeAllPorts),
 			}})
 			assert.NoError(t, err)
@@ -488,7 +491,7 @@ func TestLBUpdate(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			err = svc.Update(idForApp("test"), tc.extraData)
+			err = svc.Update(ctx, idForApp("test"), tc.extraData)
 			if tc.expectedErr != nil {
 				assert.Equal(t, err, tc.expectedErr)
 			} else {
@@ -501,7 +504,7 @@ func TestLBUpdate(t *testing.T) {
 			assert.Equal(t, tc.expectedPorts, service.Spec.Ports)
 			assert.Equal(t, tc.expectedLabels, service.Labels)
 
-			err = svc.Create(idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
+			err = svc.Create(ctx, idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
 				exposeAllPortsOpt: strconv.FormatBool(tc.exposeAllPorts),
 			}})
 			assert.NoError(t, err)
@@ -517,7 +520,7 @@ func TestLBUpdate(t *testing.T) {
 
 func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 	svc := createFakeLBService()
-	err := svc.Create(idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
+	err := svc.Create(ctx, idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
 		exposeAllPortsOpt: "true",
 	}})
 	require.NoError(t, err)
@@ -571,7 +574,7 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 	}
 	_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(&webSvc)
 	require.NoError(t, err)
-	err = svc.Update(idForApp("test"), router.RoutesRequestExtraData{})
+	err = svc.Update(ctx, idForApp("test"), router.RoutesRequestExtraData{})
 	require.NoError(t, err)
 	service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(svc.serviceName(idForApp("test")), metav1.GetOptions{})
 	require.NoError(t, err)
@@ -599,7 +602,7 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 		},
 	}, service.Spec.Ports)
 
-	err = svc.Create(idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
+	err = svc.Create(ctx, idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
 		exposeAllPortsOpt: "true",
 	}})
 	require.NoError(t, err)
@@ -634,7 +637,7 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 
 func TestLBUpdateNoChangeInFrozenService(t *testing.T) {
 	svc := createFakeLBService()
-	err := svc.Create(idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
+	err := svc.Create(ctx, idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
 		exposeAllPortsOpt: "true",
 	}})
 	require.NoError(t, err)
@@ -669,7 +672,7 @@ func TestLBUpdateNoChangeInFrozenService(t *testing.T) {
 	}
 	_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(&webSvc)
 	require.NoError(t, err)
-	err = svc.Update(idForApp("test"), router.RoutesRequestExtraData{})
+	err = svc.Update(ctx, idForApp("test"), router.RoutesRequestExtraData{})
 	require.NoError(t, err)
 	service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(svc.serviceName(idForApp("test")), metav1.GetOptions{})
 	require.NoError(t, err)
@@ -687,7 +690,7 @@ func TestLBUpdateNoChangeInFrozenService(t *testing.T) {
 func TestLBUpdateSwapped(t *testing.T) {
 	svc := createFakeLBService()
 	for _, n := range []string{"blue", "green"} {
-		err := svc.Create(idForApp("test-"+n), router.Opts{})
+		err := svc.Create(ctx, idForApp("test-"+n), router.Opts{})
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -696,16 +699,16 @@ func TestLBUpdateSwapped(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
-		err = svc.Update(idForApp("test-"+n), router.RoutesRequestExtraData{})
+		err = svc.Update(ctx, idForApp("test-"+n), router.RoutesRequestExtraData{})
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
 	}
-	err := svc.Swap(idForApp("test-blue"), idForApp("test-green"))
+	err := svc.Swap(ctx, idForApp("test-blue"), idForApp("test-green"))
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Update(idForApp("test-blue"), router.RoutesRequestExtraData{})
+	err = svc.Update(ctx, idForApp("test-blue"), router.RoutesRequestExtraData{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -723,7 +726,7 @@ func TestLBSwap(t *testing.T) {
 	svc := createFakeLBService()
 
 	for _, n := range []string{"blue", "green"} {
-		err := svc.Create(idForApp("test-"+n), router.Opts{})
+		err := svc.Create(ctx, idForApp("test-"+n), router.Opts{})
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -732,7 +735,7 @@ func TestLBSwap(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
-		err = svc.Update(idForApp("test-"+n), router.RoutesRequestExtraData{})
+		err = svc.Update(ctx, idForApp("test-"+n), router.RoutesRequestExtraData{})
 		if err != nil {
 			t.Errorf("Expected err to be nil. Got %v.", err)
 		}
@@ -743,7 +746,7 @@ func TestLBSwap(t *testing.T) {
 	isSwapped := true
 	i := 1
 	for i <= 2 {
-		err := svc.Swap(idForApp("test-blue"), idForApp("test-green"))
+		err := svc.Swap(ctx, idForApp("test-blue"), idForApp("test-green"))
 		if err != nil {
 			t.Errorf("Iteration %d: Expected err to be nil. Got %v.", i, err)
 		}
@@ -778,29 +781,29 @@ func TestLBUpdateSwapWithouIPFails(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Create(idForApp("test-myapp1"), router.Opts{Pool: "mypool"})
+	err = svc.Create(ctx, idForApp("test-myapp1"), router.Opts{Pool: "mypool"})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Update(idForApp("test-myapp1"), router.RoutesRequestExtraData{})
+	err = svc.Update(ctx, idForApp("test-myapp1"), router.RoutesRequestExtraData{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Create(idForApp("test-myapp2"), router.Opts{Pool: "mypool"})
+	err = svc.Create(ctx, idForApp("test-myapp2"), router.Opts{Pool: "mypool"})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	err = svc.Swap(idForApp("test-myapp1"), idForApp("test-myapp2"))
+	err = svc.Swap(ctx, idForApp("test-myapp1"), idForApp("test-myapp2"))
 	if err != ErrLoadBalancerNotReady {
 		t.Fatalf("Expected err to be %v. Got %v.", ErrLoadBalancerNotReady, err)
 	}
 	setIP(t, svc, "test-myapp1")
-	err = svc.Swap(idForApp("test-myapp1"), idForApp("test-myapp2"))
+	err = svc.Swap(ctx, idForApp("test-myapp1"), idForApp("test-myapp2"))
 	if err != ErrLoadBalancerNotReady {
 		t.Fatalf("Expected err to be %v. Got %v.", ErrLoadBalancerNotReady, err)
 	}
 	setIP(t, svc, "test-myapp2")
-	err = svc.Swap(idForApp("test-myapp1"), idForApp("test-myapp2"))
+	err = svc.Swap(ctx, idForApp("test-myapp1"), idForApp("test-myapp2"))
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}

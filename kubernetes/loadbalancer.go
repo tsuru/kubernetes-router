@@ -5,6 +5,7 @@
 package kubernetes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -32,6 +33,10 @@ var (
 	ErrLoadBalancerNotReady = errors.New("load balancer is not ready")
 )
 
+var (
+	_ router.Router = &LBService{}
+)
+
 // LBService manages LoadBalancer services
 type LBService struct {
 	*BaseService
@@ -47,12 +52,12 @@ type LBService struct {
 }
 
 // Create creates a LoadBalancer type service without any selectors
-func (s *LBService) Create(id router.InstanceID, opts router.Opts) error {
-	return s.syncLB(id, &opts, false, router.RoutesRequestExtraData{})
+func (s *LBService) Create(ctx context.Context, id router.InstanceID, opts router.Opts) error {
+	return s.syncLB(ctx, id, &opts, false, router.RoutesRequestExtraData{})
 }
 
 // Remove removes the LoadBalancer service
-func (s *LBService) Remove(id router.InstanceID) error {
+func (s *LBService) Remove(ctx context.Context, id router.InstanceID) error {
 	client, err := s.getClient()
 	if err != nil {
 		return err
@@ -80,12 +85,12 @@ func (s *LBService) Remove(id router.InstanceID) error {
 
 // Update updates the LoadBalancer service copying the web service
 // labels, selectors, annotations and ports
-func (s *LBService) Update(id router.InstanceID, extraData router.RoutesRequestExtraData) error {
-	return s.syncLB(id, nil, true, extraData)
+func (s *LBService) Update(ctx context.Context, id router.InstanceID, extraData router.RoutesRequestExtraData) error {
+	return s.syncLB(ctx, id, nil, true, extraData)
 }
 
 // Swap swaps the two LB services selectors
-func (s *LBService) Swap(srcID, dstID router.InstanceID) error {
+func (s *LBService) Swap(ctx context.Context, srcID, dstID router.InstanceID) error {
 	srcServ, err := s.getLBService(srcID)
 	if err != nil {
 		return err
@@ -135,7 +140,7 @@ func (s *LBService) Swap(srcID, dstID router.InstanceID) error {
 }
 
 // Get returns the LoadBalancer IP
-func (s *LBService) GetAddresses(id router.InstanceID) ([]string, error) {
+func (s *LBService) GetAddresses(ctx context.Context, id router.InstanceID) ([]string, error) {
 	service, err := s.getLBService(id)
 	if err != nil {
 		return nil, err
@@ -156,7 +161,7 @@ func (s *LBService) GetAddresses(id router.InstanceID) ([]string, error) {
 }
 
 // SupportedOptions returns all the supported options
-func (s *LBService) SupportedOptions() map[string]string {
+func (s *LBService) SupportedOptions(ctx context.Context) map[string]string {
 	opts := map[string]string{
 		router.ExposedPort: "",
 		exposeAllPortsOpt:  "Expose all ports used by application in the Load Balancer. Defaults to false.",
@@ -198,7 +203,7 @@ func isReady(service *v1.Service) bool {
 	return service.Status.LoadBalancer.Ingress[0].IP != ""
 }
 
-func (s *LBService) syncLB(id router.InstanceID, opts *router.Opts, isUpdate bool, extraData router.RoutesRequestExtraData) error {
+func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *router.Opts, isUpdate bool, extraData router.RoutesRequestExtraData) error {
 	app, err := s.getApp(id.AppName)
 	if err != nil {
 		return err
@@ -248,7 +253,7 @@ func (s *LBService) syncLB(id router.InstanceID, opts *router.Opts, isUpdate boo
 		lbService.Spec.Selector = webService.Spec.Selector
 	}
 
-	err = s.fillLabelsAndAnnotations(lbService, id.AppName, webService, *opts, extraData)
+	err = s.fillLabelsAndAnnotations(ctx, lbService, id.AppName, webService, *opts, extraData)
 	if err != nil {
 		return err
 	}
@@ -270,9 +275,9 @@ func (s *LBService) syncLB(id router.InstanceID, opts *router.Opts, isUpdate boo
 	return err
 }
 
-func (s *LBService) fillLabelsAndAnnotations(svc *v1.Service, appName string, webService *v1.Service, opts router.Opts, extraData router.RoutesRequestExtraData) error {
+func (s *LBService) fillLabelsAndAnnotations(ctx context.Context, svc *v1.Service, appName string, webService *v1.Service, opts router.Opts, extraData router.RoutesRequestExtraData) error {
 	optsLabels := make(map[string]string)
-	registeredOpts := s.SupportedOptions()
+	registeredOpts := s.SupportedOptions(ctx)
 
 	optsAnnotations, err := opts.ToAnnotations()
 	if err != nil {

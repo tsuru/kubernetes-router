@@ -5,6 +5,7 @@
 package kubernetes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -22,6 +23,11 @@ const (
 	placeHolderServiceName = "kubernetes-router-placeholder"
 
 	hostsAnnotation = "tsuru.io/additional-hosts"
+)
+
+var (
+	_ router.Router      = &IstioGateway{}
+	_ router.RouterCNAME = &IstioGateway{}
 )
 
 // IstioGateway manages gateways in a Kubernetes cluster with istio enabled.
@@ -198,7 +204,7 @@ func (k *IstioGateway) updateVirtualService(virtualSvcCfg *model.Config, vsSpec 
 }
 
 // Create adds a new gateway and a virtualservice for the app
-func (k *IstioGateway) Create(id router.InstanceID, routerOpts router.Opts) error {
+func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerOpts router.Opts) error {
 	cli, err := k.getClient()
 	if err != nil {
 		return err
@@ -266,7 +272,7 @@ func (k *IstioGateway) Create(id router.InstanceID, routerOpts router.Opts) erro
 }
 
 // Update sets the app web service into the existing virtualservice
-func (k *IstioGateway) Update(id router.InstanceID, extraData router.RoutesRequestExtraData) error {
+func (k *IstioGateway) Update(ctx context.Context, id router.InstanceID, extraData router.RoutesRequestExtraData) error {
 	cli, err := k.getClient()
 	if err != nil {
 		return err
@@ -290,17 +296,17 @@ func (k *IstioGateway) Update(id router.InstanceID, extraData router.RoutesReque
 }
 
 // Get returns the address in the gateway
-func (k *IstioGateway) GetAddresses(id router.InstanceID) ([]string, error) {
+func (k *IstioGateway) GetAddresses(ctx context.Context, id router.InstanceID) ([]string, error) {
 	return []string{k.gatewayHost(id)}, nil
 }
 
 // Swap is not implemented
-func (k *IstioGateway) Swap(srcApp, dstApp router.InstanceID) error {
+func (k *IstioGateway) Swap(ctx context.Context, srcApp, dstApp router.InstanceID) error {
 	return errors.New("swap is not supported, the virtualservice should be edited manually")
 }
 
 // Remove removes the application gateway and removes it from the virtualservice
-func (k *IstioGateway) Remove(id router.InstanceID) error {
+func (k *IstioGateway) Remove(ctx context.Context, id router.InstanceID) error {
 	cli, err := k.getClient()
 	if err != nil {
 		return err
@@ -332,7 +338,7 @@ func (k *IstioGateway) Remove(id router.InstanceID) error {
 }
 
 // SetCname adds a new host to the gateway
-func (k *IstioGateway) SetCname(id router.InstanceID, cname string) error {
+func (k *IstioGateway) SetCname(ctx context.Context, id router.InstanceID, cname string) error {
 	cli, err := k.getClient()
 	if err != nil {
 		return err
@@ -347,7 +353,7 @@ func (k *IstioGateway) SetCname(id router.InstanceID, cname string) error {
 }
 
 // GetCnames returns hosts in gateway
-func (k *IstioGateway) GetCnames(id router.InstanceID) (*router.CnamesResp, error) {
+func (k *IstioGateway) GetCnames(ctx context.Context, id router.InstanceID) (*router.CnamesResp, error) {
 	cli, err := k.getClient()
 	if err != nil {
 		return nil, err
@@ -367,7 +373,7 @@ func (k *IstioGateway) GetCnames(id router.InstanceID) (*router.CnamesResp, erro
 }
 
 // UnsetCname removes a host from a gateway
-func (k *IstioGateway) UnsetCname(id router.InstanceID, cname string) error {
+func (k *IstioGateway) UnsetCname(ctx context.Context, id router.InstanceID, cname string) error {
 	cli, err := k.getClient()
 	if err != nil {
 		return err
