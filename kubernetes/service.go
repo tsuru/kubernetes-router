@@ -94,7 +94,7 @@ func (k *BaseService) Healthcheck(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = client.CoreV1().Services(k.Namespace).List(metav1.ListOptions{})
+	_, err = client.CoreV1().Services(k.Namespace).List(ctx, metav1.ListOptions{})
 	return err
 }
 
@@ -150,7 +150,7 @@ func (k *BaseService) getConfig() (*rest.Config, error) {
 	return k.RestConfig, nil
 }
 
-func (k *BaseService) getWebService(appName string, extraData router.RoutesRequestExtraData, currentLabels map[string]string) (*apiv1.Service, error) {
+func (k *BaseService) getWebService(ctx context.Context, appName string, extraData router.RoutesRequestExtraData, currentLabels map[string]string) (*apiv1.Service, error) {
 	client, err := k.getClient()
 	if err != nil {
 		return nil, err
@@ -163,7 +163,7 @@ func (k *BaseService) getWebService(appName string, extraData router.RoutesReque
 
 	if extraData.Namespace != "" && extraData.Service != "" {
 		var svc *apiv1.Service
-		svc, err = client.CoreV1().Services(extraData.Namespace).Get(extraData.Service, metav1.GetOptions{})
+		svc, err = client.CoreV1().Services(extraData.Namespace).Get(ctx, extraData.Service, metav1.GetOptions{})
 		if err != nil {
 			if k8sErrors.IsNotFound(err) {
 				return nil, ErrNoService{App: appName}
@@ -173,7 +173,7 @@ func (k *BaseService) getWebService(appName string, extraData router.RoutesReque
 		return svc, nil
 	}
 
-	namespace, err := k.getAppNamespace(appName)
+	namespace, err := k.getAppNamespace(ctx, appName)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +181,7 @@ func (k *BaseService) getWebService(appName string, extraData router.RoutesReque
 	if err != nil {
 		return nil, err
 	}
-	list, err := client.CoreV1().Services(namespace).List(metav1.ListOptions{
+	list, err := client.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: sel.String(),
 	})
 	if err != nil {
@@ -226,8 +226,8 @@ func (k *BaseService) isSwapped(obj metav1.ObjectMeta) (string, bool) {
 	return target, target != ""
 }
 
-func (k *BaseService) getApp(app string) (*tsuruv1.App, error) {
-	hasCRD, err := k.hasCRD()
+func (k *BaseService) getApp(ctx context.Context, app string) (*tsuruv1.App, error) {
+	hasCRD, err := k.hasCRD(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -241,8 +241,8 @@ func (k *BaseService) getApp(app string) (*tsuruv1.App, error) {
 	return tclient.TsuruV1().Apps(k.Namespace).Get(app, metav1.GetOptions{})
 }
 
-func (k *BaseService) getAppNamespace(appName string) (string, error) {
-	app, err := k.getApp(appName)
+func (k *BaseService) getAppNamespace(ctx context.Context, appName string) (string, error) {
+	app, err := k.getApp(ctx, appName)
 	if err != nil {
 		return "", err
 	}
@@ -252,12 +252,12 @@ func (k *BaseService) getAppNamespace(appName string) (string, error) {
 	return app.Spec.NamespaceName, nil
 }
 
-func (k *BaseService) hasCRD() (bool, error) {
+func (k *BaseService) hasCRD(ctx context.Context) (bool, error) {
 	eclient, err := k.getExtensionsClient()
 	if err != nil {
 		return false, err
 	}
-	_, err = eclient.ApiextensionsV1beta1().CustomResourceDefinitions().Get(appCRDName, metav1.GetOptions{})
+	_, err = eclient.ApiextensionsV1beta1().CustomResourceDefinitions().Get(ctx, appCRDName, metav1.GetOptions{})
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return false, nil

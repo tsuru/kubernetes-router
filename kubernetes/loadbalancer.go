@@ -62,7 +62,7 @@ func (s *LBService) Remove(ctx context.Context, id router.InstanceID) error {
 	if err != nil {
 		return err
 	}
-	service, err := s.getLBService(id)
+	service, err := s.getLBService(ctx, id)
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return nil
@@ -72,11 +72,11 @@ func (s *LBService) Remove(ctx context.Context, id router.InstanceID) error {
 	if dstApp, swapped := s.BaseService.isSwapped(service.ObjectMeta); swapped {
 		return ErrAppSwapped{App: id.AppName, DstApp: dstApp}
 	}
-	ns, err := s.getAppNamespace(id.AppName)
+	ns, err := s.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		return err
 	}
-	err = client.CoreV1().Services(ns).Delete(service.Name, &metav1.DeleteOptions{})
+	err = client.CoreV1().Services(ns).Delete(ctx, service.Name, metav1.DeleteOptions{})
 	if k8sErrors.IsNotFound(err) {
 		return nil
 	}
@@ -91,14 +91,14 @@ func (s *LBService) Update(ctx context.Context, id router.InstanceID, extraData 
 
 // Swap swaps the two LB services selectors
 func (s *LBService) Swap(ctx context.Context, srcID, dstID router.InstanceID) error {
-	srcServ, err := s.getLBService(srcID)
+	srcServ, err := s.getLBService(ctx, srcID)
 	if err != nil {
 		return err
 	}
 	if !isReady(srcServ) {
 		return ErrLoadBalancerNotReady
 	}
-	dstServ, err := s.getLBService(dstID)
+	dstServ, err := s.getLBService(ctx, dstID)
 	if err != nil {
 		return err
 	}
@@ -113,25 +113,25 @@ func (s *LBService) Swap(ctx context.Context, srcID, dstID router.InstanceID) er
 	if err != nil {
 		return err
 	}
-	ns, err := s.getAppNamespace(srcID.AppName)
+	ns, err := s.getAppNamespace(ctx, srcID.AppName)
 	if err != nil {
 		return err
 	}
-	ns2, err := s.getAppNamespace(dstID.AppName)
+	ns2, err := s.getAppNamespace(ctx, dstID.AppName)
 	if err != nil {
 		return err
 	}
 	if ns != ns2 {
 		return fmt.Errorf("unable to swap apps with different namespaces: %v != %v", ns, ns2)
 	}
-	_, err = client.CoreV1().Services(ns).Update(srcServ)
+	_, err = client.CoreV1().Services(ns).Update(ctx, srcServ, metav1.UpdateOptions{})
 	if err != nil {
 		return err
 	}
-	_, err = client.CoreV1().Services(ns).Update(dstServ)
+	_, err = client.CoreV1().Services(ns).Update(ctx, dstServ, metav1.UpdateOptions{})
 	if err != nil {
 		s.swap(srcServ, dstServ)
-		_, errRollback := client.CoreV1().Services(ns).Update(srcServ)
+		_, errRollback := client.CoreV1().Services(ns).Update(ctx, srcServ, metav1.UpdateOptions{})
 		if errRollback != nil {
 			return fmt.Errorf("failed to rollback swap %v: %v", err, errRollback)
 		}
@@ -141,7 +141,7 @@ func (s *LBService) Swap(ctx context.Context, srcID, dstID router.InstanceID) er
 
 // Get returns the LoadBalancer IP
 func (s *LBService) GetAddresses(ctx context.Context, id router.InstanceID) ([]string, error) {
-	service, err := s.getLBService(id)
+	service, err := s.getLBService(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -175,16 +175,16 @@ func (s *LBService) SupportedOptions(ctx context.Context) map[string]string {
 	return opts
 }
 
-func (s *LBService) getLBService(id router.InstanceID) (*v1.Service, error) {
+func (s *LBService) getLBService(ctx context.Context, id router.InstanceID) (*v1.Service, error) {
 	client, err := s.getClient()
 	if err != nil {
 		return nil, err
 	}
-	ns, err := s.getAppNamespace(id.AppName)
+	ns, err := s.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		return nil, err
 	}
-	return client.CoreV1().Services(ns).Get(s.serviceName(id), metav1.GetOptions{})
+	return client.CoreV1().Services(ns).Get(ctx, s.serviceName(id), metav1.GetOptions{})
 }
 
 func (s *LBService) swap(srcServ, dstServ *v1.Service) {
@@ -204,11 +204,11 @@ func isReady(service *v1.Service) bool {
 }
 
 func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *router.Opts, isUpdate bool, extraData router.RoutesRequestExtraData) error {
-	app, err := s.getApp(id.AppName)
+	app, err := s.getApp(ctx, id.AppName)
 	if err != nil {
 		return err
 	}
-	lbService, err := s.getLBService(id)
+	lbService, err := s.getLBService(ctx, id)
 	if err != nil {
 		if !k8sErrors.IsNotFound(err) {
 			return err
@@ -243,7 +243,7 @@ func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *rout
 		opts = &annotationOpts
 	}
 
-	webService, err := s.getWebService(id.AppName, extraData, lbService.Labels)
+	webService, err := s.getWebService(ctx, id.AppName, extraData, lbService.Labels)
 	if err != nil {
 		if _, isNotFound := err.(ErrNoService); isUpdate || !isNotFound {
 			return err
@@ -268,9 +268,9 @@ func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *rout
 	if err != nil {
 		return err
 	}
-	_, err = client.CoreV1().Services(lbService.Namespace).Update(lbService)
+	_, err = client.CoreV1().Services(lbService.Namespace).Update(ctx, lbService, metav1.UpdateOptions{})
 	if k8sErrors.IsNotFound(err) {
-		_, err = client.CoreV1().Services(lbService.Namespace).Create(lbService)
+		_, err = client.CoreV1().Services(lbService.Namespace).Create(ctx, lbService, metav1.CreateOptions{})
 	}
 	return err
 }
