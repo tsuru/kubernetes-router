@@ -57,6 +57,7 @@ jobs:
         GOROOT: ""
 
   docker-image:
+    name: "Push to dockerhub"
     needs:
     - test
     - lint
