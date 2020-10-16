@@ -58,7 +58,7 @@ func TestIngressCreate(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -87,7 +87,7 @@ func TestIngressCreateDefaultClass(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -116,7 +116,7 @@ func TestIngressCreateDefaultClassOverride(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -147,7 +147,7 @@ func TestIngressCreateDefaultPrefix(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -177,7 +177,7 @@ func TestIngressCreateRemoveAnnotation(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -265,7 +265,7 @@ func TestCreateIngressAppNamespace(t *testing.T) {
 	if err := svc.Create(ctx, idForApp("app"), router.Opts{}); err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses("custom-namespace").List(metav1.ListOptions{})
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses("custom-namespace").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -318,7 +318,7 @@ func TestUpdate(t *testing.T) {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
 			for i := range tc.services {
-				_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(&tc.services[i])
+				_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(ctx, &tc.services[i], metav1.CreateOptions{})
 				if err != nil {
 					t.Errorf("Expected err to be nil. Got %v.", err)
 				}
@@ -328,7 +328,7 @@ func TestUpdate(t *testing.T) {
 			if err != tc.expectedErr {
 				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
 			}
-			ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+			ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
@@ -358,7 +358,7 @@ func TestSwap(t *testing.T) {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -389,7 +389,7 @@ func TestSwap(t *testing.T) {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
 
-	ingressList, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	ingressList, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -450,7 +450,7 @@ func TestRemove(t *testing.T) {
 			if err != tc.expectedErr {
 				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
 			}
-			ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+			ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 			if err != nil {
 				t.Errorf("Expected err to be nil. Got %v.", err)
 			}
@@ -479,7 +479,7 @@ func TestUnsetCname(t *testing.T) {
 	cnameIng := defaultIngress("test-blue", "default")
 	cnameIng.Annotations[svc.annotationWithPrefix("server-alias")] = ""
 
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -503,7 +503,7 @@ func TestSetCname(t *testing.T) {
 	cnameIng := defaultIngress("test-blue", "default")
 	cnameIng.Annotations[svc.annotationWithPrefix("server-alias")] = "cname1"
 
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -531,7 +531,7 @@ func TestGetCnames(t *testing.T) {
 	cnameIng := defaultIngress("test-blue", "default")
 	cnameIng.Annotations[svc.annotationWithPrefix("server-alias")] = "cname1 cname2"
 
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -587,7 +587,7 @@ func TestAddCertificate(t *testing.T) {
 			},
 		}...)
 
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -618,7 +618,7 @@ func TestGetCertificate(t *testing.T) {
 			},
 		}...)
 
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(metav1.ListOptions{})
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}

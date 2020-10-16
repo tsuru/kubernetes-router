@@ -97,8 +97,8 @@ func (k *IstioGateway) getClient() (model.ConfigStore, error) {
 	return k.istioClient, nil
 }
 
-func (k *IstioGateway) getVS(cli model.ConfigStore, id router.InstanceID) (*model.Config, *networking.VirtualService, error) {
-	ns, err := k.getAppNamespace(id.AppName)
+func (k *IstioGateway) getVS(ctx context.Context, cli model.ConfigStore, id router.InstanceID) (*model.Config, *networking.VirtualService, error) {
+	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -209,7 +209,7 @@ func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerO
 	if err != nil {
 		return err
 	}
-	namespace, err := k.getAppNamespace(id.AppName)
+	namespace, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		return err
 	}
@@ -237,7 +237,7 @@ func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerO
 	}
 
 	existingSvc := true
-	virtualSvcCfg, vsSpec, err := k.getVS(cli, id)
+	virtualSvcCfg, vsSpec, err := k.getVS(ctx, cli, id)
 	if err != nil {
 		existingSvc = false
 		virtualSvcCfg = makeConfig(k.vsName(id), namespace, model.VirtualService)
@@ -248,7 +248,7 @@ func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerO
 	k.setConfigMeta(virtualSvcCfg, id.AppName, routerOpts)
 
 	webServiceName := placeHolderServiceName
-	webService, err := k.getWebService(id.AppName, router.RoutesRequestExtraData{}, virtualSvcCfg.Labels)
+	webService, err := k.getWebService(ctx, id.AppName, router.RoutesRequestExtraData{}, virtualSvcCfg.Labels)
 	if err == nil {
 		webServiceName = webService.Name
 	} else {
@@ -277,11 +277,11 @@ func (k *IstioGateway) Update(ctx context.Context, id router.InstanceID, extraDa
 	if err != nil {
 		return err
 	}
-	vsConfig, vsSpec, err := k.getVS(cli, id)
+	vsConfig, vsSpec, err := k.getVS(ctx, cli, id)
 	if err != nil {
 		return err
 	}
-	service, err := k.getWebService(id.AppName, extraData, vsConfig.Labels)
+	service, err := k.getWebService(ctx, id.AppName, extraData, vsConfig.Labels)
 	if err != nil {
 		return err
 	}
@@ -311,14 +311,14 @@ func (k *IstioGateway) Remove(ctx context.Context, id router.InstanceID) error {
 	if err != nil {
 		return err
 	}
-	cfg, spec, err := k.getVS(cli, id)
+	cfg, spec, err := k.getVS(ctx, cli, id)
 	if err != nil {
 		return err
 	}
 	if dstApp, swapped := k.isSwapped(cfg); swapped {
 		return ErrAppSwapped{App: id.AppName, DstApp: dstApp}
 	}
-	ns, err := k.getAppNamespace(id.AppName)
+	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		return err
 	}
@@ -343,7 +343,7 @@ func (k *IstioGateway) SetCname(ctx context.Context, id router.InstanceID, cname
 	if err != nil {
 		return err
 	}
-	cfg, vsSpec, err := k.getVS(cli, id)
+	cfg, vsSpec, err := k.getVS(ctx, cli, id)
 	if err != nil {
 		return err
 	}
@@ -358,7 +358,7 @@ func (k *IstioGateway) GetCnames(ctx context.Context, id router.InstanceID) (*ro
 	if err != nil {
 		return nil, err
 	}
-	vsConfig, _, err := k.getVS(cli, id)
+	vsConfig, _, err := k.getVS(ctx, cli, id)
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +378,7 @@ func (k *IstioGateway) UnsetCname(ctx context.Context, id router.InstanceID, cna
 	if err != nil {
 		return err
 	}
-	cfg, vsSpec, err := k.getVS(cli, id)
+	cfg, vsSpec, err := k.getVS(ctx, cli, id)
 	if err != nil {
 		return err
 	}

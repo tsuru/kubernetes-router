@@ -204,7 +204,7 @@ func TestIstioGateway_Update(t *testing.T) {
 			Ports: []apiv1.ServicePort{{Protocol: "TCP", Port: int32(8899), TargetPort: intstr.FromInt(8899)}},
 		},
 	}
-	_, err := svc.Client.CoreV1().Services(svc.Namespace).Create(&webSvc)
+	_, err := svc.Client.CoreV1().Services(svc.Namespace).Create(ctx, &webSvc, metav1.CreateOptions{})
 	require.NoError(t, err)
 	istio.GetReturns(&model.Config{
 		ConfigMeta: model.ConfigMeta{
