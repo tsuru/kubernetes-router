@@ -103,7 +103,7 @@ func (m *MultiCluster) Router(mode string, headers http.Header) (router.Router, 
 }
 
 func (m *MultiCluster) Healthcheck(ctx context.Context) error {
-	return nil
+	return m.Fallback.Healthcheck(ctx)
 }
 
 func (m *MultiCluster) getToken(clusterName string) string {

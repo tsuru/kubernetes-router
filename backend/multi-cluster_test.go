@@ -40,6 +40,17 @@ func TestMultiClusterFallback(t *testing.T) {
 	assert.Nil(t, router)
 }
 
+func TestMultiClusterHealthcheck(t *testing.T) {
+	backend := &MultiCluster{
+		Namespace: "tsuru-test",
+		Fallback:  &fakeBackend{},
+	}
+	err := backend.Healthcheck(context.TODO())
+	if assert.Error(t, err) {
+		assert.Equal(t, err.Error(), "not implemented yet")
+	}
+}
+
 func TestMultiClusterService(t *testing.T) {
 	backend := &MultiCluster{
 		Namespace: "tsuru-test",
