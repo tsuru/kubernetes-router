@@ -3,24 +3,22 @@ module github.com/tsuru/kubernetes-router
 go 1.14
 
 require (
-	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
-	github.com/gogo/googleapis v1.1.0 // indirect
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
-	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
-	github.com/googleapis/gnostic v0.2.0 // indirect
-	github.com/gorilla/context v0.0.0-20160226214623-1ea25387ff6f // indirect
-	github.com/gorilla/mux v1.6.2
-	github.com/hashicorp/go-multierror v1.0.0 // indirect
-	github.com/imdario/mergo v0.3.6 // indirect
-	github.com/natefinch/lumberjack v0.0.0-20170531160350-a96e63847dc3 // indirect
+	github.com/googleapis/gnostic v0.3.1 // indirect
+	github.com/gorilla/mux v1.7.3
+	github.com/onsi/ginkgo v1.13.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.5.1
-	github.com/stretchr/testify v1.4.0
-	github.com/tsuru/tsuru v0.0.0-20190207152721-08b9d26909ce
+	github.com/stretchr/testify v1.5.1
+	github.com/tsuru/tsuru v0.0.0-20201016203419-9a2686f0f674
 	github.com/urfave/negroni v0.2.0
-	gopkg.in/yaml.v2 v2.2.8
-	istio.io/api v0.0.0-20181023224357-6bf9d6613f65
-	istio.io/istio v0.0.0-20181025220252-a44d4c8bcb42
+	golang.org/x/net v0.0.0-20200602114024-627f9648deb9 // indirect
+	golang.org/x/sys v0.0.0-20200615200032-f1bc736245b1 // indirect
+	golang.org/x/text v0.3.3 // indirect
+	golang.org/x/time v0.0.0-20190921001708-c4c64cad1fd0 // indirect
+	google.golang.org/appengine v1.6.5 // indirect
+	google.golang.org/protobuf v1.25.0 // indirect
+	gopkg.in/yaml.v2 v2.3.0
 	k8s.io/api v0.18.9
 	k8s.io/apiextensions-apiserver v0.18.9
 	k8s.io/apimachinery v0.18.9
