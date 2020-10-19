@@ -238,7 +238,7 @@ func (k *BaseService) getApp(ctx context.Context, app string) (*tsuruv1.App, err
 	if err != nil {
 		return nil, err
 	}
-	return tclient.TsuruV1().Apps(k.Namespace).Get(app, metav1.GetOptions{})
+	return tclient.TsuruV1().Apps(k.Namespace).Get(ctx, app, metav1.GetOptions{})
 }
 
 func (k *BaseService) getAppNamespace(ctx context.Context, appName string) (string, error) {

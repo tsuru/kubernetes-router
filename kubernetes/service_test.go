@@ -126,13 +126,13 @@ func createCRD(svc *BaseService, app string, namespace string, configs *provisio
 	if err != nil {
 		return err
 	}
-	_, err = svc.TsuruClient.TsuruV1().Apps(svc.Namespace).Create(&tsuruv1.App{
+	_, err = svc.TsuruClient.TsuruV1().Apps(svc.Namespace).Create(ctx, &tsuruv1.App{
 		ObjectMeta: metav1.ObjectMeta{Name: app},
 		Spec: tsuruv1.AppSpec{
 			NamespaceName: namespace,
 			Configs:       configs,
 		},
-	})
+	}, metav1.CreateOptions{})
 	return err
 }
 
