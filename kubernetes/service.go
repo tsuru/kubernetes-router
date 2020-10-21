@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/tsuru/kubernetes-router/observability"
 	"github.com/tsuru/kubernetes-router/router"
 	tsuruv1 "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1"
 	tsuruv1clientset "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned"
@@ -145,7 +146,7 @@ func (k *BaseService) getConfig() (*rest.Config, error) {
 	}
 	k.RestConfig.Timeout = k.Timeout
 	k.RestConfig.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
-		return transport.DebugWrappers(rt)
+		return transport.DebugWrappers(observability.WrapTransport(rt))
 	}
 	return k.RestConfig, nil
 }

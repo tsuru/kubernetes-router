@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/mocktracer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tsuru/kubernetes-router/kubernetes"
@@ -18,10 +20,11 @@ import (
 )
 
 var _ Backend = &fakeBackend{}
+var ctx = context.TODO()
 
 type fakeBackend struct{}
 
-func (*fakeBackend) Router(mode string, headers http.Header) (router.Router, error) {
+func (*fakeBackend) Router(ctx context.Context, mode string, headers http.Header) (router.Router, error) {
 	return nil, errors.New("not implemented yet")
 }
 func (*fakeBackend) Healthcheck(context.Context) error {
@@ -33,7 +36,7 @@ func TestMultiClusterFallback(t *testing.T) {
 		Namespace: "tsuru-test",
 		Fallback:  &fakeBackend{},
 	}
-	router, err := backend.Router("service", http.Header{})
+	router, err := backend.Router(ctx, "service", http.Header{})
 	if assert.Error(t, err) {
 		assert.Equal(t, err.Error(), "not implemented yet")
 	}
@@ -62,7 +65,10 @@ func TestMultiClusterService(t *testing.T) {
 			},
 		},
 	}
-	router, err := backend.Router("service", http.Header{
+	mockTracer := mocktracer.New()
+	span := mockTracer.StartSpan("test")
+	spanCtx := opentracing.ContextWithSpan(ctx, span)
+	router, err := backend.Router(spanCtx, "service", http.Header{
 		"X-Tsuru-Cluster-Name": {
 			"my-cluster",
 		},
@@ -77,6 +83,10 @@ func TestMultiClusterService(t *testing.T) {
 	assert.Equal(t, 10*time.Second, lbService.BaseService.Timeout)
 	assert.Equal(t, "https://mycluster.com", lbService.BaseService.RestConfig.Host)
 	assert.Equal(t, "my-token", lbService.BaseService.RestConfig.BearerToken)
+	assert.Equal(t, span.(*mocktracer.MockSpan).Tags(), map[string]interface{}{
+		"cluster.address": "https://mycluster.com",
+		"cluster.name":    "my-cluster",
+	})
 }
 
 func TestMultiClusterIngress(t *testing.T) {
@@ -91,7 +101,7 @@ func TestMultiClusterIngress(t *testing.T) {
 			},
 		},
 	}
-	router, err := backend.Router("ingress", http.Header{
+	router, err := backend.Router(ctx, "ingress", http.Header{
 		"X-Tsuru-Cluster-Name": {
 			"my-cluster",
 		},
@@ -121,7 +131,7 @@ func TestMultiClusterNginxIngress(t *testing.T) {
 			},
 		},
 	}
-	router, err := backend.Router("nginx-ingress", http.Header{
+	router, err := backend.Router(ctx, "nginx-ingress", http.Header{
 		"X-Tsuru-Cluster-Name": {
 			"my-cluster",
 		},

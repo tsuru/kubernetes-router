@@ -19,7 +19,7 @@ type LocalCluster struct {
 	Routers     map[string]router.Router
 }
 
-func (m *LocalCluster) Router(mode string, _ http.Header) (router.Router, error) {
+func (m *LocalCluster) Router(ctx context.Context, mode string, _ http.Header) (router.Router, error) {
 	if mode == "" {
 		mode = m.DefaultMode
 	}

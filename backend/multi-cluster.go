@@ -9,10 +9,13 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/opentracing/opentracing-go"
 	"github.com/tsuru/kubernetes-router/kubernetes"
+	"github.com/tsuru/kubernetes-router/observability"
 	"github.com/tsuru/kubernetes-router/router"
 	kubernetesGO "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/transport"
 )
 
 var _ Backend = &MultiCluster{}
@@ -36,12 +39,18 @@ type MultiCluster struct {
 	Clusters   []ClusterConfig
 }
 
-func (m *MultiCluster) Router(mode string, headers http.Header) (router.Router, error) {
+func (m *MultiCluster) Router(ctx context.Context, mode string, headers http.Header) (router.Router, error) {
 	name := headers.Get("X-Tsuru-Cluster-Name")
 	address := headers.Get("X-Tsuru-Cluster-Addresses")
 
 	if address == "" {
-		return m.Fallback.Router(mode, headers)
+		return m.Fallback.Router(ctx, mode, headers)
+	}
+
+	span := opentracing.SpanFromContext(ctx)
+	if span != nil {
+		span.SetTag("cluster.name", name)
+		span.SetTag("cluster.address", address)
 	}
 
 	timeout := time.Second * 10
@@ -54,8 +63,7 @@ func (m *MultiCluster) Router(mode string, headers http.Header) (router.Router, 
 		BearerToken: m.getToken(name),
 		Timeout:     timeout,
 		WrapTransport: func(rt http.RoundTripper) http.RoundTripper {
-			// TODO(wpjunior): put opentracing here
-			return rt
+			return transport.DebugWrappers(observability.WrapTransport(rt))
 		},
 	}
 

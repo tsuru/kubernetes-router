@@ -5,6 +5,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -66,8 +67,8 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 	})).Methods(http.MethodGet)
 }
 
-func (a *RouterAPI) router(mode string, header http.Header) (router.Router, error) {
-	router, err := a.Backend.Router(mode, header)
+func (a *RouterAPI) router(ctx context.Context, mode string, header http.Header) (router.Router, error) {
+	router, err := a.Backend.Router(ctx, mode, header)
 	if err == backend.ErrBackendNotFound {
 		return nil, httpError{Status: http.StatusNotFound}
 	}
@@ -87,7 +88,7 @@ func instanceID(r *http.Request) router.InstanceID {
 func (a *RouterAPI) getBackend(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -123,7 +124,7 @@ func (a *RouterAPI) addBackend(w http.ResponseWriter, r *http.Request) error {
 	if len(routerOpts.Domain) > 0 && len(routerOpts.Route) == 0 {
 		routerOpts.Route = "/"
 	}
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -139,7 +140,7 @@ func (a *RouterAPI) updateBackend(w http.ResponseWriter, r *http.Request) error 
 func (a *RouterAPI) removeBackend(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -161,7 +162,7 @@ func (a *RouterAPI) addRoutes(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -197,7 +198,7 @@ func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
 	if req.Target == "" {
 		return httpError{Body: "empty target", Status: http.StatusBadRequest}
 	}
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -212,7 +213,7 @@ func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
 func (a *RouterAPI) info(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	vars := mux.Vars(r)
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -254,7 +255,7 @@ func (a *RouterAPI) addCertificate(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -268,7 +269,7 @@ func (a *RouterAPI) getCertificate(w http.ResponseWriter, r *http.Request) error
 	name := vars["name"]
 	certName := vars["certname"]
 	log.Printf("Getting certificate %s from %s", certName, name)
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -293,7 +294,7 @@ func (a *RouterAPI) removeCertificate(w http.ResponseWriter, r *http.Request) er
 	name := vars["name"]
 	certName := vars["certname"]
 	log.Printf("Removing certificate %s from %s", certName, name)
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -311,7 +312,7 @@ func (a *RouterAPI) setCname(w http.ResponseWriter, r *http.Request) error {
 	name := vars["name"]
 	cname := vars["cname"]
 	log.Printf("Adding on %s CNAME %s", name, cname)
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -331,7 +332,7 @@ func (a *RouterAPI) getCnames(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	name := vars["name"]
 	log.Printf("Getting CNAMEs from %s", name)
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -355,7 +356,7 @@ func (a *RouterAPI) unsetCname(w http.ResponseWriter, r *http.Request) error {
 	name := vars["name"]
 	cname := vars["cname"]
 	log.Printf("Removing CNAME %s from %s", cname, name)
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -366,7 +367,7 @@ func (a *RouterAPI) unsetCname(w http.ResponseWriter, r *http.Request) error {
 func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	vars := mux.Vars(r)
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(r.Context(), vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
@@ -384,7 +385,7 @@ func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 func (a *RouterAPI) supportCNAME(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	vars := mux.Vars(r)
-	svc, err := a.router(vars["mode"], r.Header)
+	svc, err := a.router(r.Context(), vars["mode"], r.Header)
 	if err != nil {
 		return err
 	}
