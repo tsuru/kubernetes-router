@@ -17,6 +17,6 @@ var (
 )
 
 type Backend interface {
-	Router(mode string, header http.Header) (router.Router, error)
+	Router(ctx context.Context, mode string, header http.Header) (router.Router, error)
 	Healthcheck(ctx context.Context) error
 }
