@@ -7,10 +7,12 @@ require (
 	github.com/googleapis/gnostic v0.3.1 // indirect
 	github.com/gorilla/mux v1.7.3
 	github.com/onsi/ginkgo v1.13.0 // indirect
+	github.com/opentracing/opentracing-go v1.2.0
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.5.1
 	github.com/stretchr/testify v1.5.1
 	github.com/tsuru/tsuru v0.0.0-20201016203419-9a2686f0f674
+	github.com/uber/jaeger-client-go v2.25.0+incompatible
 	github.com/urfave/negroni v0.2.0
 	golang.org/x/net v0.0.0-20200602114024-627f9648deb9 // indirect
 	golang.org/x/sys v0.0.0-20200615200032-f1bc736245b1 // indirect
@@ -19,6 +21,7 @@ require (
 	google.golang.org/appengine v1.6.5 // indirect
 	google.golang.org/protobuf v1.25.0 // indirect
 	gopkg.in/yaml.v2 v2.3.0
+	istio.io/pkg v0.0.0-20201020203611-6565bf4f242a
 	k8s.io/api v0.18.9
 	k8s.io/apiextensions-apiserver v0.18.9
 	k8s.io/apimachinery v0.18.9

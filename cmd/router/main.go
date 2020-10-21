@@ -13,6 +13,7 @@ import (
 	"github.com/tsuru/kubernetes-router/backend"
 	"github.com/tsuru/kubernetes-router/cmd"
 	"github.com/tsuru/kubernetes-router/kubernetes"
+	_ "github.com/tsuru/kubernetes-router/observability"
 	"github.com/tsuru/kubernetes-router/router"
 	"gopkg.in/yaml.v2"
 )

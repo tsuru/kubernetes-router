@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/tsuru/kubernetes-router/api"
 	"github.com/tsuru/kubernetes-router/backend"
+	"github.com/tsuru/kubernetes-router/observability"
 	"github.com/urfave/negroni"
 )
 
@@ -53,7 +54,7 @@ func StartDaemon(opts DaemonOpts) {
 	r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	r.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-	n := negroni.New(negroni.NewLogger(), negroni.NewRecovery())
+	n := negroni.New(observability.Middleware(), negroni.NewLogger(), negroni.NewRecovery())
 	n.UseHandler(r)
 
 	server := http.Server{
