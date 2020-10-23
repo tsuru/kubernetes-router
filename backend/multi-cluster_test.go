@@ -162,7 +162,7 @@ func TestMultiClusterIstioGateway(t *testing.T) {
 			},
 		},
 	}
-	router, err := backend.Router("istio-gateway", http.Header{
+	router, err := backend.Router(ctx, "istio-gateway", http.Header{
 		"X-Tsuru-Cluster-Name": {
 			"my-cluster",
 		},
