@@ -13,10 +13,11 @@ import (
 	"strings"
 
 	"github.com/tsuru/kubernetes-router/router"
-	networking "istio.io/api/networking/v1alpha3"
-	"istio.io/istio/pilot/pkg/config/kube/crd"
-	"istio.io/istio/pilot/pkg/model"
+	apiNetworking "istio.io/api/networking/v1beta1"
+	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
+	networkingClientSet "istio.io/client-go/pkg/clientset/versioned/typed/networking/v1beta1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -33,7 +34,7 @@ var (
 // IstioGateway manages gateways in a Kubernetes cluster with istio enabled.
 type IstioGateway struct {
 	*BaseService
-	istioClient     model.ConfigStore
+	istioClient     networkingClientSet.NetworkingV1beta1Interface
 	DefaultDomain   string
 	GatewaySelector map[string]string
 }
@@ -53,68 +54,54 @@ func (k *IstioGateway) gatewayHost(id router.InstanceID) string {
 	return fmt.Sprintf("%v.instance.%v.%v", id.InstanceName, id.AppName, k.DefaultDomain)
 }
 
-func makeConfig(name, ns string, schema model.ProtoSchema) *model.Config {
-	config := &model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Name:      name,
-			Namespace: ns,
-			Type:      schema.Type,
-			Version:   schema.Version,
-			Group:     crd.ResourceGroup(&schema),
-		},
+func (k *IstioGateway) updateObjectMeta(result *metav1.ObjectMeta, appName string, routerOpts router.Opts) {
+	if result.Labels == nil {
+		result.Labels = make(map[string]string)
 	}
-	return config
-}
-
-func (k *IstioGateway) setConfigMeta(config *model.Config, appName string, routerOpts router.Opts) {
-	if config.ConfigMeta.Labels == nil {
-		config.ConfigMeta.Labels = make(map[string]string)
-	}
-	if config.ConfigMeta.Annotations == nil {
-		config.ConfigMeta.Annotations = make(map[string]string)
+	if result.Annotations == nil {
+		result.Annotations = make(map[string]string)
 	}
 	for k, v := range k.Labels {
-		config.ConfigMeta.Labels[k] = v
+		result.Labels[k] = v
 	}
-	config.ConfigMeta.Labels[appLabel] = appName
+	result.Labels[appLabel] = appName
 	for k, v := range k.Annotations {
-		config.ConfigMeta.Annotations[k] = v
+		result.Annotations[k] = v
 	}
 	for k, v := range routerOpts.AdditionalOpts {
-		config.ConfigMeta.Annotations[k] = v
+		result.Annotations[k] = v
 	}
 }
 
-func (k *IstioGateway) getClient() (model.ConfigStore, error) {
+func (k *IstioGateway) getClient() (networkingClientSet.NetworkingV1beta1Interface, error) {
 	if k.istioClient != nil {
 		return k.istioClient, nil
 	}
 	var err error
-	k.istioClient, err = crd.NewClient("", "", model.IstioConfigTypes, "")
+
+	restConfig, err := k.getConfig()
 	if err != nil {
 		return nil, err
 	}
+
+	k.istioClient, err = networkingClientSet.NewForConfig(restConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	return k.istioClient, nil
 }
 
-func (k *IstioGateway) getVS(ctx context.Context, cli model.ConfigStore, id router.InstanceID) (*model.Config, *networking.VirtualService, error) {
+func (k *IstioGateway) getVS(ctx context.Context, cli networkingClientSet.NetworkingV1beta1Interface, id router.InstanceID) (*networking.VirtualService, error) {
 	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	vsConfig, found := cli.Get(model.VirtualService.Type, k.vsName(id), ns)
-	if !found {
-		return nil, nil, fmt.Errorf("virtualservice %q not found", k.vsName(id))
-	}
-	vsSpec, ok := vsConfig.Spec.(*networking.VirtualService)
-	if !ok {
-		return nil, nil, fmt.Errorf("virtualservice does not match type: %T - %#v", vsConfig.Spec, vsConfig.Spec)
-	}
-	return vsConfig, vsSpec, nil
+	return cli.VirtualServices(ns).Get(ctx, k.vsName(id), metav1.GetOptions{})
 }
 
-func (k *IstioGateway) isSwapped(obj *model.Config) (string, bool) {
-	target := obj.Labels[swapLabel]
+func (k *IstioGateway) isSwapped(meta metav1.ObjectMeta) (target string, isSwapped bool) {
+	target = meta.Labels[swapLabel]
 	return target, target != ""
 }
 
@@ -146,8 +133,8 @@ func removeFromSet(dst []string, toRemove ...string) []string {
 	return dst
 }
 
-func hostsFromAnnotation(virtualSvcCfg *model.Config) []string {
-	hostsRaw := virtualSvcCfg.Annotations[hostsAnnotation]
+func hostsFromAnnotation(annotations map[string]string) []string {
+	hostsRaw := annotations[hostsAnnotation]
 	var hosts []string
 	if hostsRaw != "" {
 		hosts = strings.Split(hostsRaw, ",")
@@ -155,37 +142,35 @@ func hostsFromAnnotation(virtualSvcCfg *model.Config) []string {
 	return hosts
 }
 
-func vsAddHost(virtualSvcCfg *model.Config, vsSpec *networking.VirtualService, host string) {
-	hosts := hostsFromAnnotation(virtualSvcCfg)
-	vsSpec.Hosts = removeFromSet(vsSpec.Hosts, hosts...)
+func vsAddHost(v *networking.VirtualService, host string) {
+	hosts := hostsFromAnnotation(v.Annotations)
+	v.Spec.Hosts = removeFromSet(v.Spec.Hosts, hosts...)
 	hosts = addToSet(hosts, host)
-	vsSpec.Hosts = addToSet(vsSpec.Hosts, hosts...)
+	v.Spec.Hosts = addToSet(v.Spec.Hosts, hosts...)
 	sort.Strings(hosts)
-	virtualSvcCfg.Annotations[hostsAnnotation] = strings.Join(hosts, ",")
-	virtualSvcCfg.Spec = vsSpec
+	v.Annotations[hostsAnnotation] = strings.Join(hosts, ",")
 }
 
-func vsRemoveHost(virtualSvcCfg *model.Config, vsSpec *networking.VirtualService, host string) {
-	hosts := hostsFromAnnotation(virtualSvcCfg)
-	vsSpec.Hosts = removeFromSet(vsSpec.Hosts, hosts...)
+func vsRemoveHost(v *networking.VirtualService, host string) {
+	hosts := hostsFromAnnotation(v.Annotations)
+	v.Spec.Hosts = removeFromSet(v.Spec.Hosts, hosts...)
 	hosts = removeFromSet(hosts, host)
-	vsSpec.Hosts = addToSet(vsSpec.Hosts, hosts...)
+	v.Spec.Hosts = addToSet(v.Spec.Hosts, hosts...)
 	sort.Strings(hosts)
-	virtualSvcCfg.Annotations[hostsAnnotation] = strings.Join(hosts, ",")
-	virtualSvcCfg.Spec = vsSpec
+	v.Annotations[hostsAnnotation] = strings.Join(hosts, ",")
 }
 
-func (k *IstioGateway) updateVirtualService(virtualSvcCfg *model.Config, vsSpec *networking.VirtualService, id router.InstanceID, dstHost string) *model.Config {
-	vsSpec.Gateways = addToSet(vsSpec.Gateways, k.gatewayName(id))
-	vsSpec.Hosts = addToSet(vsSpec.Hosts, k.gatewayHost(id))
+func (k *IstioGateway) updateVirtualService(v *networking.VirtualService, id router.InstanceID, dstHost string) {
+	v.Spec.Gateways = addToSet(v.Spec.Gateways, k.gatewayName(id))
+	v.Spec.Hosts = addToSet(v.Spec.Hosts, k.gatewayHost(id))
 	if dstHost != placeHolderServiceName {
-		vsSpec.Hosts = addToSet(vsSpec.Hosts, dstHost)
+		v.Spec.Hosts = addToSet(v.Spec.Hosts, dstHost)
 	}
-	if len(vsSpec.Http) == 0 {
-		vsSpec.Http = append(vsSpec.Http, &networking.HTTPRoute{})
+	if len(v.Spec.Http) == 0 {
+		v.Spec.Http = append(v.Spec.Http, &apiNetworking.HTTPRoute{})
 	}
 	dstIdx := -1
-	for i, dst := range vsSpec.Http[0].Route {
+	for i, dst := range v.Spec.Http[0].Route {
 		if dst.Destination != nil &&
 			(dst.Destination.Host == dstHost || dst.Destination.Host == placeHolderServiceName) {
 			dstIdx = i
@@ -193,14 +178,12 @@ func (k *IstioGateway) updateVirtualService(virtualSvcCfg *model.Config, vsSpec 
 		}
 	}
 	if dstIdx == -1 {
-		vsSpec.Http[0].Route = append(vsSpec.Http[0].Route, &networking.DestinationWeight{})
-		dstIdx = len(vsSpec.Http[0].Route) - 1
+		v.Spec.Http[0].Route = append(v.Spec.Http[0].Route, &apiNetworking.HTTPRouteDestination{})
+		dstIdx = len(v.Spec.Http[0].Route) - 1
 	}
-	vsSpec.Http[0].Route[dstIdx].Destination = &networking.Destination{
+	v.Spec.Http[0].Route[dstIdx].Destination = &apiNetworking.Destination{
 		Host: dstHost,
 	}
-	virtualSvcCfg.Spec = vsSpec
-	return virtualSvcCfg
 }
 
 // Create adds a new gateway and a virtualservice for the app
@@ -213,22 +196,29 @@ func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerO
 	if err != nil {
 		return err
 	}
-	gatewayCfg := makeConfig(k.gatewayName(id), namespace, model.Gateway)
-	k.setConfigMeta(gatewayCfg, id.AppName, routerOpts)
-	gatewayCfg.Spec = &networking.Gateway{
-		Selector: k.GatewaySelector,
-		Servers: []*networking.Server{
-			{
-				Port: &networking.Port{
-					Number:   80,
-					Name:     "http2",
-					Protocol: "HTTP2",
+
+	gateway := &networking.Gateway{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: id.AppName,
+		},
+		Spec: apiNetworking.Gateway{
+			Servers: []*apiNetworking.Server{
+				{
+					Port: &apiNetworking.Port{
+						Number:   80,
+						Name:     "http2",
+						Protocol: "HTTP2",
+					},
+					Hosts: []string{"*"},
 				},
-				Hosts: []string{"*"},
 			},
+			Selector: k.GatewaySelector,
 		},
 	}
-	_, err = cli.Create(*gatewayCfg)
+
+	k.updateObjectMeta(&gateway.ObjectMeta, id.AppName, routerOpts)
+
+	_, err = cli.Gateways(namespace).Create(ctx, gateway, metav1.CreateOptions{})
 	isAlreadyExists := false
 	if k8sErrors.IsAlreadyExists(err) {
 		isAlreadyExists = true
@@ -237,29 +227,39 @@ func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerO
 	}
 
 	existingSvc := true
-	virtualSvcCfg, vsSpec, err := k.getVS(ctx, cli, id)
-	if err != nil {
+	virtualSvc, err := k.getVS(ctx, cli, id)
+
+	if err != nil && !k8sErrors.IsNotFound(err) {
+		return err
+	}
+
+	if k8sErrors.IsNotFound(err) {
 		existingSvc = false
-		virtualSvcCfg = makeConfig(k.vsName(id), namespace, model.VirtualService)
-		vsSpec = &networking.VirtualService{
-			Gateways: []string{"mesh"},
+		virtualSvc = &networking.VirtualService{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: k.vsName(id),
+			},
+			Spec: apiNetworking.VirtualService{
+				Gateways: []string{"mesh"},
+			},
 		}
 	}
-	k.setConfigMeta(virtualSvcCfg, id.AppName, routerOpts)
+
+	k.updateObjectMeta(&virtualSvc.ObjectMeta, id.AppName, routerOpts)
 
 	webServiceName := placeHolderServiceName
-	webService, err := k.getWebService(ctx, id.AppName, router.RoutesRequestExtraData{}, virtualSvcCfg.Labels)
+	webService, err := k.getWebService(ctx, id.AppName, router.RoutesRequestExtraData{}, virtualSvc.Labels)
 	if err == nil {
 		webServiceName = webService.Name
 	} else {
 		log.Printf("ignored error trying to find app web service: %v", err)
 	}
 
-	virtualSvcCfg = k.updateVirtualService(virtualSvcCfg, vsSpec, id, webServiceName)
+	k.updateVirtualService(virtualSvc, id, webServiceName)
 	if existingSvc {
-		_, err = cli.Update(*virtualSvcCfg)
+		_, err = cli.VirtualServices(namespace).Update(ctx, virtualSvc, metav1.UpdateOptions{})
 	} else {
-		_, err = cli.Create(*virtualSvcCfg)
+		_, err = cli.VirtualServices(namespace).Create(ctx, virtualSvc, metav1.CreateOptions{})
 	}
 	if err != nil {
 		return err
@@ -277,21 +277,21 @@ func (k *IstioGateway) Update(ctx context.Context, id router.InstanceID, extraDa
 	if err != nil {
 		return err
 	}
-	vsConfig, vsSpec, err := k.getVS(ctx, cli, id)
+	virtualSvc, err := k.getVS(ctx, cli, id)
 	if err != nil {
 		return err
 	}
-	service, err := k.getWebService(ctx, id.AppName, extraData, vsConfig.Labels)
+	service, err := k.getWebService(ctx, id.AppName, extraData, virtualSvc.Labels)
 	if err != nil {
 		return err
 	}
 	if extraData.Namespace != "" && extraData.Service != "" {
-		vsConfig.Labels[appBaseServiceNamespaceLabel] = extraData.Namespace
-		vsConfig.Labels[appBaseServiceNameLabel] = extraData.Service
+		virtualSvc.Labels[appBaseServiceNamespaceLabel] = extraData.Namespace
+		virtualSvc.Labels[appBaseServiceNameLabel] = extraData.Service
 	}
-	vsConfig = k.updateVirtualService(vsConfig, vsSpec, id, service.Name)
-	k.setConfigMeta(vsConfig, id.AppName, router.Opts{})
-	_, err = cli.Update(*vsConfig)
+	k.updateObjectMeta(&virtualSvc.ObjectMeta, id.AppName, router.Opts{})
+	k.updateVirtualService(virtualSvc, id, service.Name)
+	_, err = cli.VirtualServices(virtualSvc.Namespace).Update(ctx, virtualSvc, metav1.UpdateOptions{})
 	return err
 }
 
@@ -311,11 +311,11 @@ func (k *IstioGateway) Remove(ctx context.Context, id router.InstanceID) error {
 	if err != nil {
 		return err
 	}
-	cfg, spec, err := k.getVS(ctx, cli, id)
+	virtualSvc, err := k.getVS(ctx, cli, id)
 	if err != nil {
 		return err
 	}
-	if dstApp, swapped := k.isSwapped(cfg); swapped {
+	if dstApp, swapped := k.isSwapped(virtualSvc.ObjectMeta); swapped {
 		return ErrAppSwapped{App: id.AppName, DstApp: dstApp}
 	}
 	ns, err := k.getAppNamespace(ctx, id.AppName)
@@ -323,18 +323,17 @@ func (k *IstioGateway) Remove(ctx context.Context, id router.InstanceID) error {
 		return err
 	}
 	var gateways []string
-	for _, g := range spec.Gateways {
+	for _, g := range virtualSvc.Spec.Gateways {
 		if g != k.gatewayName(id) {
 			gateways = append(gateways, g)
 		}
 	}
-	spec.Gateways = gateways
-	cfg.Spec = spec
-	_, err = cli.Update(*cfg)
+	virtualSvc.Spec.Gateways = gateways
+	_, err = cli.VirtualServices(ns).Update(ctx, virtualSvc, metav1.UpdateOptions{})
 	if err != nil {
 		return err
 	}
-	return cli.Delete(model.Gateway.Type, k.gatewayName(id), ns)
+	return cli.Gateways(ns).Delete(ctx, k.gatewayName(id), metav1.DeleteOptions{})
 }
 
 // SetCname adds a new host to the gateway
@@ -343,12 +342,12 @@ func (k *IstioGateway) SetCname(ctx context.Context, id router.InstanceID, cname
 	if err != nil {
 		return err
 	}
-	cfg, vsSpec, err := k.getVS(ctx, cli, id)
+	virtualSvc, err := k.getVS(ctx, cli, id)
 	if err != nil {
 		return err
 	}
-	vsAddHost(cfg, vsSpec, cname)
-	_, err = cli.Update(*cfg)
+	vsAddHost(virtualSvc, cname)
+	_, err = cli.VirtualServices(virtualSvc.Namespace).Update(ctx, virtualSvc, metav1.UpdateOptions{})
 	return err
 }
 
@@ -358,12 +357,12 @@ func (k *IstioGateway) GetCnames(ctx context.Context, id router.InstanceID) (*ro
 	if err != nil {
 		return nil, err
 	}
-	vsConfig, _, err := k.getVS(ctx, cli, id)
+	virtualSvc, err := k.getVS(ctx, cli, id)
 	if err != nil {
 		return nil, err
 	}
 	var rsp router.CnamesResp
-	hostsRaw := vsConfig.Annotations[hostsAnnotation]
+	hostsRaw := virtualSvc.Annotations[hostsAnnotation]
 	for _, h := range strings.Split(hostsRaw, ",") {
 		if h != "" {
 			rsp.Cnames = append(rsp.Cnames, h)
@@ -378,11 +377,11 @@ func (k *IstioGateway) UnsetCname(ctx context.Context, id router.InstanceID, cna
 	if err != nil {
 		return err
 	}
-	cfg, vsSpec, err := k.getVS(ctx, cli, id)
+	virtualSvc, err := k.getVS(ctx, cli, id)
 	if err != nil {
 		return err
 	}
-	vsRemoveHost(cfg, vsSpec, cname)
-	_, err = cli.Update(*cfg)
+	vsRemoveHost(virtualSvc, cname)
+	_, err = cli.VirtualServices(virtualSvc.Namespace).Update(ctx, virtualSvc, metav1.UpdateOptions{})
 	return err
 }

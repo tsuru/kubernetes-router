@@ -12,9 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tsuru/kubernetes-router/router"
 	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
-	networking "istio.io/api/networking/v1alpha3"
-	"istio.io/istio/pilot/pkg/model"
-	"istio.io/istio/pilot/pkg/networking/core/v1alpha3/fakes"
+	apiNetworking "istio.io/api/networking/v1beta1"
+	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
+	fakeistio "istio.io/client-go/pkg/clientset/versioned/fake"
+	networkingClientSet "istio.io/client-go/pkg/clientset/versioned/typed/networking/v1beta1"
 	apiv1 "k8s.io/api/core/v1"
 	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,8 +23,8 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-func fakeService() (IstioGateway, *fakes.IstioConfigStore) {
-	fakeIstio := &fakes.IstioConfigStore{}
+func fakeService() (IstioGateway, networkingClientSet.NetworkingV1beta1Interface) {
+	fakeIstio := fakeistio.NewSimpleClientset().NetworkingV1beta1()
 	return IstioGateway{
 		BaseService: &BaseService{
 			Namespace:        "default",
@@ -41,156 +42,134 @@ func TestIstioGateway_Create(t *testing.T) {
 	svc, istio := fakeService()
 	err := svc.Create(ctx, idForApp("myapp"), router.Opts{})
 	require.NoError(t, err)
-	require.Equal(t, 2, istio.CreateCallCount())
-	gatewayConfig := istio.CreateArgsForCall(0)
-	vsConfig := istio.CreateArgsForCall(1)
-	assert.Equal(t, model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Type:      "gateway",
-			Group:     "networking.istio.io",
-			Version:   "v1alpha3",
-			Name:      "myapp",
-			Namespace: "default",
-			Labels: map[string]string{
-				"tsuru.io/app-name": "myapp",
-			},
-			Annotations: map[string]string{},
-		},
-		Spec: &networking.Gateway{
-			Servers: []*networking.Server{
-				{
-					Port: &networking.Port{
-						Number:   80,
-						Name:     "http2",
-						Protocol: "HTTP2",
-					},
-					Hosts: []string{
-						"*",
-					},
+	gateway, err := istio.Gateways("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	virtualSvc, err := istio.VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"tsuru.io/app-name": "myapp"}, gateway.Labels)
+	assert.Equal(t, map[string]string{}, gateway.Annotations)
+	assert.Equal(t, apiNetworking.Gateway{
+		Servers: []*apiNetworking.Server{
+			{
+				Port: &apiNetworking.Port{
+					Number:   80,
+					Name:     "http2",
+					Protocol: "HTTP2",
+				},
+				Hosts: []string{
+					"*",
 				},
 			},
-			Selector: map[string]string{
-				"istio": "ingress",
-			},
 		},
-	}, gatewayConfig)
-	assert.Equal(t, model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Type:      "virtual-service",
-			Group:     "networking.istio.io",
-			Version:   "v1alpha3",
-			Name:      "myapp",
-			Namespace: "default",
-			Labels: map[string]string{
-				"tsuru.io/app-name": "myapp",
-			},
-			Annotations: map[string]string{},
+		Selector: map[string]string{
+			"istio": "ingress",
 		},
-		Spec: &networking.VirtualService{
-			Gateways: []string{
-				"mesh",
-				"myapp",
-			},
-			Hosts: []string{
-				"myapp.my.domain",
-			},
-			Http: []*networking.HTTPRoute{
-				{
-					Route: []*networking.DestinationWeight{
-						{
-							Destination: &networking.Destination{
-								Host: "kubernetes-router-placeholder",
-							},
+	}, gateway.Spec)
+	assert.Equal(t, map[string]string{"tsuru.io/app-name": "myapp"}, virtualSvc.Labels)
+	assert.Equal(t, map[string]string{}, virtualSvc.Annotations)
+	assert.Equal(t, apiNetworking.VirtualService{
+		Gateways: []string{
+			"mesh",
+			"myapp",
+		},
+		Hosts: []string{
+			"myapp.my.domain",
+		},
+		Http: []*apiNetworking.HTTPRoute{
+			{
+				Route: []*apiNetworking.HTTPRouteDestination{
+					{
+						Destination: &apiNetworking.Destination{
+							Host: "kubernetes-router-placeholder",
 						},
 					},
 				},
 			},
 		},
-	}, vsConfig)
+	}, virtualSvc.Spec)
 }
 
 func TestIstioGateway_Create_existingVirtualService(t *testing.T) {
 	svc, istio := fakeService()
-	istio.GetReturns(&model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Type:        "virtual-service",
-			Group:       "networking.istio.io",
-			Version:     "v1alpha3",
-			Name:        "myapp",
-			Namespace:   "default",
-			Labels:      map[string]string{},
-			Annotations: map[string]string{},
+
+	_, err := istio.VirtualServices("default").Create(ctx, &networking.VirtualService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "myapp",
 		},
-		Spec: &networking.VirtualService{},
-	}, true)
-	err := svc.Create(ctx, idForApp("myapp"), router.Opts{})
-	require.NoError(t, err)
-	require.Equal(t, 1, istio.CreateCallCount())
-	require.Equal(t, 1, istio.UpdateCallCount())
-	gatewayConfig := istio.CreateArgsForCall(0)
-	vsConfig := istio.UpdateArgsForCall(0)
-	assert.Equal(t, model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Type:      "gateway",
-			Group:     "networking.istio.io",
-			Version:   "v1alpha3",
-			Name:      "myapp",
-			Namespace: "default",
-			Labels: map[string]string{
-				"tsuru.io/app-name": "myapp",
-			},
-			Annotations: map[string]string{},
-		},
-		Spec: &networking.Gateway{
-			Servers: []*networking.Server{
+		Spec: apiNetworking.VirtualService{
+			Hosts: []string{"older-host"},
+			Http: []*apiNetworking.HTTPRoute{
 				{
-					Port: &networking.Port{
-						Number:   80,
-						Name:     "http2",
-						Protocol: "HTTP2",
-					},
-					Hosts: []string{
-						"*",
-					},
-				},
-			},
-			Selector: map[string]string{
-				"istio": "ingress",
-			},
-		},
-	}, gatewayConfig)
-	assert.Equal(t, model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Type:      "virtual-service",
-			Group:     "networking.istio.io",
-			Version:   "v1alpha3",
-			Name:      "myapp",
-			Namespace: "default",
-			Labels: map[string]string{
-				"tsuru.io/app-name": "myapp",
-			},
-			Annotations: map[string]string{},
-		},
-		Spec: &networking.VirtualService{
-			Gateways: []string{
-				"myapp",
-			},
-			Hosts: []string{
-				"myapp.my.domain",
-			},
-			Http: []*networking.HTTPRoute{
-				{
-					Route: []*networking.DestinationWeight{
+					Route: []*apiNetworking.HTTPRouteDestination{
 						{
-							Destination: &networking.Destination{
-								Host: "kubernetes-router-placeholder",
+							Destination: &apiNetworking.Destination{
+								Host: "to-be-keep",
 							},
+							Weight: 100,
 						},
 					},
 				},
 			},
 		},
-	}, vsConfig)
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	err = svc.Create(ctx, idForApp("myapp"), router.Opts{})
+	require.NoError(t, err)
+
+	gateway, err := istio.Gateways("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	virtualSvc, err := istio.VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{"tsuru.io/app-name": "myapp"}, gateway.Labels)
+	assert.Equal(t, map[string]string{}, gateway.Annotations)
+
+	assert.Equal(t, apiNetworking.Gateway{
+		Servers: []*apiNetworking.Server{
+			{
+				Port: &apiNetworking.Port{
+					Number:   80,
+					Name:     "http2",
+					Protocol: "HTTP2",
+				},
+				Hosts: []string{
+					"*",
+				},
+			},
+		},
+		Selector: map[string]string{
+			"istio": "ingress",
+		},
+	}, gateway.Spec)
+	assert.Equal(t, map[string]string{"tsuru.io/app-name": "myapp"}, virtualSvc.Labels)
+	assert.Equal(t, map[string]string{}, virtualSvc.Annotations)
+	assert.Equal(t, apiNetworking.VirtualService{
+		Gateways: []string{
+			"myapp",
+		},
+		Hosts: []string{
+			"older-host",
+			"myapp.my.domain",
+		},
+		Http: []*apiNetworking.HTTPRoute{
+			{
+				Route: []*apiNetworking.HTTPRouteDestination{
+					{
+						Destination: &apiNetworking.Destination{
+							Host: "to-be-keep",
+						},
+						Weight: 100,
+					},
+					{
+						Destination: &apiNetworking.Destination{
+							Host: "kubernetes-router-placeholder",
+						},
+					},
+				},
+			},
+		},
+	}, virtualSvc.Spec)
 }
 
 func TestIstioGateway_Update(t *testing.T) {
@@ -206,28 +185,23 @@ func TestIstioGateway_Update(t *testing.T) {
 	}
 	_, err := svc.Client.CoreV1().Services(svc.Namespace).Create(ctx, &webSvc, metav1.CreateOptions{})
 	require.NoError(t, err)
-	istio.GetReturns(&model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Type:        "virtual-service",
-			Group:       "networking.istio.io",
-			Version:     "v1alpha3",
-			Name:        "myapp",
-			Namespace:   "default",
-			Labels:      map[string]string{},
-			Annotations: map[string]string{},
+
+	_, err = istio.VirtualServices("default").Create(ctx, &networking.VirtualService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "myapp",
 		},
-		Spec: &networking.VirtualService{
+		Spec: apiNetworking.VirtualService{
 			Gateways: []string{
 				"myapp",
 			},
 			Hosts: []string{
 				"myapp.my.domain",
 			},
-			Http: []*networking.HTTPRoute{
+			Http: []*apiNetworking.HTTPRoute{
 				{
-					Route: []*networking.DestinationWeight{
+					Route: []*apiNetworking.HTTPRouteDestination{
 						{
-							Destination: &networking.Destination{
+							Destination: &apiNetworking.Destination{
 								Host: "kubernetes-router-placeholder",
 							},
 						},
@@ -235,12 +209,19 @@ func TestIstioGateway_Update(t *testing.T) {
 				},
 			},
 		},
-	}, true)
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
 	err = svc.Update(ctx, idForApp("myapp"), router.RoutesRequestExtraData{})
 	require.NoError(t, err)
-	require.Equal(t, 1, istio.UpdateCallCount())
-	vsConfig := istio.UpdateArgsForCall(0)
-	assert.Equal(t, &networking.VirtualService{
+
+	virtualSvc, err := istio.VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{"tsuru.io/app-name": "myapp"}, virtualSvc.Labels)
+	assert.Equal(t, map[string]string{}, virtualSvc.Annotations)
+
+	assert.Equal(t, apiNetworking.VirtualService{
 		Gateways: []string{
 			"myapp",
 		},
@@ -248,18 +229,18 @@ func TestIstioGateway_Update(t *testing.T) {
 			"myapp.my.domain",
 			"myapp-single",
 		},
-		Http: []*networking.HTTPRoute{
+		Http: []*apiNetworking.HTTPRoute{
 			{
-				Route: []*networking.DestinationWeight{
+				Route: []*apiNetworking.HTTPRouteDestination{
 					{
-						Destination: &networking.Destination{
+						Destination: &apiNetworking.Destination{
 							Host: "myapp-single",
 						},
 					},
 				},
 			},
 		},
-	}, vsConfig.Spec)
+	}, virtualSvc.Spec)
 }
 
 func TestIstioGateway_SetCname(t *testing.T) {
@@ -301,13 +282,9 @@ func TestIstioGateway_SetCname(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
 			svc, istio := fakeService()
-			istio.GetReturns(&model.Config{
-				ConfigMeta: model.ConfigMeta{
-					Type:      "virtual-service",
-					Group:     "networking.istio.io",
-					Version:   "v1alpha3",
-					Name:      "myapp",
-					Namespace: "default",
+			_, err := istio.VirtualServices("default").Create(ctx, &networking.VirtualService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "myapp",
 					Labels: map[string]string{
 						"tsuru.io/app-name": "myapp",
 					},
@@ -315,16 +292,29 @@ func TestIstioGateway_SetCname(t *testing.T) {
 						"tsuru.io/additional-hosts": tt.annotation,
 					},
 				},
-				Spec: &networking.VirtualService{
+				Spec: apiNetworking.VirtualService{
 					Hosts: tt.hosts,
+					Http: []*apiNetworking.HTTPRoute{
+						{
+							Route: []*apiNetworking.HTTPRouteDestination{
+								{
+									Destination: &apiNetworking.Destination{
+										Host: "to-be-keep",
+									},
+								},
+							},
+						},
+					},
 				},
-			}, true)
-			err := svc.SetCname(ctx, idForApp("myapp"), tt.toAdd)
+			}, metav1.CreateOptions{})
+
 			require.NoError(t, err)
-			require.Equal(t, 1, istio.UpdateCallCount())
-			vsConfig := istio.UpdateArgsForCall(0)
-			assert.ElementsMatch(t, tt.expectedHosts, vsConfig.Spec.(*networking.VirtualService).Hosts)
-			assert.Equal(t, tt.expectedAnnotation, vsConfig.Annotations["tsuru.io/additional-hosts"])
+			err = svc.SetCname(ctx, idForApp("myapp"), tt.toAdd)
+			require.NoError(t, err)
+			virtualSvc, err := istio.VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.expectedHosts, virtualSvc.Spec.Hosts)
+			assert.Equal(t, tt.expectedAnnotation, virtualSvc.Annotations["tsuru.io/additional-hosts"])
 		})
 	}
 }
@@ -368,13 +358,9 @@ func TestIstioGateway_UnsetCname(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
 			svc, istio := fakeService()
-			istio.GetReturns(&model.Config{
-				ConfigMeta: model.ConfigMeta{
-					Type:      "virtual-service",
-					Group:     "networking.istio.io",
-					Version:   "v1alpha3",
-					Name:      "myapp",
-					Namespace: "default",
+			_, err := istio.VirtualServices("default").Create(ctx, &networking.VirtualService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "myapp",
 					Labels: map[string]string{
 						"tsuru.io/app-name": "myapp",
 					},
@@ -382,16 +368,29 @@ func TestIstioGateway_UnsetCname(t *testing.T) {
 						"tsuru.io/additional-hosts": tt.annotation,
 					},
 				},
-				Spec: &networking.VirtualService{
+				Spec: apiNetworking.VirtualService{
 					Hosts: tt.hosts,
+					Http: []*apiNetworking.HTTPRoute{
+						{
+							Route: []*apiNetworking.HTTPRouteDestination{
+								{
+									Destination: &apiNetworking.Destination{
+										Host: "to-be-keep",
+									},
+								},
+							},
+						},
+					},
 				},
-			}, true)
-			err := svc.UnsetCname(ctx, idForApp("myapp"), tt.toRemove)
+			}, metav1.CreateOptions{})
 			require.NoError(t, err)
-			require.Equal(t, 1, istio.UpdateCallCount())
-			vsConfig := istio.UpdateArgsForCall(0)
-			assert.ElementsMatch(t, tt.expectedHosts, vsConfig.Spec.(*networking.VirtualService).Hosts)
-			assert.Equal(t, tt.expectedAnnotation, vsConfig.Annotations["tsuru.io/additional-hosts"])
+
+			err = svc.UnsetCname(ctx, idForApp("myapp"), tt.toRemove)
+			require.NoError(t, err)
+			virtualSvc, err := istio.VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.expectedHosts, virtualSvc.Spec.Hosts)
+			assert.Equal(t, tt.expectedAnnotation, virtualSvc.Annotations["tsuru.io/additional-hosts"])
 		})
 	}
 }
@@ -414,13 +413,9 @@ func TestIstioGateway_GetCnames(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
 			svc, istio := fakeService()
-			istio.GetReturns(&model.Config{
-				ConfigMeta: model.ConfigMeta{
-					Type:      "virtual-service",
-					Group:     "networking.istio.io",
-					Version:   "v1alpha3",
-					Name:      "myapp",
-					Namespace: "default",
+			_, err := istio.VirtualServices("default").Create(ctx, &networking.VirtualService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "myapp",
 					Labels: map[string]string{
 						"tsuru.io/app-name": "myapp",
 					},
@@ -428,8 +423,9 @@ func TestIstioGateway_GetCnames(t *testing.T) {
 						"tsuru.io/additional-hosts": tt.annotation,
 					},
 				},
-				Spec: &networking.VirtualService{},
-			}, true)
+				Spec: apiNetworking.VirtualService{},
+			}, metav1.CreateOptions{})
+			require.NoError(t, err)
 			rsp, err := svc.GetCnames(ctx, idForApp("myapp"))
 			require.NoError(t, err)
 			assert.ElementsMatch(t, tt.expected, rsp.Cnames)
