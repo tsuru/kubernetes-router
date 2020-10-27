@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -720,6 +721,52 @@ func TestLBUpdateSwapped(t *testing.T) {
 	if !reflect.DeepEqual(service.Spec.Selector, expectedSelector) {
 		t.Errorf("Expected %v. Got %v", expectedSelector, service.Spec.Selector)
 	}
+}
+
+func TestGetStatus(t *testing.T) {
+	svc := createFakeLBService()
+
+	err := svc.Create(ctx, idForApp("test"), router.Opts{})
+	require.NoError(t, err)
+
+	s, err := svc.getLBService(ctx, idForApp("test"))
+	require.NoError(t, err)
+
+	_, err = svc.BaseService.Client.CoreV1().Events("default").Create(ctx, &v1.Event{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "test-1234",
+			CreationTimestamp: metav1.NewTime(time.Now()),
+		},
+		InvolvedObject: v1.ObjectReference{
+			Name: s.Name,
+			UID:  s.UID,
+			Kind: "Service",
+		},
+		Type:    "Warning",
+		Reason:  "Unknown reason",
+		Message: "Failed to ensure loadbalancer",
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	status, detail, err := svc.GetStatus(ctx, idForApp("test"))
+	require.NoError(t, err)
+
+	assert.Equal(t, status, router.BackendStatusNotReady)
+	assert.Contains(t, detail, "Warning - Failed to ensure loadbalancer")
+
+	s.Status.LoadBalancer.Ingress = append(s.Status.LoadBalancer.Ingress, v1.LoadBalancerIngress{
+		Hostname: "testing",
+		IP:       "66.66.66.66",
+	})
+
+	_, err = svc.BaseService.Client.CoreV1().Services("default").UpdateStatus(ctx, s, metav1.UpdateOptions{})
+	require.NoError(t, err)
+
+	status, detail, err = svc.GetStatus(ctx, idForApp("test"))
+	require.NoError(t, err)
+
+	assert.Equal(t, status, router.BackendStatusReady)
+	assert.Contains(t, detail, "")
 }
 
 func TestLBSwap(t *testing.T) {

@@ -21,6 +21,9 @@ const (
 	// Domain is the domain option name
 	Domain = "domain"
 
+	// Domain suffix is used to append at name of app, ie: myapp.<domainSuffix>
+	DomainSuffix = "domain-suffix"
+
 	// Route is the route option name
 	Route = "route"
 
@@ -40,6 +43,13 @@ type InstanceID struct {
 	AppName      string
 }
 
+type BackendStatus string
+
+var (
+	BackendStatusReady    = BackendStatus("ready")
+	BackendStatusNotReady = BackendStatus("not ready")
+)
+
 // Router implements the basic functionally needed to
 // ingresses and/or loadbalancers.
 type Router interface {
@@ -49,6 +59,12 @@ type Router interface {
 	Swap(ctx context.Context, appSrc, appDst InstanceID) error
 	GetAddresses(ctx context.Context, id InstanceID) ([]string, error)
 	SupportedOptions(ctx context.Context) map[string]string
+}
+
+// RouterStatus could report status of backend
+type RouterStatus interface {
+	Router
+	GetStatus(ctx context.Context, id InstanceID) (status BackendStatus, detail string, err error)
 }
 
 // RouterTLS Certificates interface
@@ -73,6 +89,7 @@ type Opts struct {
 	ExposedPort    string            `json:",omitempty"`
 	Domain         string            `json:",omitempty"`
 	Route          string            `json:",omitempty"`
+	DomainSuffix   string            `json:",omitempty"`
 	Acme           bool              `json:",omitempty"`
 	AdditionalOpts map[string]string `json:",omitempty"`
 	HeaderOpts     []string          `json:",omitempty"`
@@ -160,6 +177,8 @@ func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 			o.ExposedPort = strV
 		case Domain:
 			o.Domain = strV
+		case DomainSuffix:
+			o.DomainSuffix = strV
 		case Route:
 			o.Route = strV
 		case Acme:

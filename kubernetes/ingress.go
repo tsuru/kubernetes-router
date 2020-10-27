@@ -35,9 +35,10 @@ var (
 )
 
 var (
-	_ router.Router      = &IngressService{}
-	_ router.RouterCNAME = &IngressService{}
-	_ router.RouterTLS   = &IngressService{}
+	_ router.Router       = &IngressService{}
+	_ router.RouterCNAME  = &IngressService{}
+	_ router.RouterTLS    = &IngressService{}
+	_ router.RouterStatus = &IngressService{}
 )
 
 // IngressService manages ingresses in a Kubernetes cluster that uses ingress-nginx
@@ -71,12 +72,18 @@ func (k *IngressService) Create(ctx context.Context, id router.InstanceID, route
 	if err != nil {
 		return err
 	}
+
+	domainSuffix := routerOpts.DomainSuffix
+	if k.DefaultDomain != "" {
+		domainSuffix = k.DefaultDomain
+	}
+
 	if len(routerOpts.Domain) > 0 {
 		vhost = routerOpts.Domain
 	} else if id.InstanceName == "" {
-		vhost = fmt.Sprintf("%v.%v", id.AppName, k.DefaultDomain)
+		vhost = fmt.Sprintf("%v.%v", id.AppName, domainSuffix)
 	} else {
-		vhost = fmt.Sprintf("%v.instance.%v.%v", id.InstanceName, id.AppName, k.DefaultDomain)
+		vhost = fmt.Sprintf("%v.instance.%v.%v", id.InstanceName, id.AppName, domainSuffix)
 	}
 	spec = v1beta1.IngressSpec{
 		Rules: []v1beta1.IngressRule{
@@ -230,6 +237,22 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 	}
 
 	return []string{fmt.Sprintf("%v", ingress.Spec.Rules[0].Host)}, nil
+}
+
+func (k *IngressService) GetStatus(ctx context.Context, id router.InstanceID) (router.BackendStatus, string, error) {
+	ingress, err := k.get(ctx, id)
+	if err != nil {
+		return router.BackendStatusNotReady, "", err
+	}
+	if isIngressReady(ingress) {
+		return router.BackendStatusReady, "", nil
+	}
+	detail, err := k.getStatusForRuntimeObject(ctx, ingress.Namespace, "Ingress", ingress.UID)
+	if err != nil {
+		return router.BackendStatusNotReady, "", err
+	}
+
+	return router.BackendStatusNotReady, detail, nil
 }
 
 func (k *IngressService) get(ctx context.Context, id router.InstanceID) (*v1beta1.Ingress, error) {
@@ -570,4 +593,11 @@ func mergeIngresses(ctx context.Context, client typedV1beta1.IngressInterface, i
 		ing.Spec.Backend = existing.Spec.Backend
 	}
 	return ing, false, nil
+}
+
+func isIngressReady(ingress *v1beta1.Ingress) bool {
+	if len(ingress.Status.LoadBalancer.Ingress) == 0 {
+		return false
+	}
+	return ingress.Status.LoadBalancer.Ingress[0].IP != ""
 }
