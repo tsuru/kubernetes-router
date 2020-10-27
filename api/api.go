@@ -37,6 +37,7 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 	r.Handle("/backend/{name}", handler(a.addBackend)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}", handler(a.updateBackend)).Methods(http.MethodPut)
 	r.Handle("/backend/{name}", handler(a.removeBackend)).Methods(http.MethodDelete)
+	r.Handle("/backend/{name}/status", handler(a.status)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}/routes", handler(a.getRoutes)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}/routes", handler(a.addRoutes)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}/routes/remove", handler(a.removeRoutes)).Methods(http.MethodPost)
@@ -58,6 +59,10 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 	r.Handle("/support/tls", handler(a.supportTLS)).Methods(http.MethodGet)
 	r.Handle("/support/cname", handler(a.supportCNAME)).Methods(http.MethodGet)
 	r.Handle("/support/info", handler(func(w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})).Methods(http.MethodGet)
+	r.Handle("/support/status", handler(func(w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusOK)
 		return nil
 	})).Methods(http.MethodGet)
@@ -105,6 +110,36 @@ func (a *RouterAPI) getBackend(w http.ResponseWriter, r *http.Request) error {
 	}
 	if len(addrs) > 0 {
 		rsp.Address = addrs[0]
+	}
+	return json.NewEncoder(w).Encode(rsp)
+}
+
+// status returns backend events
+func (a *RouterAPI) status(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	svc, err := a.router(ctx, vars["mode"], r.Header)
+	if err != nil {
+		return err
+	}
+
+	statusRouter, ok := svc.(router.RouterStatus)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return nil
+	}
+
+	status, detail, err := statusRouter.GetStatus(ctx, instanceID(r))
+	if err != nil {
+		return err
+	}
+	type statusResp struct {
+		Status router.BackendStatus `json:"status"`
+		Detail string               `json:"detail"`
+	}
+	rsp := statusResp{
+		Status: status,
+		Detail: detail,
 	}
 	return json.NewEncoder(w).Encode(rsp)
 }

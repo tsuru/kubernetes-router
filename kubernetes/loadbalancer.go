@@ -34,7 +34,8 @@ var (
 )
 
 var (
-	_ router.Router = &LBService{}
+	_ router.Router       = &LBService{}
+	_ router.RouterStatus = &LBService{}
 )
 
 // LBService manages LoadBalancer services
@@ -173,6 +174,22 @@ func (s *LBService) SupportedOptions(ctx context.Context) map[string]string {
 		}
 	}
 	return opts
+}
+
+func (s *LBService) GetStatus(ctx context.Context, id router.InstanceID) (router.BackendStatus, string, error) {
+	service, err := s.getLBService(ctx, id)
+	if err != nil {
+		return router.BackendStatusNotReady, "", err
+	}
+	if isReady(service) {
+		return router.BackendStatusReady, "", nil
+	}
+	detail, err := s.getStatusForRuntimeObject(ctx, service.Namespace, "Service", service.UID)
+	if err != nil {
+		return router.BackendStatusNotReady, "", err
+	}
+
+	return router.BackendStatusNotReady, detail, nil
 }
 
 func (s *LBService) getLBService(ctx context.Context, id router.InstanceID) (*v1.Service, error) {

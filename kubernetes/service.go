@@ -5,11 +5,13 @@
 package kubernetes
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -24,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/transport"
@@ -303,6 +306,41 @@ func (s *BaseService) hashedResourceName(id router.InstanceID, name string, limi
 	h.Write([]byte(name))
 	hash := fmt.Sprintf("%x", h.Sum(nil))
 	return fmt.Sprintf("%s-%s", name[:limit-17], hash[:16])
+}
+
+func (s *BaseService) getStatusForRuntimeObject(ctx context.Context, ns string, kind string, uid types.UID) (string, error) {
+	client, err := s.getClient()
+	if err != nil {
+		return "", err
+	}
+	selector := map[string]string{
+		"involvedObject.kind": kind,
+		"involvedObject.uid":  string(uid),
+	}
+
+	eventList, err := client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
+		FieldSelector: labels.SelectorFromSet(labels.Set(selector)).String(),
+	})
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	reasonMap := map[string]bool{}
+	sort.Slice(eventList.Items, func(i, j int) bool {
+		return eventList.Items[i].CreationTimestamp.After(eventList.Items[j].CreationTimestamp.Time)
+	})
+
+	for _, event := range eventList.Items {
+		if reasonMap[event.Reason] {
+			continue
+		}
+		reasonMap[event.Reason] = true
+
+		fmt.Fprintf(&buf, "%s - %s - %s\n", event.CreationTimestamp.Format(time.RFC3339), event.Type, event.Message)
+	}
+
+	return buf.String(), nil
 }
 
 func isFrozenSvc(svc *v1.Service) bool {

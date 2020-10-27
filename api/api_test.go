@@ -137,6 +137,7 @@ func (s *RouterAPISuite) TestAddBackendWithHeaderOpts() {
 		s.Equal("mypool", opts.Pool)
 		s.Equal("443", opts.ExposedPort)
 		s.Equal("a.b", opts.Domain)
+		s.Equal("test.io", opts.DomainSuffix)
 		expectedAdditional := map[string]string{"custom": "val", "custom2": "val2"}
 		s.Equal(expectedAdditional, opts.AdditionalOpts)
 		return nil
@@ -146,6 +147,7 @@ func (s *RouterAPISuite) TestAddBackendWithHeaderOpts() {
 	body := bytes.NewReader(reqData)
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp", body)
 	req.Header.Add("X-Router-Opt", "domain=a.b")
+	req.Header.Add("X-Router-Opt", "domain-suffix=test.io")
 	req.Header.Add("X-Router-Opt", "custom2=val2")
 	w := httptest.NewRecorder()
 

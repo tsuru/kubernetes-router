@@ -20,6 +20,7 @@ type RouterMock struct {
 	UpdateFn                 func(router.InstanceID, router.RoutesRequestExtraData) error
 	SwapFn                   func(router.InstanceID, router.InstanceID) error
 	GetAddressesFn           func(router.InstanceID) ([]string, error)
+	GetStatusFn              func(router.InstanceID) (router.BackendStatus, string, error)
 	GetCertificateFn         func(router.InstanceID, string) (*router.CertData, error)
 	AddCertificateFn         func(router.InstanceID, string, router.CertData) error
 	RemoveCertificateFn      func(router.InstanceID, string) error
@@ -39,6 +40,7 @@ type RouterMock struct {
 	SetCnameInvoked          bool
 	UnsetCnameInvoked        bool
 	SupportedOptionsInvoked  bool
+	GetStatusInvoked         bool
 }
 
 // Create calls CreateFn
@@ -69,6 +71,11 @@ func (s *RouterMock) Swap(ctx context.Context, appSrc, appDst router.InstanceID)
 func (s *RouterMock) GetAddresses(ctx context.Context, id router.InstanceID) ([]string, error) {
 	s.GetAddressesInvoked = true
 	return s.GetAddressesFn(id)
+}
+
+func (s *RouterMock) GetStatus(ctx context.Context, id router.InstanceID) (router.BackendStatus, string, error) {
+	s.GetStatusInvoked = true
+	return s.GetStatusFn(id)
 }
 
 // GetCertificate calls GetCertificate
