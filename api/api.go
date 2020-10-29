@@ -132,7 +132,6 @@ func (a *RouterAPI) status(w http.ResponseWriter, r *http.Request) error {
 		return json.NewEncoder(w).Encode(&statusResp{
 			Status: router.BackendStatusReady,
 		})
-		return nil
 	}
 
 	status, detail, err := statusRouter.GetStatus(ctx, instanceID(r))
