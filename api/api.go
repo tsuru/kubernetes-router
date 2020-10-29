@@ -122,20 +122,22 @@ func (a *RouterAPI) status(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	type statusResp struct {
+		Status router.BackendStatus `json:"status"`
+		Detail string               `json:"detail"`
+	}
 
 	statusRouter, ok := svc.(router.RouterStatus)
 	if !ok {
-		w.WriteHeader(http.StatusNotFound)
+		return json.NewEncoder(w).Encode(&statusResp{
+			Status: router.BackendStatusReady,
+		})
 		return nil
 	}
 
 	status, detail, err := statusRouter.GetStatus(ctx, instanceID(r))
 	if err != nil {
 		return err
-	}
-	type statusResp struct {
-		Status router.BackendStatus `json:"status"`
-		Detail string               `json:"detail"`
 	}
 	rsp := statusResp{
 		Status: status,
