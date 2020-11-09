@@ -217,7 +217,8 @@ func isReady(service *v1.Service) bool {
 	if len(service.Status.LoadBalancer.Ingress) == 0 {
 		return false
 	}
-	return service.Status.LoadBalancer.Ingress[0].IP != ""
+	// NOTE: aws load-balancers does not have IP
+	return service.Status.LoadBalancer.Ingress[0].IP != "" || service.Status.LoadBalancer.Ingress[0].Hostname != ""
 }
 
 func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *router.Opts, isUpdate bool, extraData router.RoutesRequestExtraData) error {

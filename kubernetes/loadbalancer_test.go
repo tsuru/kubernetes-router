@@ -754,10 +754,27 @@ func TestGetStatus(t *testing.T) {
 	assert.Equal(t, status, router.BackendStatusNotReady)
 	assert.Contains(t, detail, "Warning - Failed to ensure loadbalancer")
 
-	s.Status.LoadBalancer.Ingress = append(s.Status.LoadBalancer.Ingress, v1.LoadBalancerIngress{
-		Hostname: "testing",
-		IP:       "66.66.66.66",
-	})
+	s.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{
+		{
+			Hostname: "testing",
+			IP:       "66.66.66.66",
+		},
+	}
+
+	_, err = svc.BaseService.Client.CoreV1().Services("default").UpdateStatus(ctx, s, metav1.UpdateOptions{})
+	require.NoError(t, err)
+
+	status, detail, err = svc.GetStatus(ctx, idForApp("test"))
+	require.NoError(t, err)
+
+	assert.Equal(t, status, router.BackendStatusReady)
+	assert.Contains(t, detail, "")
+
+	s.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{
+		{
+			Hostname: "mylb.elb.ZONE.amazonaws.com",
+		},
+	}
 
 	_, err = svc.BaseService.Client.CoreV1().Services("default").UpdateStatus(ctx, s, metav1.UpdateOptions{})
 	require.NoError(t, err)
