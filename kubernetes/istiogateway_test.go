@@ -33,7 +33,7 @@ func fakeService() (IstioGateway, networkingClientSet.NetworkingV1beta1Interface
 			ExtensionsClient: fakeapiextensions.NewSimpleClientset(),
 		},
 		istioClient:     fakeIstio,
-		DefaultDomain:   "my.domain",
+		DomainSuffix:    "my.domain",
 		GatewaySelector: map[string]string{"istio": "ingress"},
 	}, fakeIstio
 }

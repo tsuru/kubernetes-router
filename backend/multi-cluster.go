@@ -88,7 +88,6 @@ func (m *MultiCluster) Router(ctx context.Context, mode string, headers http.Hea
 	if mode == "ingress" {
 		return &kubernetes.IngressService{
 			BaseService: baseService,
-			// TODO(wpjunior): may router opts plugged in here ?
 		}, nil
 	}
 

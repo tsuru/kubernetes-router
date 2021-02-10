@@ -35,7 +35,7 @@ var (
 type IstioGateway struct {
 	*BaseService
 	istioClient     networkingClientSet.NetworkingV1beta1Interface
-	DefaultDomain   string
+	DomainSuffix    string
 	GatewaySelector map[string]string
 }
 
@@ -49,9 +49,9 @@ func (k *IstioGateway) vsName(id router.InstanceID) string {
 
 func (k *IstioGateway) gatewayHost(id router.InstanceID) string {
 	if id.InstanceName == "" {
-		return fmt.Sprintf("%v.%v", id.AppName, k.DefaultDomain)
+		return fmt.Sprintf("%v.%v", id.AppName, k.DomainSuffix)
 	}
-	return fmt.Sprintf("%v.instance.%v.%v", id.InstanceName, id.AppName, k.DefaultDomain)
+	return fmt.Sprintf("%v.instance.%v.%v", id.InstanceName, id.AppName, k.DomainSuffix)
 }
 
 func (k *IstioGateway) updateObjectMeta(result *metav1.ObjectMeta, appName string, routerOpts router.Opts) {

@@ -263,7 +263,10 @@ func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *rout
 
 	webService, err := s.getWebService(ctx, id.AppName, extraData, lbService.Labels)
 	if err != nil {
-		if _, isNotFound := err.(ErrNoService); isUpdate || !isNotFound {
+		_, isMultipleServiceFound := err.(ErrMultipleServiceFound)
+		_, isNotFound := err.(ErrNoService)
+
+		if (isUpdate && isNotFound) || (isUpdate && isMultipleServiceFound) {
 			return err
 		}
 	}
