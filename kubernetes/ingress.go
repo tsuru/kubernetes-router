@@ -44,7 +44,7 @@ var (
 // IngressService manages ingresses in a Kubernetes cluster that uses ingress-nginx
 type IngressService struct {
 	*BaseService
-	DefaultDomain string
+	DomainSuffix string
 
 	// AnnotationsPrefix defines the common prefix used in the nginx ingress controller
 	AnnotationsPrefix string
@@ -74,8 +74,8 @@ func (k *IngressService) Create(ctx context.Context, id router.InstanceID, route
 	}
 
 	domainSuffix := routerOpts.DomainSuffix
-	if k.DefaultDomain != "" {
-		domainSuffix = k.DefaultDomain
+	if k.DomainSuffix != "" {
+		domainSuffix = k.DomainSuffix
 	}
 
 	if len(routerOpts.Domain) > 0 {
@@ -144,6 +144,9 @@ func (k *IngressService) Update(ctx context.Context, id router.InstanceID, extra
 	ingress, err := k.get(ctx, id)
 	if err != nil {
 		return err
+	}
+	if ingress.Labels[swapLabel] != "" {
+		return errors.New("Update with swapped ingress it is not supported yet")
 	}
 	service, err := k.getWebService(ctx, id.AppName, extraData, ingress.Labels)
 	if err != nil {

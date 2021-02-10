@@ -29,7 +29,7 @@ func main() {
 	runModes := cmd.StringSliceFlag{}
 	flag.Var(&runModes, "controller-modes", "Defines enabled controller running modes: service, ingress, ingress-nginx or istio-gateway.")
 
-	ingressDefaultDomain := flag.String("ingress-domain", "local", "Default domain to be used on created vhosts, local is the default. (eg: serviceName.local)")
+	ingressDomain := flag.String("ingress-domain", "local", "Default domain to be used on created vhosts, local is the default. (eg: serviceName.local)")
 
 	istioGatewaySelector := &cmd.MapFlag{}
 	flag.Var(istioGatewaySelector, "istio-gateway.gateway-selector", "Gateway selector used in gateways created for apps.")
@@ -85,7 +85,7 @@ func main() {
 		case "istio-gateway":
 			localBackend.Routers[mode] = &kubernetes.IstioGateway{
 				BaseService:     base,
-				DefaultDomain:   *ingressDefaultDomain,
+				DomainSuffix:    *ingressDomain,
 				GatewaySelector: *istioGatewaySelector,
 			}
 		case "ingress-nginx":
@@ -95,7 +95,7 @@ func main() {
 		case "ingress":
 			localBackend.Routers[mode] = &kubernetes.IngressService{
 				BaseService:           base,
-				DefaultDomain:         *ingressDefaultDomain,
+				DomainSuffix:          *ingressDomain,
 				OptsAsAnnotations:     *optsToIngressAnnotations,
 				OptsAsAnnotationsDocs: *optsToIngressAnnotationsDocs,
 				IngressClass:          *ingressClass,
