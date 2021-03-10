@@ -80,10 +80,10 @@ func (k *IngressService) Create(ctx context.Context, id router.InstanceID, route
 
 	if len(routerOpts.Domain) > 0 {
 		vhost = routerOpts.Domain
-	} else if id.InstanceName == "" {
+	} else if routerOpts.DomainPrefix == "" {
 		vhost = fmt.Sprintf("%v.%v", id.AppName, domainSuffix)
 	} else {
-		vhost = fmt.Sprintf("%v.instance.%v.%v", id.InstanceName, id.AppName, domainSuffix)
+		vhost = fmt.Sprintf("%v.%v.%v", routerOpts.DomainPrefix, id.AppName, domainSuffix)
 	}
 	spec = v1beta1.IngressSpec{
 		Rules: []v1beta1.IngressRule{

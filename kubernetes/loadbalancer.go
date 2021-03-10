@@ -337,10 +337,10 @@ func (s *LBService) fillLabelsAndAnnotations(ctx context.Context, svc *v1.Servic
 	if len(opts.Domain) > 0 {
 		vhost = opts.Domain
 	} else if opts.DomainSuffix != "" {
-		if id.InstanceName == "" {
+		if opts.DomainPrefix == "" {
 			vhost = fmt.Sprintf("%v.%v", id.AppName, opts.DomainSuffix)
 		} else {
-			vhost = fmt.Sprintf("%v.instance.%v.%v", id.InstanceName, id.AppName, opts.DomainSuffix)
+			vhost = fmt.Sprintf("%v.%v.%v", opts.DomainPrefix, id.AppName, opts.DomainSuffix)
 		}
 	}
 	if vhost != "" {

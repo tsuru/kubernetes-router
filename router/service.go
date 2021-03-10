@@ -24,6 +24,8 @@ const (
 	// Domain suffix is used to append at name of app, ie: myapp.<domainSuffix>
 	DomainSuffix = "domain-suffix"
 
+	// Domain prefix is used to prepend at name of app, ie: <domainPrefix>.myapp.<domainSuffix>
+	DomainPrefix = "domain-prefix"
 	// Route is the route option name
 	Route = "route"
 
@@ -90,6 +92,7 @@ type Opts struct {
 	Domain         string            `json:",omitempty"`
 	Route          string            `json:",omitempty"`
 	DomainSuffix   string            `json:",omitempty"`
+	DomainPrefix   string            `json:",omitempty"`
 	Acme           bool              `json:",omitempty"`
 	AdditionalOpts map[string]string `json:",omitempty"`
 	HeaderOpts     []string          `json:",omitempty"`
@@ -179,6 +182,8 @@ func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 			o.Domain = strV
 		case DomainSuffix:
 			o.DomainSuffix = strV
+		case DomainPrefix:
+			o.DomainPrefix = strV
 		case Route:
 			o.Route = strV
 		case Acme:
