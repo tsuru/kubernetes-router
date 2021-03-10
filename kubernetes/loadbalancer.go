@@ -148,6 +148,10 @@ func (s *LBService) GetAddresses(ctx context.Context, id router.InstanceID) ([]s
 	}
 	var addr string
 	lbs := service.Status.LoadBalancer.Ingress
+	if service.Annotations[externalDNSHostnameLabel] != "" {
+		hostnames := strings.Split(service.Annotations[externalDNSHostnameLabel], ",")
+		return hostnames, nil
+	}
 	if len(lbs) != 0 {
 		addr = lbs[0].IP
 		ports := service.Spec.Ports
@@ -274,7 +278,7 @@ func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *rout
 		lbService.Spec.Selector = webService.Spec.Selector
 	}
 
-	err = s.fillLabelsAndAnnotations(ctx, lbService, id.AppName, webService, *opts, extraData)
+	err = s.fillLabelsAndAnnotations(ctx, lbService, id, webService, *opts, extraData)
 	if err != nil {
 		return err
 	}
@@ -284,7 +288,6 @@ func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *rout
 		return err
 	}
 	lbService.Spec.Ports = ports
-
 	client, err := s.getClient()
 	if err != nil {
 		return err
@@ -296,7 +299,7 @@ func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *rout
 	return err
 }
 
-func (s *LBService) fillLabelsAndAnnotations(ctx context.Context, svc *v1.Service, appName string, webService *v1.Service, opts router.Opts, extraData router.RoutesRequestExtraData) error {
+func (s *LBService) fillLabelsAndAnnotations(ctx context.Context, svc *v1.Service, id router.InstanceID, webService *v1.Service, opts router.Opts, extraData router.RoutesRequestExtraData) error {
 	optsLabels := make(map[string]string)
 	registeredOpts := s.SupportedOptions(ctx)
 
@@ -330,13 +333,27 @@ func (s *LBService) fillLabelsAndAnnotations(ctx context.Context, svc *v1.Servic
 		}
 	}
 
+	vhost := ""
+	if len(opts.Domain) > 0 {
+		vhost = opts.Domain
+	} else if opts.DomainSuffix != "" {
+		if id.InstanceName == "" {
+			vhost = fmt.Sprintf("%v.%v", id.AppName, opts.DomainSuffix)
+		} else {
+			vhost = fmt.Sprintf("%v.instance.%v.%v", id.InstanceName, id.AppName, opts.DomainSuffix)
+		}
+	}
+	if vhost != "" {
+		annotations[externalDNSHostnameLabel] = vhost
+	}
+
 	labels := []map[string]string{
 		svc.Labels,
 		s.PoolLabels[opts.Pool],
 		optsLabels,
 		s.Labels,
 		{
-			appLabel:             appName,
+			appLabel:             id.AppName,
 			managedServiceLabel:  "true",
 			externalServiceLabel: "true",
 			appPoolLabel:         opts.Pool,

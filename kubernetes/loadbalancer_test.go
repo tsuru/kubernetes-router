@@ -47,7 +47,7 @@ func TestLBCreate(t *testing.T) {
 	svc.Annotations = map[string]string{"annotation": "annval"}
 	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
 	svc.PoolLabels = map[string]map[string]string{"mypool": {"pool-env": "dev"}, "otherpool": {"pool-env": "prod"}}
-	err := svc.Create(ctx, idForApp("test"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
+	err := svc.Create(ctx, idForApp("test"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}, DomainSuffix: "myapps.io"})
 	if err != nil {
 		t.Errorf("Expected err to be nil. Got %v.", err)
 	}
@@ -63,8 +63,43 @@ func TestLBCreate(t *testing.T) {
 	svc.Labels["my-opt-as-label"] = "value"
 	svc.Labels["pool-env"] = "dev"
 	expectedAnnotations := map[string]string{
-		"annotation":           "annval",
-		"router.tsuru.io/opts": `{"Pool":"mypool","AdditionalOpts":{"my-opt":"value"}}`,
+		"annotation": "annval",
+		"external-dns.alpha.kubernetes.io/hostname": "test.myapps.io",
+		"router.tsuru.io/opts":                      `{"Pool":"mypool","DomainSuffix":"myapps.io","AdditionalOpts":{"my-opt":"value"}}`,
+	}
+	expectedService := defaultService("test", "default", svc.Labels, expectedAnnotations, nil)
+	assert.Equal(t, expectedService, serviceList.Items[0])
+}
+
+func TestLBCreateWithDomain(t *testing.T) {
+	svc := createFakeLBService()
+	svc.Labels = map[string]string{"label": "labelval"}
+	svc.Annotations = map[string]string{"annotation": "annval"}
+	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
+	svc.PoolLabels = map[string]map[string]string{"mypool": {"pool-env": "dev"}, "otherpool": {"pool-env": "prod"}}
+	err := svc.Create(ctx, idForApp("test"), router.Opts{
+		Pool:           "mypool",
+		AdditionalOpts: map[string]string{"my-opt": "value"},
+		Domain:         "myappdomain.zone.io",
+	})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	setIP(t, svc, "test")
+	serviceList, err := svc.Client.CoreV1().Services(svc.Namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("Expected err to be nil. Got %v.", err)
+	}
+	if len(serviceList.Items) != 1 {
+		t.Errorf("Expected 1 item. Got %d.", len(serviceList.Items))
+	}
+	svc.Labels[appPoolLabel] = "mypool"
+	svc.Labels["my-opt-as-label"] = "value"
+	svc.Labels["pool-env"] = "dev"
+	expectedAnnotations := map[string]string{
+		"annotation": "annval",
+		"external-dns.alpha.kubernetes.io/hostname": "myappdomain.zone.io",
+		"router.tsuru.io/opts":                      `{"Pool":"mypool","Domain":"myappdomain.zone.io","AdditionalOpts":{"my-opt":"value"}}`,
 	}
 	expectedService := defaultService("test", "default", svc.Labels, expectedAnnotations, nil)
 	assert.Equal(t, expectedService, serviceList.Items[0])
@@ -786,6 +821,59 @@ func TestGetStatus(t *testing.T) {
 	assert.Contains(t, detail, "")
 }
 
+func TestGetAddresses(t *testing.T) {
+	svc := createFakeLBService()
+
+	err := svc.Create(ctx, idForApp("test"), router.Opts{})
+	require.NoError(t, err)
+
+	s, err := svc.getLBService(ctx, idForApp("test"))
+	require.NoError(t, err)
+
+	addresses, err := svc.GetAddresses(ctx, idForApp("test"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{""}, addresses)
+
+	s.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{
+		{
+			Hostname: "testing.io",
+			IP:       "66.66.66.66",
+		},
+	}
+	_, err = svc.BaseService.Client.CoreV1().Services("default").UpdateStatus(ctx, s, metav1.UpdateOptions{})
+	require.NoError(t, err)
+
+	addresses, err = svc.GetAddresses(ctx, idForApp("test"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"testing.io"}, addresses)
+
+	s.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{
+		{
+			Hostname: "mylb.elb.ZONE.amazonaws.com",
+		},
+	}
+	_, err = svc.BaseService.Client.CoreV1().Services("default").UpdateStatus(ctx, s, metav1.UpdateOptions{})
+	require.NoError(t, err)
+
+	addresses, err = svc.GetAddresses(ctx, idForApp("test"))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"mylb.elb.ZONE.amazonaws.com"}, addresses)
+
+	s.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{
+		{
+			IP: "66.66.66.66",
+		},
+	}
+	s.Annotations[externalDNSHostnameLabel] = "myapp.zone.io,myapp.com"
+	_, err = svc.BaseService.Client.CoreV1().Services("default").UpdateStatus(ctx, s, metav1.UpdateOptions{})
+	require.NoError(t, err)
+
+	addresses, err = svc.GetAddresses(ctx, idForApp("test"))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"myapp.zone.io", "myapp.com"}, addresses)
+}
 func TestLBSwap(t *testing.T) {
 	svc := createFakeLBService()
 

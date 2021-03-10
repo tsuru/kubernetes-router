@@ -44,6 +44,8 @@ const (
 	appBaseServiceNameLabel      = "router.tsuru.io/base-service-name"
 	routerFreezeLabel            = "router.tsuru.io/freeze"
 
+	externalDNSHostnameLabel = "external-dns.alpha.kubernetes.io/hostname"
+
 	defaultServicePort = 8888
 	appLabel           = "tsuru.io/app-name"
 	domainLabel        = "tsuru.io/domain-name"

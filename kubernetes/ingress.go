@@ -145,8 +145,9 @@ func (k *IngressService) Update(ctx context.Context, id router.InstanceID, extra
 	if err != nil {
 		return err
 	}
-	if ingress.Labels[swapLabel] != "" {
-		return errors.New("Update with swapped ingress it is not supported yet")
+	if _, isSwapped := k.isSwapped(ingress.ObjectMeta); isSwapped {
+		log.Println("Update with swapped ingress it is not supported yet")
+		return nil
 	}
 	service, err := k.getWebService(ctx, id.AppName, extraData, ingress.Labels)
 	if err != nil {
