@@ -44,6 +44,8 @@ const (
 	appBaseServiceNameLabel      = "router.tsuru.io/base-service-name"
 	routerFreezeLabel            = "router.tsuru.io/freeze"
 
+	externalDNSHostnameLabel = "external-dns.alpha.kubernetes.io/hostname"
+
 	defaultServicePort = 8888
 	appLabel           = "tsuru.io/app-name"
 	domainLabel        = "tsuru.io/domain-name"
@@ -60,6 +62,20 @@ type ErrNoService struct{ App, Process string }
 
 func (e ErrNoService) Error() string {
 	str := fmt.Sprintf("no service found for app %q", e.App)
+	if e.Process != "" {
+		str += fmt.Sprintf(" and process %q", e.Process)
+	}
+	return str
+}
+
+// ErrNoService indicates that the app has no service running
+type ErrMultipleServiceFound struct {
+	App, Process string
+	Found        int
+}
+
+func (e ErrMultipleServiceFound) Error() string {
+	str := fmt.Sprintf("multiple (%d) services matching app %q", e.Found, e.App)
 	if e.Process != "" {
 		str += fmt.Sprintf(" and process %q", e.Process)
 	}
@@ -207,7 +223,7 @@ func (k *BaseService) getWebService(ctx context.Context, appName string, extraDa
 	}
 	if webSvcsCounter > 1 {
 		log.Printf("WARNING: multiple (%d) services matching app %q and process %q", webSvcsCounter, appName, webProcessName)
-		return nil, ErrNoService{App: appName, Process: webProcessName}
+		return nil, ErrMultipleServiceFound{App: appName, Process: webProcessName, Found: webSvcsCounter}
 	}
 	if service != nil {
 		return service, nil
