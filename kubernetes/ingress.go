@@ -120,6 +120,9 @@ func (k *IngressService) Create(ctx context.Context, id router.InstanceID, route
 
 	i, isNew, err := mergeIngresses(ctx, client, i)
 	if err != nil {
+		if _, isSwapped := err.(ErrAppSwapped); isSwapped {
+			return nil
+		}
 		return err
 	}
 	if isNew {
@@ -145,7 +148,7 @@ func (k *IngressService) Update(ctx context.Context, id router.InstanceID, extra
 	if err != nil {
 		return err
 	}
-	if _, isSwapped := k.isSwapped(ingress.ObjectMeta); isSwapped {
+	if _, isSwapped := isSwapped(ingress.ObjectMeta); isSwapped {
 		log.Println("Update with swapped ingress it is not supported yet")
 		return nil
 	}
@@ -213,7 +216,7 @@ func (k *IngressService) Remove(ctx context.Context, id router.InstanceID) error
 		}
 		return err
 	}
-	if dstApp, swapped := k.BaseService.isSwapped(ingress.ObjectMeta); swapped {
+	if dstApp, swapped := isSwapped(ingress.ObjectMeta); swapped {
 		return ErrAppSwapped{App: id.AppName, DstApp: dstApp}
 	}
 	ns, err := k.getAppNamespace(ctx, id.AppName)
@@ -590,6 +593,11 @@ func mergeIngresses(ctx context.Context, client typedV1beta1.IngressInterface, i
 			return ing, true, nil
 		}
 		return nil, false, err
+	}
+
+	if dstApp, isSwapped := isSwapped(existing.ObjectMeta); isSwapped {
+		log.Println("Creating with swapped ingress it is not supported yet")
+		return nil, true, ErrAppSwapped{App: existing.Labels[appLabel], DstApp: dstApp}
 	}
 
 	ing.ObjectMeta.ResourceVersion = existing.ObjectMeta.ResourceVersion

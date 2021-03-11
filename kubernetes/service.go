@@ -241,7 +241,7 @@ func (k *BaseService) swap(src, dst *metav1.ObjectMeta) {
 	}
 }
 
-func (k *BaseService) isSwapped(obj metav1.ObjectMeta) (string, bool) {
+func isSwapped(obj metav1.ObjectMeta) (string, bool) {
 	target := obj.Labels[swapLabel]
 	return target, target != ""
 }

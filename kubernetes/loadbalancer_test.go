@@ -895,7 +895,7 @@ func TestLBSwap(t *testing.T) {
 
 	blueSvc := defaultService("test-blue", "default", map[string]string{swapLabel: "test-green"}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"app": "green"})
 	greenSvc := defaultService("test-green", "default", map[string]string{swapLabel: "test-blue"}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"app": "blue"})
-	isSwapped := true
+	haveBeenSwapped := true
 	i := 1
 	for i <= 2 {
 		err := svc.Swap(ctx, idForApp("test-blue"), idForApp("test-green"))
@@ -911,14 +911,14 @@ func TestLBSwap(t *testing.T) {
 		if !reflect.DeepEqual(serviceList.Items, []v1.Service{blueSvc, greenSvc}) {
 			t.Errorf("Iteration %d: Expected %#v. \nGot %#v", i, []v1.Service{blueSvc, greenSvc}, serviceList.Items)
 		}
-		if _, swapped := svc.BaseService.isSwapped(blueSvc.ObjectMeta); swapped != isSwapped {
-			t.Errorf("Iteration %d: Expected isSwapped to be %v. Got %v", i, isSwapped, swapped)
+		if _, swapped := isSwapped(blueSvc.ObjectMeta); swapped != haveBeenSwapped {
+			t.Errorf("Iteration %d: Expected isSwapped to be %v. Got %v", i, haveBeenSwapped, swapped)
 		}
 
 		blueSvc = defaultService("test-blue", "default", map[string]string{swapLabel: ""}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"app": "blue"})
 		greenSvc = defaultService("test-green", "default", map[string]string{swapLabel: ""}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"app": "green"})
 
-		isSwapped = !isSwapped
+		haveBeenSwapped = !haveBeenSwapped
 		i++
 	}
 }

@@ -70,7 +70,7 @@ func (s *LBService) Remove(ctx context.Context, id router.InstanceID) error {
 		}
 		return err
 	}
-	if dstApp, swapped := s.BaseService.isSwapped(service.ObjectMeta); swapped {
+	if dstApp, swapped := isSwapped(service.ObjectMeta); swapped {
 		return ErrAppSwapped{App: id.AppName, DstApp: dstApp}
 	}
 	ns, err := s.getAppNamespace(ctx, id.AppName)
@@ -252,7 +252,7 @@ func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *rout
 	if isFrozenSvc(lbService) {
 		return nil
 	}
-	if _, isSwapped := s.isSwapped(lbService.ObjectMeta); isSwapped {
+	if _, isSwapped := isSwapped(lbService.ObjectMeta); isSwapped {
 		return nil
 	}
 
