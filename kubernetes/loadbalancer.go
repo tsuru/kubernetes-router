@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -52,11 +53,6 @@ type LBService struct {
 	PoolLabels map[string]map[string]string
 }
 
-// Create creates a LoadBalancer type service without any selectors
-func (s *LBService) Create(ctx context.Context, id router.InstanceID, opts router.Opts) error {
-	return s.syncLB(ctx, id, &opts, false, router.RoutesRequestExtraData{})
-}
-
 // Remove removes the LoadBalancer service
 func (s *LBService) Remove(ctx context.Context, id router.InstanceID) error {
 	client, err := s.getClient()
@@ -82,12 +78,6 @@ func (s *LBService) Remove(ctx context.Context, id router.InstanceID) error {
 		return nil
 	}
 	return err
-}
-
-// Update updates the LoadBalancer service copying the web service
-// labels, selectors, annotations and ports
-func (s *LBService) Update(ctx context.Context, id router.InstanceID, extraData router.RoutesRequestExtraData) error {
-	return s.syncLB(ctx, id, nil, true, extraData)
 }
 
 // Swap swaps the two LB services selectors
@@ -225,16 +215,22 @@ func isReady(service *v1.Service) bool {
 	return service.Status.LoadBalancer.Ingress[0].IP != "" || service.Status.LoadBalancer.Ingress[0].Hostname != ""
 }
 
-func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *router.Opts, isUpdate bool, extraData router.RoutesRequestExtraData) error {
+// Ensure creates or updates the LoadBalancer service copying the web service
+// labels, selectors, annotations and ports
+
+func (s *LBService) Ensure(ctx context.Context, id router.InstanceID, o router.EnsureBackendOpts) error {
 	app, err := s.getApp(ctx, id.AppName)
 	if err != nil {
 		return err
 	}
-	lbService, err := s.getLBService(ctx, id)
+	isNew := false
+	existingLBService, err := s.getLBService(ctx, id)
+	var lbService *v1.Service
 	if err != nil {
 		if !k8sErrors.IsNotFound(err) {
 			return err
 		}
+		isNew = true
 		ns := s.Namespace
 		if app != nil {
 			ns = app.Spec.NamespaceName
@@ -249,6 +245,9 @@ func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *rout
 			},
 		}
 	}
+	if !isNew {
+		lbService = existingLBService.DeepCopy()
+	}
 	if isFrozenSvc(lbService) {
 		return nil
 	}
@@ -256,34 +255,24 @@ func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *rout
 		return nil
 	}
 
-	if opts == nil {
-		var annotationOpts router.Opts
-		annotationOpts, err = router.OptsFromAnnotations(&lbService.ObjectMeta)
-		if err != nil {
-			return err
-		}
-		opts = &annotationOpts
-	}
-
-	webService, err := s.getWebService(ctx, id.AppName, extraData, lbService.Labels)
-	if err != nil {
-		_, isMultipleServiceFound := err.(ErrMultipleServiceFound)
-		_, isNotFound := err.(ErrNoService)
-
-		if (isUpdate && isNotFound) || (isUpdate && isMultipleServiceFound) {
-			return err
-		}
-	}
-	if webService != nil {
-		lbService.Spec.Selector = webService.Spec.Selector
-	}
-
-	err = s.fillLabelsAndAnnotations(ctx, lbService, id, webService, *opts, extraData)
+	defaultTarget, err := s.getDefaultBackendTarget(o.Prefixes)
 	if err != nil {
 		return err
 	}
 
-	ports, err := s.portsForService(lbService, *opts, webService)
+	webService, err := s.getWebService(ctx, id.AppName, *defaultTarget)
+	if err != nil {
+		return err
+	}
+
+	lbService.Spec.Selector = webService.Spec.Selector
+
+	err = s.fillLabelsAndAnnotations(ctx, lbService, id, webService, o.Opts, *defaultTarget)
+	if err != nil {
+		return err
+	}
+
+	ports, err := s.portsForService(lbService, o.Opts, webService)
 	if err != nil {
 		return err
 	}
@@ -292,14 +281,23 @@ func (s *LBService) syncLB(ctx context.Context, id router.InstanceID, opts *rout
 	if err != nil {
 		return err
 	}
-	_, err = client.CoreV1().Services(lbService.Namespace).Update(ctx, lbService, metav1.UpdateOptions{})
-	if k8sErrors.IsNotFound(err) {
+
+	if isNew {
 		_, err = client.CoreV1().Services(lbService.Namespace).Create(ctx, lbService, metav1.CreateOptions{})
+		return err
 	}
-	return err
+
+	hasChanges := serviceHasChanges(existingLBService, lbService)
+
+	if hasChanges {
+		_, err = client.CoreV1().Services(lbService.Namespace).Update(ctx, lbService, metav1.UpdateOptions{})
+		return err
+	}
+
+	return nil
 }
 
-func (s *LBService) fillLabelsAndAnnotations(ctx context.Context, svc *v1.Service, id router.InstanceID, webService *v1.Service, opts router.Opts, extraData router.RoutesRequestExtraData) error {
+func (s *LBService) fillLabelsAndAnnotations(ctx context.Context, svc *v1.Service, id router.InstanceID, webService *v1.Service, opts router.Opts, backendTarget router.BackendTarget) error {
 	optsLabels := make(map[string]string)
 	registeredOpts := s.SupportedOptions(ctx)
 
@@ -365,12 +363,10 @@ func (s *LBService) fillLabelsAndAnnotations(ctx context.Context, svc *v1.Servic
 		annotations = mergeMaps(annotations, webService.Annotations)
 	}
 
-	if extraData.Namespace != "" && extraData.Service != "" {
-		labels = append(labels, map[string]string{
-			appBaseServiceNamespaceLabel: extraData.Namespace,
-			appBaseServiceNameLabel:      extraData.Service,
-		})
-	}
+	labels = append(labels, map[string]string{
+		appBaseServiceNamespaceLabel: backendTarget.Namespace,
+		appBaseServiceNameLabel:      backendTarget.Service,
+	})
 
 	svc.Labels = mergeMaps(labels...)
 	svc.Annotations = annotations
@@ -439,6 +435,23 @@ func (s *LBService) portsForService(svc *v1.Service, opts router.Opts, baseSvc *
 	}
 
 	return wantedPorts, nil
+}
+
+func serviceHasChanges(existing *v1.Service, svc *v1.Service) (hasChanges bool) {
+	if !reflect.DeepEqual(existing.Spec, svc.Spec) {
+		return true
+	}
+	for key, value := range svc.Annotations {
+		if existing.Annotations[key] != value {
+			return true
+		}
+	}
+	for key, value := range svc.Labels {
+		if existing.Labels[key] != value {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeMaps(entries ...map[string]string) map[string]string {

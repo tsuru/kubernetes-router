@@ -8,8 +8,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -57,29 +57,15 @@ const (
 	appCRDName = "apps.tsuru.io"
 )
 
+var (
+	ErrNoBackendTarget = errors.New("No default backend target found")
+)
+
 // ErrNoService indicates that the app has no service running
-type ErrNoService struct{ App, Process string }
+type ErrNoService struct{ App string }
 
 func (e ErrNoService) Error() string {
-	str := fmt.Sprintf("no service found for app %q", e.App)
-	if e.Process != "" {
-		str += fmt.Sprintf(" and process %q", e.Process)
-	}
-	return str
-}
-
-// ErrNoService indicates that the app has no service running
-type ErrMultipleServiceFound struct {
-	App, Process string
-	Found        int
-}
-
-func (e ErrMultipleServiceFound) Error() string {
-	str := fmt.Sprintf("multiple (%d) services matching app %q", e.Found, e.App)
-	if e.Process != "" {
-		str += fmt.Sprintf(" and process %q", e.Process)
-	}
-	return str
+	return fmt.Sprintf("no service found for app %q", e.App)
 }
 
 // ErrAppSwapped indicates when a operation cant be performed
@@ -170,65 +156,20 @@ func (k *BaseService) getConfig() (*rest.Config, error) {
 	return k.RestConfig, nil
 }
 
-func (k *BaseService) getWebService(ctx context.Context, appName string, extraData router.RoutesRequestExtraData, currentLabels map[string]string) (*apiv1.Service, error) {
+func (k *BaseService) getWebService(ctx context.Context, appName string, target router.BackendTarget) (*apiv1.Service, error) {
 	client, err := k.getClient()
 	if err != nil {
 		return nil, err
 	}
 
-	if currentLabels != nil && extraData.Namespace == "" && extraData.Service == "" {
-		extraData.Namespace = currentLabels[appBaseServiceNamespaceLabel]
-		extraData.Service = currentLabels[appBaseServiceNameLabel]
-	}
-
-	if extraData.Namespace != "" && extraData.Service != "" {
-		var svc *apiv1.Service
-		svc, err = client.CoreV1().Services(extraData.Namespace).Get(ctx, extraData.Service, metav1.GetOptions{})
-		if err != nil {
-			if k8sErrors.IsNotFound(err) {
-				return nil, ErrNoService{App: appName}
-			}
-			return nil, err
+	svc, err := client.CoreV1().Services(target.Namespace).Get(ctx, target.Service, metav1.GetOptions{})
+	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return nil, ErrNoService{App: appName}
 		}
-		return svc, nil
-	}
-
-	namespace, err := k.getAppNamespace(ctx, appName)
-	if err != nil {
 		return nil, err
 	}
-	sel, err := makeWebSvcSelector(appName)
-	if err != nil {
-		return nil, err
-	}
-	list, err := client.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: sel.String(),
-	})
-	if err != nil {
-		return nil, err
-	}
-	if len(list.Items) == 0 {
-		return nil, ErrNoService{App: appName}
-	}
-	if len(list.Items) == 1 {
-		return &list.Items[0], nil
-	}
-	var service *apiv1.Service
-	var webSvcsCounter int
-	for i := range list.Items {
-		if list.Items[i].Labels[processLabel] == webProcessName {
-			webSvcsCounter++
-			service = &list.Items[i]
-		}
-	}
-	if webSvcsCounter > 1 {
-		log.Printf("WARNING: multiple (%d) services matching app %q and process %q", webSvcsCounter, appName, webProcessName)
-		return nil, ErrMultipleServiceFound{App: appName, Process: webProcessName, Found: webSvcsCounter}
-	}
-	if service != nil {
-		return service, nil
-	}
-	return nil, ErrNoService{App: appName, Process: webProcessName}
+	return svc, nil
 }
 
 func (k *BaseService) swap(src, dst *metav1.ObjectMeta) {
@@ -308,6 +249,16 @@ func makeWebSvcSelector(appName string) (labels.Selector, error) {
 		sel = sel.Add(*req)
 	}
 	return sel, nil
+}
+
+func (s *BaseService) getDefaultBackendTarget(prefixes []router.BackendPrefix) (*router.BackendTarget, error) {
+	for _, prefix := range prefixes {
+		if prefix.Prefix == "" {
+			return &prefix.Target, nil
+		}
+	}
+
+	return nil, ErrNoBackendTarget
 }
 
 func (s *BaseService) hashedResourceName(id router.InstanceID, name string, limit int) string {

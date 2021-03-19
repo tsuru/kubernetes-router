@@ -21,7 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
 )
@@ -41,24 +40,30 @@ func createFakeLBService() LBService {
 	}
 }
 
-func TestLBCreate(t *testing.T) {
+func TestLBEnsure(t *testing.T) {
 	svc := createFakeLBService()
+	err := createAppWebService(svc.Client, svc.Namespace, "test")
+	require.NoError(t, err)
 	svc.Labels = map[string]string{"label": "labelval"}
 	svc.Annotations = map[string]string{"annotation": "annval"}
 	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
 	svc.PoolLabels = map[string]map[string]string{"mypool": {"pool-env": "dev"}, "otherpool": {"pool-env": "prod"}}
-	err := svc.Create(ctx, idForApp("test"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}, DomainSuffix: "myapps.io"})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}, DomainSuffix: "myapps.io"},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
 	setIP(t, svc, "test")
-	serviceList, err := svc.Client.CoreV1().Services(svc.Namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-	if len(serviceList.Items) != 1 {
-		t.Errorf("Expected 1 item. Got %d.", len(serviceList.Items))
-	}
+	foundService, err := svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, "test-router-lb", metav1.GetOptions{})
+	require.NoError(t, err)
+
 	svc.Labels[appPoolLabel] = "mypool"
 	svc.Labels["my-opt-as-label"] = "value"
 	svc.Labels["pool-env"] = "dev"
@@ -68,31 +73,38 @@ func TestLBCreate(t *testing.T) {
 		"router.tsuru.io/opts":                      `{"Pool":"mypool","DomainSuffix":"myapps.io","AdditionalOpts":{"my-opt":"value"}}`,
 	}
 	expectedService := defaultService("test", "default", svc.Labels, expectedAnnotations, nil)
-	assert.Equal(t, expectedService, serviceList.Items[0])
+	assert.Equal(t, expectedService, foundService)
 }
 
-func TestLBCreateWithDomain(t *testing.T) {
+func TestLBEnsureWithDomain(t *testing.T) {
 	svc := createFakeLBService()
 	svc.Labels = map[string]string{"label": "labelval"}
 	svc.Annotations = map[string]string{"annotation": "annval"}
 	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
 	svc.PoolLabels = map[string]map[string]string{"mypool": {"pool-env": "dev"}, "otherpool": {"pool-env": "prod"}}
-	err := svc.Create(ctx, idForApp("test"), router.Opts{
-		Pool:           "mypool",
-		AdditionalOpts: map[string]string{"my-opt": "value"},
-		Domain:         "myappdomain.zone.io",
+
+	err := createAppWebService(svc.Client, svc.Namespace, "test")
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			Pool:           "mypool",
+			AdditionalOpts: map[string]string{"my-opt": "value"},
+			Domain:         "myappdomain.zone.io",
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
 	})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
+	require.NoError(t, err)
 	setIP(t, svc, "test")
-	serviceList, err := svc.Client.CoreV1().Services(svc.Namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-	if len(serviceList.Items) != 1 {
-		t.Errorf("Expected 1 item. Got %d.", len(serviceList.Items))
-	}
+	foundService, err := svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, "test-router-lb", metav1.GetOptions{})
+	require.NoError(t, err)
 	svc.Labels[appPoolLabel] = "mypool"
 	svc.Labels["my-opt-as-label"] = "value"
 	svc.Labels["pool-env"] = "dev"
@@ -102,34 +114,42 @@ func TestLBCreateWithDomain(t *testing.T) {
 		"router.tsuru.io/opts":                      `{"Pool":"mypool","Domain":"myappdomain.zone.io","AdditionalOpts":{"my-opt":"value"}}`,
 	}
 	expectedService := defaultService("test", "default", svc.Labels, expectedAnnotations, nil)
-	assert.Equal(t, expectedService, serviceList.Items[0])
+	assert.Equal(t, expectedService, foundService)
 }
 
-func TestLBCreateCustomAnnotation(t *testing.T) {
+func TestLBEnsureCustomAnnotation(t *testing.T) {
 	svc := createFakeLBService()
 	svc.Labels = map[string]string{"label": "labelval"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	svc.OptsAsLabels["my-opt"] = "my-opt-as-label"
 	svc.PoolLabels = map[string]map[string]string{"mypool": {"pool-env": "dev"}, "otherpool": {"pool-env": "prod"}}
-	err := svc.Create(ctx, idForApp("test"), router.Opts{
-		Pool: "mypool",
-		AdditionalOpts: map[string]string{
-			"my-opt":                 "value",
-			"other-opt":              "other-value",
-			"svc-annotation-a:b/x:y": "true",
-			"ann1-":                  "",
-		}})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
+
+	err := createAppWebService(svc.Client, svc.Namespace, "test")
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			Pool: "mypool",
+			AdditionalOpts: map[string]string{
+				"my-opt":                 "value",
+				"other-opt":              "other-value",
+				"svc-annotation-a:b/x:y": "true",
+				"ann1-":                  "",
+			},
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
 	setIP(t, svc, "test")
-	serviceList, err := svc.Client.CoreV1().Services(svc.Namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-	if len(serviceList.Items) != 1 {
-		t.Errorf("Expected 1 item. Got %d.", len(serviceList.Items))
-	}
+	foundService, err := svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, "test-router-lb", metav1.GetOptions{})
+	require.NoError(t, err)
 	svc.Labels[appPoolLabel] = "mypool"
 	svc.Labels["my-opt-as-label"] = "value"
 	svc.Labels["pool-env"] = "dev"
@@ -140,14 +160,17 @@ func TestLBCreateCustomAnnotation(t *testing.T) {
 		"router.tsuru.io/opts": `{"Pool":"mypool","AdditionalOpts":{"ann1-":"","my-opt":"value","other-opt":"other-value","svc-annotation-a:b/x:y":"true"}}`,
 	}
 	expectedService := defaultService("test", "default", svc.Labels, expectedAnnotations, nil)
-	assert.Equal(t, expectedService, serviceList.Items[0])
+	assert.Equal(t, expectedService, foundService)
 }
 
-func TestLBCreateDefaultPort(t *testing.T) {
+func TestLBEnsureDefaultPort(t *testing.T) {
 	svc := createFakeLBService()
-	if err := createCRD(svc.BaseService, "myapp", "custom-namespace", nil); err != nil {
-		t.Errorf("failed to create CRD for test: %v", err)
-	}
+	err := createCRD(svc.BaseService, "myapp", "custom-namespace", nil)
+	require.NoError(t, err)
+
+	err = createAppWebService(svc.Client, svc.Namespace, "myapp")
+	require.NoError(t, err)
+
 	svc.BaseService.Client.(*fake.Clientset).PrependReactor("create", "services", func(action ktesting.Action) (bool, runtime.Object, error) {
 		newSvc, ok := action.(ktesting.CreateAction).GetObject().(*v1.Service)
 		if !ok {
@@ -159,10 +182,23 @@ func TestLBCreateDefaultPort(t *testing.T) {
 		}
 		return false, nil, nil
 	})
-	err := svc.Create(ctx, idForApp("myapp"), router.Opts{Pool: "mypool", AdditionalOpts: map[string]string{"my-opt": "value"}})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
+	err = svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			Pool: "mypool",
+			AdditionalOpts: map[string]string{
+				"my-opt": "value",
+			},
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "myapp-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
 }
 
 func TestLBSupportedOptions(t *testing.T) {
@@ -182,18 +218,31 @@ func TestLBSupportedOptions(t *testing.T) {
 	}
 }
 
-func TestLBCreateAppNamespace(t *testing.T) {
+func TestLBEnsureAppNamespace(t *testing.T) {
 	svc := createFakeLBService()
-	if err := createCRD(svc.BaseService, "app", "custom-namespace", nil); err != nil {
-		t.Errorf("failed to create CRD for test: %v", err)
-	}
-	if err := svc.Create(ctx, idForApp("app"), router.Opts{}); err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
+
+	err := createAppWebService(svc.Client, svc.Namespace, "app")
+	require.NoError(t, err)
+
+	err = createCRD(svc.BaseService, "app", "custom-namespace", nil)
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("app"), router.EnsureBackendOpts{
+		Opts: router.Opts{},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "app-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
 	serviceList, err := svc.Client.CoreV1().Services("custom-namespace").List(ctx, metav1.ListOptions{})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
+	require.NoError(t, err)
+
 	if len(serviceList.Items) != 1 {
 		t.Errorf("Expected 1 item. Got %d.", len(serviceList.Items))
 	}
@@ -206,44 +255,71 @@ func TestLBRemove(t *testing.T) {
 		expectedErr   error
 		expectedCount int
 	}{
-		{"success", "test", nil, 2},
-		{"failSwapped", "blue", ErrAppSwapped{App: "blue", DstApp: "green"}, 3},
-		{"ignoresNotFound", "notfound", nil, 3},
+		{"success", "test", nil, 5},
+		{"failSwapped", "blue", ErrAppSwapped{App: "blue", DstApp: "green"}, 6},
+		{"ignoresNotFound", "notfound", nil, 6},
 	}
 	for _, tc := range tt {
 		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			svc := createFakeLBService()
-			err := svc.Create(ctx, idForApp("test"), router.Opts{})
-			if err != nil {
-				t.Errorf("Expected err to be nil. Got %v.", err)
-			}
+
+			err := createAppWebService(svc.Client, svc.Namespace, "test")
+			require.NoError(t, err)
+
+			err = createAppWebService(svc.Client, svc.Namespace, "blue")
+			require.NoError(t, err)
+
+			err = createAppWebService(svc.Client, svc.Namespace, "green")
+			require.NoError(t, err)
+
+			err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+				Opts: router.Opts{},
+				Prefixes: []router.BackendPrefix{
+					{
+						Target: router.BackendTarget{
+							Service:   "test-web",
+							Namespace: svc.Namespace,
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
 			setIP(t, svc, "test")
-			err = svc.Create(ctx, idForApp("blue"), router.Opts{})
-			if err != nil {
-				t.Errorf("Expected err to be nil. Got %v.", err)
-			}
+			err = svc.Ensure(ctx, idForApp("blue"), router.EnsureBackendOpts{
+				Opts: router.Opts{},
+				Prefixes: []router.BackendPrefix{
+					{
+						Target: router.BackendTarget{
+							Service:   "blue-web",
+							Namespace: svc.Namespace,
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
 			setIP(t, svc, "blue")
-			err = svc.Create(ctx, idForApp("green"), router.Opts{})
-			if err != nil {
-				t.Errorf("Expected err to be nil. Got %v.", err)
-			}
+			err = svc.Ensure(ctx, idForApp("green"), router.EnsureBackendOpts{
+				Opts: router.Opts{},
+				Prefixes: []router.BackendPrefix{
+					{
+						Target: router.BackendTarget{
+							Service:   "green-web",
+							Namespace: svc.Namespace,
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
 			setIP(t, svc, "green")
 			err = svc.Swap(ctx, idForApp("blue"), idForApp("green"))
-			if err != nil {
-				t.Errorf("Expected err to be nil. Got %v.", err)
-			}
+			require.NoError(t, err)
 			err = svc.Remove(ctx, idForApp(tc.remove))
-			if err != tc.expectedErr {
-				t.Errorf("Expected err to be %v. Got %v.", tc.expectedErr, err)
-			}
+
+			assert.Equal(t, tc.expectedErr, err)
 			serviceList, err := svc.Client.CoreV1().Services(svc.Namespace).List(ctx, metav1.ListOptions{})
-			if err != nil {
-				t.Errorf("Expected err to be nil. Got %v.", err)
-			}
-			if len(serviceList.Items) != tc.expectedCount {
-				t.Errorf("Expected %d items. Got %d.", tc.expectedCount, len(serviceList.Items))
-			}
+			require.NoError(t, err)
+			assert.Len(t, serviceList.Items, tc.expectedCount)
 		})
 	}
 }
@@ -285,7 +361,7 @@ func TestLBUpdate(t *testing.T) {
 	tt := []struct {
 		name             string
 		services         []v1.Service
-		extraData        router.RoutesRequestExtraData
+		backendTarget    router.BackendTarget
 		expectedErr      error
 		expectedSelector map[string]string
 		expectedPorts    []v1.ServicePort
@@ -335,12 +411,16 @@ func TestLBUpdate(t *testing.T) {
 			name:             "singleService with expose all",
 			services:         []v1.Service{svc1},
 			exposeAllPorts:   true,
+			backendTarget:    router.BackendTarget{Service: svc1.Name, Namespace: svc1.Namespace},
 			expectedSelector: map[string]string{"name": "test-single"},
 			expectedLabels: map[string]string{
 				appLabel:             "test",
 				managedServiceLabel:  "true",
 				externalServiceLabel: "true",
 				appPoolLabel:         "",
+
+				appBaseServiceNameLabel:      svc1.Name,
+				appBaseServiceNamespaceLabel: svc1.Namespace,
 			},
 			expectedPorts: []v1.ServicePort{
 				{
@@ -359,12 +439,16 @@ func TestLBUpdate(t *testing.T) {
 		{
 			name:             "singleService",
 			services:         []v1.Service{svc1},
+			backendTarget:    router.BackendTarget{Service: svc1.Name, Namespace: svc1.Namespace},
 			expectedSelector: map[string]string{"name": "test-single"},
 			expectedLabels: map[string]string{
 				appLabel:             "test",
 				managedServiceLabel:  "true",
 				externalServiceLabel: "true",
 				appPoolLabel:         "",
+
+				appBaseServiceNameLabel:      svc1.Name,
+				appBaseServiceNamespaceLabel: svc1.Namespace,
 			},
 			expectedPorts: []v1.ServicePort{
 				{
@@ -379,6 +463,7 @@ func TestLBUpdate(t *testing.T) {
 			name:             "multiServiceWithWeb",
 			services:         []v1.Service{svc1, svc2},
 			exposeAllPorts:   true,
+			backendTarget:    router.BackendTarget{Service: svc2.Name, Namespace: svc2.Namespace},
 			expectedSelector: map[string]string{"name": "test-web"},
 			expectedLabels: map[string]string{
 				appLabel:             "test",
@@ -387,6 +472,9 @@ func TestLBUpdate(t *testing.T) {
 				externalServiceLabel: "true",
 				appPoolLabel:         "",
 				"custom1":            "value1",
+
+				appBaseServiceNameLabel:      svc2.Name,
+				appBaseServiceNamespaceLabel: svc2.Namespace,
 			},
 			expectedPorts: []v1.ServicePort{
 				{
@@ -405,7 +493,7 @@ func TestLBUpdate(t *testing.T) {
 		{
 			name:        "multiServiceWithoutWeb",
 			services:    []v1.Service{svc1, svc3},
-			expectedErr: ErrNoService{App: "test", Process: "web"},
+			expectedErr: ErrNoService{App: "test"},
 			expectedLabels: map[string]string{
 				appLabel:             "test",
 				managedServiceLabel:  "true",
@@ -425,6 +513,7 @@ func TestLBUpdate(t *testing.T) {
 			name:             "service with conflicting port, port is ignored",
 			services:         []v1.Service{svc4},
 			exposeAllPorts:   true,
+			backendTarget:    router.BackendTarget{Service: svc4.Name, Namespace: svc4.Namespace},
 			expectedSelector: map[string]string{"name": "test-web"},
 			expectedLabels: map[string]string{
 				appLabel:             "test",
@@ -433,6 +522,9 @@ func TestLBUpdate(t *testing.T) {
 				externalServiceLabel: "true",
 				appPoolLabel:         "",
 				"custom1":            "value1",
+
+				appBaseServiceNameLabel:      svc4.Name,
+				appBaseServiceNamespaceLabel: svc4.Namespace,
 			},
 			expectedPorts: []v1.ServicePort{
 				{
@@ -452,7 +544,7 @@ func TestLBUpdate(t *testing.T) {
 		{
 			name:             "multiServiceWithWeb",
 			services:         []v1.Service{svc1, svc2},
-			extraData:        router.RoutesRequestExtraData{Namespace: svc2.Namespace, Service: svc2.Name},
+			backendTarget:    router.BackendTarget{Namespace: svc2.Namespace, Service: svc2.Name},
 			exposeAllPorts:   true,
 			expectedSelector: map[string]string{"name": "test-web"},
 			expectedLabels: map[string]string{
@@ -483,7 +575,7 @@ func TestLBUpdate(t *testing.T) {
 		{
 			name:             "multiServiceWithConflictingWeb",
 			services:         []v1.Service{svc2, svc5},
-			extraData:        router.RoutesRequestExtraData{Namespace: svc2.Namespace, Service: svc2.Name},
+			backendTarget:    router.BackendTarget{Namespace: svc2.Namespace, Service: svc2.Name},
 			exposeAllPorts:   true,
 			expectedSelector: map[string]string{"name": "test-web"},
 			expectedLabels: map[string]string{
@@ -516,36 +608,33 @@ func TestLBUpdate(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			svc := createFakeLBService()
-			err := svc.Create(ctx, idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
-				exposeAllPortsOpt: strconv.FormatBool(tc.exposeAllPorts),
-			}})
-			assert.NoError(t, err)
 
-			setIP(t, svc, "test")
 			for i := range tc.services {
-				_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(ctx, &tc.services[i], metav1.CreateOptions{})
-				assert.NoError(t, err)
+				_, err := svc.Client.CoreV1().Services(svc.Namespace).Create(ctx, &tc.services[i], metav1.CreateOptions{})
+				require.NoError(t, err)
 			}
 
-			err = svc.Update(ctx, idForApp("test"), tc.extraData)
+			err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+				Opts: router.Opts{
+					AdditionalOpts: map[string]string{
+						exposeAllPortsOpt: strconv.FormatBool(tc.exposeAllPorts),
+					},
+				},
+				Prefixes: []router.BackendPrefix{
+					{
+						Target: tc.backendTarget,
+					},
+				},
+			})
+
 			if tc.expectedErr != nil {
-				assert.Equal(t, err, tc.expectedErr)
-			} else {
-				assert.NoError(t, err)
+				assert.Equal(t, tc.expectedErr, err)
+				return
 			}
 
+			require.NoError(t, err)
+			setIP(t, svc, "test")
 			service, err := svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, svc.serviceName(idForApp("test")), metav1.GetOptions{})
-			assert.NoError(t, err)
-			assert.Equal(t, tc.expectedSelector, service.Spec.Selector)
-			assert.Equal(t, tc.expectedPorts, service.Spec.Ports)
-			assert.Equal(t, tc.expectedLabels, service.Labels)
-
-			err = svc.Create(ctx, idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
-				exposeAllPortsOpt: strconv.FormatBool(tc.exposeAllPorts),
-			}})
-			assert.NoError(t, err)
-
-			service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, svc.serviceName(idForApp("test")), metav1.GetOptions{})
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedSelector, service.Spec.Selector)
 			assert.Equal(t, tc.expectedPorts, service.Spec.Ports)
@@ -556,9 +645,23 @@ func TestLBUpdate(t *testing.T) {
 
 func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 	svc := createFakeLBService()
-	err := svc.Create(ctx, idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
-		exposeAllPortsOpt: "true",
-	}})
+	err := createAppWebService(svc.Client, svc.Namespace, "test")
+	require.NoError(t, err)
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			AdditionalOpts: map[string]string{
+				exposeAllPortsOpt: "true",
+			},
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
 	require.NoError(t, err)
 	service, err := svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, svc.serviceName(idForApp("test")), metav1.GetOptions{})
 	require.NoError(t, err)
@@ -608,9 +711,23 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 			},
 		},
 	}
-	_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(ctx, &webSvc, metav1.CreateOptions{})
+	_, err = svc.Client.CoreV1().Services(svc.Namespace).Update(ctx, &webSvc, metav1.UpdateOptions{})
 	require.NoError(t, err)
-	err = svc.Update(ctx, idForApp("test"), router.RoutesRequestExtraData{})
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			AdditionalOpts: map[string]string{
+				exposeAllPortsOpt: "true",
+			},
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
 	require.NoError(t, err)
 	service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, svc.serviceName(idForApp("test")), metav1.GetOptions{})
 	require.NoError(t, err)
@@ -638,9 +755,21 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 		},
 	}, service.Spec.Ports)
 
-	err = svc.Create(ctx, idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
-		exposeAllPortsOpt: "true",
-	}})
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			AdditionalOpts: map[string]string{
+				exposeAllPortsOpt: "true",
+			},
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
 	require.NoError(t, err)
 
 	service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, svc.serviceName(idForApp("test")), metav1.GetOptions{})
@@ -673,9 +802,23 @@ func TestLBUpdatePortDiffAndPreserveNodePort(t *testing.T) {
 
 func TestLBUpdateNoChangeInFrozenService(t *testing.T) {
 	svc := createFakeLBService()
-	err := svc.Create(ctx, idForApp("test"), router.Opts{AdditionalOpts: map[string]string{
-		exposeAllPortsOpt: "true",
-	}})
+	err := createAppWebService(svc.Client, svc.Namespace, "test")
+	require.NoError(t, err)
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			AdditionalOpts: map[string]string{
+				exposeAllPortsOpt: "true",
+			},
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
 	require.NoError(t, err)
 	service, err := svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, svc.serviceName(idForApp("test")), metav1.GetOptions{})
 	require.NoError(t, err)
@@ -706,9 +849,23 @@ func TestLBUpdateNoChangeInFrozenService(t *testing.T) {
 			},
 		},
 	}
-	_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(ctx, &webSvc, metav1.CreateOptions{})
+	_, err = svc.Client.CoreV1().Services(svc.Namespace).Update(ctx, &webSvc, metav1.UpdateOptions{})
 	require.NoError(t, err)
-	err = svc.Update(ctx, idForApp("test"), router.RoutesRequestExtraData{})
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			AdditionalOpts: map[string]string{
+				exposeAllPortsOpt: "true",
+			},
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
 	require.NoError(t, err)
 	service, err = svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, svc.serviceName(idForApp("test")), metav1.GetOptions{})
 	require.NoError(t, err)
@@ -726,42 +883,52 @@ func TestLBUpdateNoChangeInFrozenService(t *testing.T) {
 func TestLBUpdateSwapped(t *testing.T) {
 	svc := createFakeLBService()
 	for _, n := range []string{"blue", "green"} {
-		err := svc.Create(ctx, idForApp("test-"+n), router.Opts{})
-		if err != nil {
-			t.Errorf("Expected err to be nil. Got %v.", err)
-		}
+		err := createAppWebService(svc.Client, svc.Namespace, "test-"+n)
+		require.NoError(t, err)
+
+		err = svc.Ensure(ctx, idForApp("test-"+n), router.EnsureBackendOpts{
+			Prefixes: []router.BackendPrefix{
+				{
+					Target: router.BackendTarget{
+						Service:   "test-" + n + "-web",
+						Namespace: svc.Namespace,
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
 		setIP(t, svc, "test-"+n)
-		err = createWebService(n, "default", svc.Client)
-		if err != nil {
-			t.Errorf("Expected err to be nil. Got %v.", err)
-		}
-		err = svc.Update(ctx, idForApp("test-"+n), router.RoutesRequestExtraData{})
-		if err != nil {
-			t.Errorf("Expected err to be nil. Got %v.", err)
-		}
 	}
 	err := svc.Swap(ctx, idForApp("test-blue"), idForApp("test-green"))
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-	err = svc.Update(ctx, idForApp("test-blue"), router.RoutesRequestExtraData{})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{})
+	require.NoError(t, err)
+
 	service, err := svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, svc.serviceName(idForApp("test-blue")), metav1.GetOptions{})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-	expectedSelector := map[string]string{"app": "green"}
-	if !reflect.DeepEqual(service.Spec.Selector, expectedSelector) {
-		t.Errorf("Expected %v. Got %v", expectedSelector, service.Spec.Selector)
-	}
+	require.NoError(t, err)
+
+	expectedSelector := map[string]string{"tsuru.io/app-name": "test-green", "tsuru.io/app-process": "web"}
+	assert.Equal(t, service.Spec.Selector, expectedSelector)
 }
 
 func TestGetStatus(t *testing.T) {
 	svc := createFakeLBService()
 
-	err := svc.Create(ctx, idForApp("test"), router.Opts{})
+	err := createAppWebService(svc.Client, svc.Namespace, "test")
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
 	require.NoError(t, err)
 
 	s, err := svc.getLBService(ctx, idForApp("test"))
@@ -824,7 +991,19 @@ func TestGetStatus(t *testing.T) {
 func TestGetAddresses(t *testing.T) {
 	svc := createFakeLBService()
 
-	err := svc.Create(ctx, idForApp("test"), router.Opts{})
+	err := createAppWebService(svc.Client, svc.Namespace, "test")
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
 	require.NoError(t, err)
 
 	s, err := svc.getLBService(ctx, idForApp("test"))
@@ -878,45 +1057,43 @@ func TestLBSwap(t *testing.T) {
 	svc := createFakeLBService()
 
 	for _, n := range []string{"blue", "green"} {
-		err := svc.Create(ctx, idForApp("test-"+n), router.Opts{})
-		if err != nil {
-			t.Errorf("Expected err to be nil. Got %v.", err)
-		}
+		err := createAppWebService(svc.Client, svc.Namespace, "test-"+n)
+		require.NoError(t, err)
+
+		err = svc.Ensure(ctx, idForApp("test-"+n), router.EnsureBackendOpts{
+			Prefixes: []router.BackendPrefix{
+				{
+					Target: router.BackendTarget{
+						Service:   "test-" + n + "-web",
+						Namespace: svc.Namespace,
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
 		setIP(t, svc, "test-"+n)
-		err = createWebService(n, "default", svc.Client)
-		if err != nil {
-			t.Errorf("Expected err to be nil. Got %v.", err)
-		}
-		err = svc.Update(ctx, idForApp("test-"+n), router.RoutesRequestExtraData{})
-		if err != nil {
-			t.Errorf("Expected err to be nil. Got %v.", err)
-		}
 	}
 
-	blueSvc := defaultService("test-blue", "default", map[string]string{swapLabel: "test-green"}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"app": "green"})
-	greenSvc := defaultService("test-green", "default", map[string]string{swapLabel: "test-blue"}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"app": "blue"})
+	blueSvc := defaultService("test-blue", "default", map[string]string{swapLabel: "test-green"}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"tsuru.io/app-name": "test-green", "tsuru.io/app-process": "web"})
+	greenSvc := defaultService("test-green", "default", map[string]string{swapLabel: "test-blue"}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"tsuru.io/app-name": "test-blue", "tsuru.io/app-process": "web"})
 	haveBeenSwapped := true
 	i := 1
 	for i <= 2 {
 		err := svc.Swap(ctx, idForApp("test-blue"), idForApp("test-green"))
-		if err != nil {
-			t.Errorf("Iteration %d: Expected err to be nil. Got %v.", i, err)
-		}
+		require.NoError(t, err)
 		serviceList, err := svc.Client.CoreV1().Services(svc.Namespace).List(ctx, metav1.ListOptions{
 			LabelSelector: fmt.Sprintf("%s=true", managedServiceLabel),
 		})
-		if err != nil {
-			t.Errorf("Iteration %d: Expected err to be nil. Got %v.", i, err)
-		}
-		if !reflect.DeepEqual(serviceList.Items, []v1.Service{blueSvc, greenSvc}) {
-			t.Errorf("Iteration %d: Expected %#v. \nGot %#v", i, []v1.Service{blueSvc, greenSvc}, serviceList.Items)
-		}
+		require.NoError(t, err)
+		assert.Equal(t, []v1.Service{*blueSvc, *greenSvc}, serviceList.Items)
+
 		if _, swapped := isSwapped(blueSvc.ObjectMeta); swapped != haveBeenSwapped {
 			t.Errorf("Iteration %d: Expected isSwapped to be %v. Got %v", i, haveBeenSwapped, swapped)
 		}
 
-		blueSvc = defaultService("test-blue", "default", map[string]string{swapLabel: ""}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"app": "blue"})
-		greenSvc = defaultService("test-green", "default", map[string]string{swapLabel: ""}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"app": "green"})
+		blueSvc = defaultService("test-blue", "default", map[string]string{swapLabel: ""}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"tsuru.io/app-name": "test-blue", "tsuru.io/app-process": "web"})
+		greenSvc = defaultService("test-green", "default", map[string]string{swapLabel: ""}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"tsuru.io/app-name": "test-green", "tsuru.io/app-process": "web"})
 
 		haveBeenSwapped = !haveBeenSwapped
 		i++
@@ -925,74 +1102,68 @@ func TestLBSwap(t *testing.T) {
 
 func TestLBUpdateSwapWithouIPFails(t *testing.T) {
 	svc := createFakeLBService()
-	err := createWebService("myapp1", "default", svc.Client)
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-	err = createWebService("myapp2", "default", svc.Client)
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-	err = svc.Create(ctx, idForApp("test-myapp1"), router.Opts{Pool: "mypool"})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-	err = svc.Update(ctx, idForApp("test-myapp1"), router.RoutesRequestExtraData{})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-	err = svc.Create(ctx, idForApp("test-myapp2"), router.Opts{Pool: "mypool"})
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-	err = svc.Swap(ctx, idForApp("test-myapp1"), idForApp("test-myapp2"))
-	if err != ErrLoadBalancerNotReady {
-		t.Fatalf("Expected err to be %v. Got %v.", ErrLoadBalancerNotReady, err)
-	}
-	setIP(t, svc, "test-myapp1")
-	err = svc.Swap(ctx, idForApp("test-myapp1"), idForApp("test-myapp2"))
-	if err != ErrLoadBalancerNotReady {
-		t.Fatalf("Expected err to be %v. Got %v.", ErrLoadBalancerNotReady, err)
-	}
-	setIP(t, svc, "test-myapp2")
-	err = svc.Swap(ctx, idForApp("test-myapp1"), idForApp("test-myapp2"))
-	if err != nil {
-		t.Errorf("Expected err to be nil. Got %v.", err)
-	}
-}
+	err := createAppWebService(svc.Client, svc.Namespace, "test-myapp1")
+	require.NoError(t, err)
 
-func createWebService(app, namespace string, client kubernetes.Interface) error {
-	webService := &v1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      app + "-web",
-			Namespace: namespace,
-			Labels:    map[string]string{appLabel: "test-" + app},
-		},
-		Spec: v1.ServiceSpec{
-			Selector: map[string]string{"app": app},
-			Ports: []v1.ServicePort{
-				{
-					Protocol:   "TCP",
-					Port:       int32(defaultLBPort),
-					TargetPort: intstr.FromInt(defaultServicePort),
+	err = createAppWebService(svc.Client, svc.Namespace, "test-myapp2")
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("test-myapp1"), router.EnsureBackendOpts{
+		Opts: router.Opts{Pool: "mypool"},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-myapp1-web",
+					Namespace: svc.Namespace,
 				},
 			},
 		},
-	}
-	_, err := client.CoreV1().Services(namespace).Create(ctx, webService, metav1.CreateOptions{})
-	return err
+	})
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("test-myapp2"), router.EnsureBackendOpts{
+		Opts: router.Opts{Pool: "mypool"},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-myapp2-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	err = svc.Swap(ctx, idForApp("test-myapp1"), idForApp("test-myapp2"))
+	require.Equal(t, err, ErrLoadBalancerNotReady)
+
+	setIP(t, svc, "test-myapp1")
+	err = svc.Swap(ctx, idForApp("test-myapp1"), idForApp("test-myapp2"))
+	require.Equal(t, err, ErrLoadBalancerNotReady)
+
+	setIP(t, svc, "test-myapp2")
+	err = svc.Swap(ctx, idForApp("test-myapp1"), idForApp("test-myapp2"))
+	require.NoError(t, err)
 }
 
-func defaultService(app, namespace string, labels, annotations, selector map[string]string) v1.Service {
+func defaultService(app, namespace string, labels, annotations, selector map[string]string) *v1.Service {
+	if selector == nil {
+		selector = map[string]string{
+			"tsuru.io/app-name":    app,
+			"tsuru.io/app-process": "web",
+		}
+	}
 	svc := v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      app + "-router-lb",
 			Namespace: namespace,
 			Labels: map[string]string{
-				appLabel:             app,
-				managedServiceLabel:  "true",
-				externalServiceLabel: "true",
-				appPoolLabel:         "",
+				appLabel:                     app,
+				managedServiceLabel:          "true",
+				externalServiceLabel:         "true",
+				appPoolLabel:                 "",
+				appBaseServiceNameLabel:      app + "-web",
+				appBaseServiceNamespaceLabel: namespace,
 			},
 			Annotations: annotations,
 		},
@@ -1019,7 +1190,7 @@ func defaultService(app, namespace string, labels, annotations, selector map[str
 	for k, v := range labels {
 		svc.ObjectMeta.Labels[k] = v
 	}
-	return svc
+	return &svc
 }
 
 func setIP(t *testing.T, svc LBService, appName string) {

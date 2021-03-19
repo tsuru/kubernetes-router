@@ -16,10 +16,8 @@ import (
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	fakeistio "istio.io/client-go/pkg/clientset/versioned/fake"
 	networkingClientSet "istio.io/client-go/pkg/clientset/versioned/typed/networking/v1beta1"
-	apiv1 "k8s.io/api/core/v1"
 	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
@@ -38,9 +36,20 @@ func fakeService() (IstioGateway, networkingClientSet.NetworkingV1beta1Interface
 	}, fakeIstio
 }
 
-func TestIstioGateway_Create(t *testing.T) {
+func TestIstioGateway_Ensure(t *testing.T) {
 	svc, istio := fakeService()
-	err := svc.Create(ctx, idForApp("myapp"), router.Opts{})
+	err := createAppWebService(svc.Client, svc.Namespace, "myapp")
+	require.NoError(t, err)
+	err = svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "myapp-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
 	require.NoError(t, err)
 	gateway, err := istio.Gateways("default").Get(ctx, "myapp", metav1.GetOptions{})
 	require.NoError(t, err)
@@ -65,7 +74,11 @@ func TestIstioGateway_Create(t *testing.T) {
 			"istio": "ingress",
 		},
 	}, gateway.Spec)
-	assert.Equal(t, map[string]string{"tsuru.io/app-name": "myapp"}, virtualSvc.Labels)
+	assert.Equal(t, map[string]string{
+		"tsuru.io/app-name":                      "myapp",
+		"router.tsuru.io/base-service-name":      "myapp-web",
+		"router.tsuru.io/base-service-namespace": "default",
+	}, virtualSvc.Labels)
 	assert.Equal(t, map[string]string{}, virtualSvc.Annotations)
 	assert.Equal(t, apiNetworking.VirtualService{
 		Gateways: []string{
@@ -74,13 +87,14 @@ func TestIstioGateway_Create(t *testing.T) {
 		},
 		Hosts: []string{
 			"myapp.my.domain",
+			"myapp-web",
 		},
 		Http: []*apiNetworking.HTTPRoute{
 			{
 				Route: []*apiNetworking.HTTPRouteDestination{
 					{
 						Destination: &apiNetworking.Destination{
-							Host: "kubernetes-router-placeholder",
+							Host: "myapp-web",
 						},
 					},
 				},
@@ -91,8 +105,10 @@ func TestIstioGateway_Create(t *testing.T) {
 
 func TestIstioGateway_Create_existingVirtualService(t *testing.T) {
 	svc, istio := fakeService()
+	err := createAppWebService(svc.Client, svc.Namespace, "myapp")
+	require.NoError(t, err)
 
-	_, err := istio.VirtualServices("default").Create(ctx, &networking.VirtualService{
+	_, err = istio.VirtualServices("default").Create(ctx, &networking.VirtualService{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "myapp",
 		},
@@ -114,7 +130,16 @@ func TestIstioGateway_Create_existingVirtualService(t *testing.T) {
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
 
-	err = svc.Create(ctx, idForApp("myapp"), router.Opts{})
+	err = svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "myapp-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
 	require.NoError(t, err)
 
 	gateway, err := istio.Gateways("default").Get(ctx, "myapp", metav1.GetOptions{})
@@ -142,7 +167,11 @@ func TestIstioGateway_Create_existingVirtualService(t *testing.T) {
 			"istio": "ingress",
 		},
 	}, gateway.Spec)
-	assert.Equal(t, map[string]string{"tsuru.io/app-name": "myapp"}, virtualSvc.Labels)
+	assert.Equal(t, map[string]string{
+		"tsuru.io/app-name":                      "myapp",
+		"router.tsuru.io/base-service-name":      "myapp-web",
+		"router.tsuru.io/base-service-namespace": "default",
+	}, virtualSvc.Labels)
 	assert.Equal(t, map[string]string{}, virtualSvc.Annotations)
 	assert.Equal(t, apiNetworking.VirtualService{
 		Gateways: []string{
@@ -151,6 +180,7 @@ func TestIstioGateway_Create_existingVirtualService(t *testing.T) {
 		Hosts: []string{
 			"older-host",
 			"myapp.my.domain",
+			"myapp-web",
 		},
 		Http: []*apiNetworking.HTTPRoute{
 			{
@@ -163,78 +193,7 @@ func TestIstioGateway_Create_existingVirtualService(t *testing.T) {
 					},
 					{
 						Destination: &apiNetworking.Destination{
-							Host: "kubernetes-router-placeholder",
-						},
-					},
-				},
-			},
-		},
-	}, virtualSvc.Spec)
-}
-
-func TestIstioGateway_Update(t *testing.T) {
-	svc, istio := fakeService()
-	webSvc := apiv1.Service{ObjectMeta: metav1.ObjectMeta{
-		Name:      "myapp-single",
-		Namespace: "default",
-		Labels:    map[string]string{appLabel: "myapp"},
-	},
-		Spec: apiv1.ServiceSpec{
-			Ports: []apiv1.ServicePort{{Protocol: "TCP", Port: int32(8899), TargetPort: intstr.FromInt(8899)}},
-		},
-	}
-	_, err := svc.Client.CoreV1().Services(svc.Namespace).Create(ctx, &webSvc, metav1.CreateOptions{})
-	require.NoError(t, err)
-
-	_, err = istio.VirtualServices("default").Create(ctx, &networking.VirtualService{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "myapp",
-		},
-		Spec: apiNetworking.VirtualService{
-			Gateways: []string{
-				"myapp",
-			},
-			Hosts: []string{
-				"myapp.my.domain",
-			},
-			Http: []*apiNetworking.HTTPRoute{
-				{
-					Route: []*apiNetworking.HTTPRouteDestination{
-						{
-							Destination: &apiNetworking.Destination{
-								Host: "kubernetes-router-placeholder",
-							},
-						},
-					},
-				},
-			},
-		},
-	}, metav1.CreateOptions{})
-	require.NoError(t, err)
-
-	err = svc.Update(ctx, idForApp("myapp"), router.RoutesRequestExtraData{})
-	require.NoError(t, err)
-
-	virtualSvc, err := istio.VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
-	require.NoError(t, err)
-
-	assert.Equal(t, map[string]string{"tsuru.io/app-name": "myapp"}, virtualSvc.Labels)
-	assert.Equal(t, map[string]string{}, virtualSvc.Annotations)
-
-	assert.Equal(t, apiNetworking.VirtualService{
-		Gateways: []string{
-			"myapp",
-		},
-		Hosts: []string{
-			"myapp.my.domain",
-			"myapp-single",
-		},
-		Http: []*apiNetworking.HTTPRoute{
-			{
-				Route: []*apiNetworking.HTTPRouteDestination{
-					{
-						Destination: &apiNetworking.Destination{
-							Host: "myapp-single",
+							Host: "myapp-web",
 						},
 					},
 				},

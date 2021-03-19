@@ -55,9 +55,8 @@ var (
 // Router implements the basic functionally needed to
 // ingresses and/or loadbalancers.
 type Router interface {
-	Create(ctx context.Context, id InstanceID, opts Opts) error
+	Ensure(ctx context.Context, id InstanceID, o EnsureBackendOpts) error
 	Remove(ctx context.Context, id InstanceID) error
-	Update(ctx context.Context, id InstanceID, extraData RoutesRequestExtraData) error
 	Swap(ctx context.Context, appSrc, appDst InstanceID) error
 	GetAddresses(ctx context.Context, id InstanceID) ([]string, error)
 	SupportedOptions(ctx context.Context) map[string]string
@@ -109,12 +108,17 @@ type CertData struct {
 	Key         string `json:"key"`
 }
 
-type RoutesRequestData struct {
-	Prefix    string                 `json:"prefix"`
-	ExtraData RoutesRequestExtraData `json:"extraData"`
+type BackendPrefix struct {
+	Prefix string        `json:"prefix"`
+	Target BackendTarget `json:"target"`
 }
 
-type RoutesRequestExtraData struct {
+type EnsureBackendOpts struct {
+	Opts     Opts            `json:"opts"`
+	Prefixes []BackendPrefix `json:"prefixes"`
+}
+
+type BackendTarget struct {
 	Namespace string `json:"namespace"`
 	Service   string `json:"service"`
 }

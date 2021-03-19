@@ -34,13 +34,10 @@ func (a *RouterAPI) Routes() *mux.Router {
 
 func (a *RouterAPI) registerRoutes(r *mux.Router) {
 	r.Handle("/backend/{name}", handler(a.getBackend)).Methods(http.MethodGet)
-	r.Handle("/backend/{name}", handler(a.addBackend)).Methods(http.MethodPost)
-	r.Handle("/backend/{name}", handler(a.updateBackend)).Methods(http.MethodPut)
+	r.Handle("/backend/{name}", handler(a.ensureBackend)).Methods(http.MethodPut)
 	r.Handle("/backend/{name}", handler(a.removeBackend)).Methods(http.MethodDelete)
 	r.Handle("/backend/{name}/status", handler(a.status)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}/routes", handler(a.getRoutes)).Methods(http.MethodGet)
-	r.Handle("/backend/{name}/routes", handler(a.addRoutes)).Methods(http.MethodPost)
-	r.Handle("/backend/{name}/routes/remove", handler(a.removeRoutes)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}/swap", handler(a.swap)).Methods(http.MethodPost)
 
 	r.Handle("/info", handler(a.info)).Methods(http.MethodGet)
@@ -67,6 +64,10 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 		return nil
 	})).Methods(http.MethodGet)
 	r.Handle("/support/prefix", handler(func(w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})).Methods(http.MethodGet)
+	r.Handle("/support/v2", handler(func(w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusOK)
 		return nil
 	})).Methods(http.MethodGet)
@@ -145,33 +146,6 @@ func (a *RouterAPI) status(w http.ResponseWriter, r *http.Request) error {
 	return json.NewEncoder(w).Encode(rsp)
 }
 
-// addBackend creates a Ingress for a given app configuration pointing
-// to a non existent service
-func (a *RouterAPI) addBackend(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	vars := mux.Vars(r)
-	routerOpts := router.Opts{
-		HeaderOpts: r.Header.Values("X-Router-Opt"),
-	}
-	err := json.NewDecoder(r.Body).Decode(&routerOpts)
-	if err != nil {
-		return err
-	}
-	if len(routerOpts.Domain) > 0 && len(routerOpts.Route) == 0 {
-		routerOpts.Route = "/"
-	}
-	svc, err := a.router(ctx, vars["mode"], r.Header)
-	if err != nil {
-		return err
-	}
-	return svc.Create(ctx, instanceID(r), routerOpts)
-}
-
-// updateBackend is no-op
-func (a *RouterAPI) updateBackend(w http.ResponseWriter, r *http.Request) error {
-	return nil
-}
-
 // removeBackend removes the Ingress for a given app
 func (a *RouterAPI) removeBackend(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
@@ -184,18 +158,22 @@ func (a *RouterAPI) removeBackend(w http.ResponseWriter, r *http.Request) error 
 }
 
 // addRoutes updates the Ingress to point to the correct service
-func (a *RouterAPI) addRoutes(w http.ResponseWriter, r *http.Request) error {
+func (a *RouterAPI) ensureBackend(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	ctx := r.Context()
 
-	var routesData router.RoutesRequestData
-	err := json.NewDecoder(r.Body).Decode(&routesData)
+	opts := &router.EnsureBackendOpts{
+		Opts: router.Opts{
+			HeaderOpts: r.Header.Values("X-Router-Opt"),
+		},
+	}
+	err := json.NewDecoder(r.Body).Decode(opts)
 	if err != nil {
 		return err
 	}
-	if routesData.Prefix != "" {
-		// Do nothing for all prefixes, except the default one.
-		return nil
+
+	if len(opts.Opts.Domain) > 0 && len(opts.Opts.Route) == 0 {
+		opts.Opts.Route = "/"
 	}
 
 	svc, err := a.router(ctx, vars["mode"], r.Header)
@@ -203,12 +181,7 @@ func (a *RouterAPI) addRoutes(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	return svc.Update(ctx, instanceID(r), routesData.ExtraData)
-}
-
-// removeRoutes is no-op
-func (a *RouterAPI) removeRoutes(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	return svc.Ensure(ctx, instanceID(r), *opts)
 }
 
 // getRoutes always returns an empty address list to force tsuru to call

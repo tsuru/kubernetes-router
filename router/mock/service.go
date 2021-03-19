@@ -15,9 +15,8 @@ var _ router.Router = &RouterMock{}
 // RouterMock is a router.Router mock implementation to be
 // used by tests
 type RouterMock struct {
-	CreateFn                 func(router.InstanceID, router.Opts) error
+	EnsureFn                 func(router.InstanceID, router.EnsureBackendOpts) error
 	RemoveFn                 func(router.InstanceID) error
-	UpdateFn                 func(router.InstanceID, router.RoutesRequestExtraData) error
 	SwapFn                   func(router.InstanceID, router.InstanceID) error
 	GetAddressesFn           func(router.InstanceID) ([]string, error)
 	GetStatusFn              func(router.InstanceID) (router.BackendStatus, string, error)
@@ -28,9 +27,8 @@ type RouterMock struct {
 	GetCnamesFn              func(id router.InstanceID) (*router.CnamesResp, error)
 	UnsetCnameFn             func(id router.InstanceID, cname string) error
 	SupportedOptionsFn       func() map[string]string
-	CreateInvoked            bool
 	RemoveInvoked            bool
-	UpdateInvoked            bool
+	EnsureInvoked            bool
 	SwapInvoked              bool
 	GetAddressesInvoked      bool
 	AddCertificateInvoked    bool
@@ -43,12 +41,6 @@ type RouterMock struct {
 	GetStatusInvoked         bool
 }
 
-// Create calls CreateFn
-func (s *RouterMock) Create(ctx context.Context, id router.InstanceID, opts router.Opts) error {
-	s.CreateInvoked = true
-	return s.CreateFn(id, opts)
-}
-
 // Remove calls RemoveFn
 func (s *RouterMock) Remove(ctx context.Context, id router.InstanceID) error {
 	s.RemoveInvoked = true
@@ -56,9 +48,9 @@ func (s *RouterMock) Remove(ctx context.Context, id router.InstanceID) error {
 }
 
 // Update calls UpdateFn
-func (s *RouterMock) Update(ctx context.Context, id router.InstanceID, extraData router.RoutesRequestExtraData) error {
-	s.UpdateInvoked = true
-	return s.UpdateFn(id, extraData)
+func (s *RouterMock) Ensure(ctx context.Context, id router.InstanceID, o router.EnsureBackendOpts) error {
+	s.EnsureInvoked = true
+	return s.EnsureFn(id, o)
 }
 
 // Swap calls SwapFn

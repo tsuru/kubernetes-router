@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 
@@ -21,8 +20,6 @@ import (
 )
 
 const (
-	placeHolderServiceName = "kubernetes-router-placeholder"
-
 	hostsAnnotation = "tsuru.io/additional-hosts"
 )
 
@@ -163,16 +160,15 @@ func vsRemoveHost(v *networking.VirtualService, host string) {
 func (k *IstioGateway) updateVirtualService(v *networking.VirtualService, id router.InstanceID, dstHost string) {
 	v.Spec.Gateways = addToSet(v.Spec.Gateways, k.gatewayName(id))
 	v.Spec.Hosts = addToSet(v.Spec.Hosts, k.gatewayHost(id))
-	if dstHost != placeHolderServiceName {
-		v.Spec.Hosts = addToSet(v.Spec.Hosts, dstHost)
-	}
+	v.Spec.Hosts = addToSet(v.Spec.Hosts, dstHost)
+
 	if len(v.Spec.Http) == 0 {
 		v.Spec.Http = append(v.Spec.Http, &apiNetworking.HTTPRoute{})
 	}
 	dstIdx := -1
 	for i, dst := range v.Spec.Http[0].Route {
 		if dst.Destination != nil &&
-			(dst.Destination.Host == dstHost || dst.Destination.Host == placeHolderServiceName) {
+			(dst.Destination.Host == dstHost) {
 			dstIdx = i
 			break
 		}
@@ -187,12 +183,17 @@ func (k *IstioGateway) updateVirtualService(v *networking.VirtualService, id rou
 }
 
 // Create adds a new gateway and a virtualservice for the app
-func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerOpts router.Opts) error {
+func (k *IstioGateway) Ensure(ctx context.Context, id router.InstanceID, o router.EnsureBackendOpts) error {
 	cli, err := k.getClient()
 	if err != nil {
 		return err
 	}
 	namespace, err := k.getAppNamespace(ctx, id.AppName)
+	if err != nil {
+		return err
+	}
+
+	defaultTarget, err := k.getDefaultBackendTarget(o.Prefixes)
 	if err != nil {
 		return err
 	}
@@ -216,7 +217,7 @@ func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerO
 		},
 	}
 
-	k.updateObjectMeta(&gateway.ObjectMeta, id.AppName, routerOpts)
+	k.updateObjectMeta(&gateway.ObjectMeta, id.AppName, o.Opts)
 
 	_, err = cli.Gateways(namespace).Create(ctx, gateway, metav1.CreateOptions{})
 	isAlreadyExists := false
@@ -245,17 +246,16 @@ func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerO
 		}
 	}
 
-	k.updateObjectMeta(&virtualSvc.ObjectMeta, id.AppName, routerOpts)
+	k.updateObjectMeta(&virtualSvc.ObjectMeta, id.AppName, o.Opts)
 
-	webServiceName := placeHolderServiceName
-	webService, err := k.getWebService(ctx, id.AppName, router.RoutesRequestExtraData{}, virtualSvc.Labels)
-	if err == nil {
-		webServiceName = webService.Name
-	} else {
-		log.Printf("ignored error trying to find app web service: %v", err)
+	webService, err := k.getWebService(ctx, id.AppName, *defaultTarget)
+	if err != nil {
+		return err
 	}
 
-	k.updateVirtualService(virtualSvc, id, webServiceName)
+	k.updateVirtualService(virtualSvc, id, webService.Name)
+	virtualSvc.Labels[appBaseServiceNamespaceLabel] = defaultTarget.Namespace
+	virtualSvc.Labels[appBaseServiceNameLabel] = defaultTarget.Service
 	if existingSvc {
 		_, err = cli.VirtualServices(namespace).Update(ctx, virtualSvc, metav1.UpdateOptions{})
 	} else {
@@ -269,30 +269,6 @@ func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerO
 		return router.ErrIngressAlreadyExists
 	}
 	return nil
-}
-
-// Update sets the app web service into the existing virtualservice
-func (k *IstioGateway) Update(ctx context.Context, id router.InstanceID, extraData router.RoutesRequestExtraData) error {
-	cli, err := k.getClient()
-	if err != nil {
-		return err
-	}
-	virtualSvc, err := k.getVS(ctx, cli, id)
-	if err != nil {
-		return err
-	}
-	service, err := k.getWebService(ctx, id.AppName, extraData, virtualSvc.Labels)
-	if err != nil {
-		return err
-	}
-	if extraData.Namespace != "" && extraData.Service != "" {
-		virtualSvc.Labels[appBaseServiceNamespaceLabel] = extraData.Namespace
-		virtualSvc.Labels[appBaseServiceNameLabel] = extraData.Service
-	}
-	k.updateObjectMeta(&virtualSvc.ObjectMeta, id.AppName, router.Opts{})
-	k.updateVirtualService(virtualSvc, id, service.Name)
-	_, err = cli.VirtualServices(virtualSvc.Namespace).Update(ctx, virtualSvc, metav1.UpdateOptions{})
-	return err
 }
 
 // Get returns the address in the gateway
