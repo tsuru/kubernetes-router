@@ -76,14 +76,6 @@ type RouterTLS interface {
 	RemoveCertificate(ctx context.Context, id InstanceID, certName string) error
 }
 
-// RouterCNAME Certificates interface
-type RouterCNAME interface {
-	Router
-	SetCname(ctx context.Context, id InstanceID, cname string) error
-	GetCnames(ctx context.Context, id InstanceID) (*CnamesResp, error)
-	UnsetCname(ctx context.Context, id InstanceID, cname string) error
-}
-
 // Opts used when creating/updating routers
 type Opts struct {
 	Pool           string            `json:",omitempty"`
@@ -95,11 +87,6 @@ type Opts struct {
 	Acme           bool              `json:",omitempty"`
 	AdditionalOpts map[string]string `json:",omitempty"`
 	HeaderOpts     []string          `json:",omitempty"`
-}
-
-// CnamesResp used when adding cnames
-type CnamesResp struct {
-	Cnames []string `json:"cnames"`
 }
 
 // CertData user when adding certificates
@@ -115,6 +102,7 @@ type BackendPrefix struct {
 
 type EnsureBackendOpts struct {
 	Opts     Opts            `json:"opts"`
+	CNames   []string        `json:"cnames"`
 	Prefixes []BackendPrefix `json:"prefixes"`
 }
 

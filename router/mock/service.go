@@ -23,9 +23,6 @@ type RouterMock struct {
 	GetCertificateFn         func(router.InstanceID, string) (*router.CertData, error)
 	AddCertificateFn         func(router.InstanceID, string, router.CertData) error
 	RemoveCertificateFn      func(router.InstanceID, string) error
-	SetCnameFn               func(id router.InstanceID, cname string) error
-	GetCnamesFn              func(id router.InstanceID) (*router.CnamesResp, error)
-	UnsetCnameFn             func(id router.InstanceID, cname string) error
 	SupportedOptionsFn       func() map[string]string
 	RemoveInvoked            bool
 	EnsureInvoked            bool
@@ -34,9 +31,6 @@ type RouterMock struct {
 	AddCertificateInvoked    bool
 	GetCertificateInvoked    bool
 	RemoveCertificateInvoked bool
-	GetCnamesInvoked         bool
-	SetCnameInvoked          bool
-	UnsetCnameInvoked        bool
 	SupportedOptionsInvoked  bool
 	GetStatusInvoked         bool
 }
@@ -86,24 +80,6 @@ func (s *RouterMock) AddCertificate(ctx context.Context, id router.InstanceID, c
 func (s *RouterMock) RemoveCertificate(ctx context.Context, id router.InstanceID, certName string) error {
 	s.RemoveCertificateInvoked = true
 	return s.RemoveCertificateFn(id, certName)
-}
-
-// SetCname calls SetCnameFn
-func (s *RouterMock) SetCname(ctx context.Context, id router.InstanceID, cname string) error {
-	s.SetCnameInvoked = true
-	return s.SetCnameFn(id, cname)
-}
-
-// GetCnames calls GetCnames
-func (s *RouterMock) GetCnames(ctx context.Context, id router.InstanceID) (*router.CnamesResp, error) {
-	s.GetCnamesInvoked = true
-	return s.GetCnamesFn(id)
-}
-
-// UnsetCname calls UnsetCnameFn
-func (s *RouterMock) UnsetCname(ctx context.Context, id router.InstanceID, cname string) error {
-	s.UnsetCnameInvoked = true
-	return s.UnsetCnameFn(id, cname)
 }
 
 // SupportedOptions calls SupportedOptionsFn

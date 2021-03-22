@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
@@ -47,14 +46,8 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 	r.Handle("/backend/{name}/certificate/{certname}", handler(a.getCertificate)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}/certificate/{certname}", handler(a.removeCertificate)).Methods(http.MethodDelete)
 
-	// CNAME
-	r.Handle("/backend/{name}/cname/{cname}", handler(a.setCname)).Methods(http.MethodPost)
-	r.Handle("/backend/{name}/cname", handler(a.getCnames)).Methods(http.MethodGet)
-	r.Handle("/backend/{name}/cname/{cname}", handler(a.unsetCname)).Methods(http.MethodDelete)
-
 	// Supports
 	r.Handle("/support/tls", handler(a.supportTLS)).Methods(http.MethodGet)
-	r.Handle("/support/cname", handler(a.supportCNAME)).Methods(http.MethodGet)
 	r.Handle("/support/info", handler(func(w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusOK)
 		return nil
@@ -314,64 +307,6 @@ func (a *RouterAPI) removeCertificate(w http.ResponseWriter, r *http.Request) er
 	return err
 }
 
-// setCname Add CNAME to app
-func (a *RouterAPI) setCname(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	vars := mux.Vars(r)
-	name := vars["name"]
-	cname := vars["cname"]
-	log.Printf("Adding on %s CNAME %s", name, cname)
-	svc, err := a.router(ctx, vars["mode"], r.Header)
-	if err != nil {
-		return err
-	}
-	err = svc.(router.RouterCNAME).SetCname(ctx, instanceID(r), cname)
-	if err != nil {
-		if strings.Contains(err.Error(), "exists") {
-			w.WriteHeader(http.StatusConflict)
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}
-	return err
-}
-
-// getCnames Return CNAMEs for app
-func (a *RouterAPI) getCnames(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	vars := mux.Vars(r)
-	name := vars["name"]
-	log.Printf("Getting CNAMEs from %s", name)
-	svc, err := a.router(ctx, vars["mode"], r.Header)
-	if err != nil {
-		return err
-	}
-	cnames, err := svc.(router.RouterCNAME).GetCnames(ctx, instanceID(r))
-	if err != nil {
-		return err
-	}
-	b, err := json.Marshal(&cnames)
-	if err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, err = w.Write(b)
-	return err
-}
-
-// unsetCname Delete CNAME for app
-func (a *RouterAPI) unsetCname(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	vars := mux.Vars(r)
-	name := vars["name"]
-	cname := vars["cname"]
-	log.Printf("Removing CNAME %s from %s", cname, name)
-	svc, err := a.router(ctx, vars["mode"], r.Header)
-	if err != nil {
-		return err
-	}
-	return svc.(router.RouterCNAME).UnsetCname(ctx, instanceID(r), cname)
-}
-
 // Check for TLS Support
 func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 	var err error
@@ -384,24 +319,6 @@ func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		_, err = w.Write([]byte("No TLS Capabilities"))
-		return err
-	}
-	_, err = w.Write([]byte("OK"))
-	return err
-}
-
-// Check for CNAME Support
-func (a *RouterAPI) supportCNAME(w http.ResponseWriter, r *http.Request) error {
-	var err error
-	vars := mux.Vars(r)
-	svc, err := a.router(r.Context(), vars["mode"], r.Header)
-	if err != nil {
-		return err
-	}
-	_, ok := svc.(router.RouterCNAME)
-	if !ok {
-		w.WriteHeader(http.StatusNotFound)
-		_, err = w.Write([]byte("No CNAME Capabilities"))
 		return err
 	}
 	_, err = w.Write([]byte("OK"))

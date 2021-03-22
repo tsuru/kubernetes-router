@@ -112,6 +112,82 @@ func TestIngressEnsure(t *testing.T) {
 	assert.Equal(t, expectedIngress, ingressList.Items[0])
 }
 
+func TestIngressEnsureWithCNames(t *testing.T) {
+	svc := createFakeService()
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			Route: "/admin",
+		},
+		CNames: []string{"test.io", "www.test.io"},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+			{
+				Prefix: "subscriber",
+				Target: router.BackendTarget{
+					Service:   "test-subscriber",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
+	require.NoError(t, err)
+
+	if len(ingressList.Items) != 1 {
+		t.Errorf("Expected 1 item. Got %d.", len(ingressList.Items))
+	}
+	expectedIngress := defaultIngress("test", "default")
+	expectedIngress.Spec.Rules[0].HTTP.Paths[0].Path = "/admin"
+	expectedIngress.Spec.Rules = append(expectedIngress.Spec.Rules,
+		v1beta1.IngressRule{
+			Host: "test.io",
+			IngressRuleValue: v1beta1.IngressRuleValue{
+				HTTP: &v1beta1.HTTPIngressRuleValue{
+					Paths: []v1beta1.HTTPIngressPath{
+						{
+							Path: "/admin",
+							Backend: v1beta1.IngressBackend{
+								ServiceName: "test-web",
+								ServicePort: intstr.FromInt(8888),
+							},
+						},
+					},
+				},
+			},
+		},
+		v1beta1.IngressRule{
+			Host: "www.test.io",
+			IngressRuleValue: v1beta1.IngressRuleValue{
+				HTTP: &v1beta1.HTTPIngressRuleValue{
+					Paths: []v1beta1.HTTPIngressPath{
+						{
+							Path: "/admin",
+							Backend: v1beta1.IngressBackend{
+								ServiceName: "test-web",
+								ServicePort: intstr.FromInt(8888),
+							},
+						},
+					},
+				},
+			},
+		},
+	)
+	expectedIngress.Labels["controller"] = "my-controller"
+	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Annotations["ann1"] = "val1"
+	expectedIngress.Annotations["ann2"] = "val2"
+
+	assert.Equal(t, expectedIngress, ingressList.Items[0])
+}
+
 func TestIngressCreateDefaultClass(t *testing.T) {
 	svc := createFakeService()
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
@@ -524,95 +600,6 @@ func TestRemove(t *testing.T) {
 			assert.Len(t, ingressList.Items, tc.expectedCount)
 		})
 	}
-}
-
-func TestUnsetCname(t *testing.T) {
-	svc := createFakeService()
-	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
-	require.NoError(t, err)
-
-	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
-		Prefixes: []router.BackendPrefix{
-			{
-				Target: router.BackendTarget{
-					Service:   "test-blue-web",
-					Namespace: svc.Namespace,
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-
-	err = svc.SetCname(ctx, idForApp("test-blue"), "cname1")
-	require.NoError(t, err)
-
-	err = svc.UnsetCname(ctx, idForApp("test-blue"), "cname1")
-	require.NoError(t, err)
-
-	cnameIng := defaultIngress("test-blue", "default")
-	cnameIng.Annotations[svc.annotationWithPrefix("server-alias")] = ""
-
-	ingress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-blue-ingress", metav1.GetOptions{})
-	require.NoError(t, err)
-	assert.Equal(t, &cnameIng, ingress)
-}
-
-func TestSetCname(t *testing.T) {
-	svc := createFakeService()
-	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
-	require.NoError(t, err)
-	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
-		Prefixes: []router.BackendPrefix{
-			{
-				Target: router.BackendTarget{
-					Service:   "test-blue-web",
-					Namespace: svc.Namespace,
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-	err = svc.SetCname(ctx, idForApp("test-blue"), "cname1")
-	require.NoError(t, err)
-
-	cnameIng := defaultIngress("test-blue", "default")
-	cnameIng.Annotations[svc.annotationWithPrefix("server-alias")] = "cname1"
-
-	ingress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-blue-ingress", metav1.GetOptions{})
-	require.NoError(t, err)
-	assert.Equal(t, &cnameIng, ingress)
-}
-
-func TestGetCnames(t *testing.T) {
-	svc := createFakeService()
-	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
-	require.NoError(t, err)
-	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
-		Prefixes: []router.BackendPrefix{
-			{
-				Target: router.BackendTarget{
-					Service:   "test-blue-web",
-					Namespace: svc.Namespace,
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-	err = svc.SetCname(ctx, idForApp("test-blue"), "cname1")
-	require.NoError(t, err)
-	err = svc.SetCname(ctx, idForApp("test-blue"), "cname2")
-	require.NoError(t, err)
-
-	cnameIng := defaultIngress("test-blue", "default")
-	cnameIng.Annotations[svc.annotationWithPrefix("server-alias")] = "cname1 cname2"
-
-	ingress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-blue-ingress", metav1.GetOptions{})
-	require.NoError(t, err)
-	assert.Equal(t, &cnameIng, ingress)
-
-	cnames, err := svc.GetCnames(ctx, idForApp("test-blue"))
-	require.NoError(t, err)
-	assert.Equal(t, &router.CnamesResp{Cnames: []string{"cname1", "cname2"}}, cnames)
 }
 
 func TestRemoveCertificate(t *testing.T) {

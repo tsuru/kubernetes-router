@@ -6,7 +6,6 @@ package kubernetes
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"reflect"
@@ -37,7 +36,6 @@ var (
 
 var (
 	_ router.Router       = &IngressService{}
-	_ router.RouterCNAME  = &IngressService{}
 	_ router.RouterTLS    = &IngressService{}
 	_ router.RouterStatus = &IngressService{}
 )
@@ -139,6 +137,36 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		Spec: spec,
 	}
 	k.fillIngressMeta(ingress, o.Opts, id)
+
+	acmeTLSEnabled := ingress.Annotations[AnnotationsACMEKey] == "true"
+	for _, cname := range o.CNames {
+		ingress.Spec.Rules = append(ingress.Spec.Rules, v1beta1.IngressRule{
+			Host: cname,
+			IngressRuleValue: v1beta1.IngressRuleValue{
+				HTTP: &v1beta1.HTTPIngressRuleValue{
+					Paths: []v1beta1.HTTPIngressPath{
+						{
+							Path: o.Opts.Route,
+							Backend: v1beta1.IngressBackend{
+								ServiceName: service.Name,
+								ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),
+							},
+						},
+					},
+				},
+			},
+		})
+		if acmeTLSEnabled {
+			log.Printf("Acme-tls is enabled on ingress, creating TLS secret for CNAME.")
+			ingress.Spec.TLS = append(ingress.Spec.TLS,
+				[]v1beta1.IngressTLS{
+					{
+						Hosts:      []string{cname},
+						SecretName: k.secretName(id, cname),
+					},
+				}...)
+		}
+	}
 
 	if isNew {
 		_, err = ingressClient.Create(ctx, ingress, metav1.CreateOptions{})
@@ -408,104 +436,6 @@ func (k *IngressService) RemoveCertificate(ctx context.Context, id router.Instan
 		return err
 	}
 	err = secret.Delete(ctx, k.secretName(id, certCname), metav1.DeleteOptions{})
-	return err
-}
-
-// SetCname adds CNAME to app ingress
-func (k *IngressService) SetCname(ctx context.Context, id router.InstanceID, cname string) error {
-	ns, err := k.getAppNamespace(ctx, id.AppName)
-	if err != nil {
-		return err
-	}
-	ingressClient, err := k.ingressClient(ns)
-	if err != nil {
-		return err
-	}
-	ingress, err := k.get(ctx, id)
-	if err != nil {
-		return err
-	}
-	annotations := ingress.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-	aliases, ok := annotations[k.annotationWithPrefix("server-alias")]
-	if !ok {
-		aliases = cname
-	} else {
-		aliasesArray := strings.Split(aliases, " ")
-		for _, v := range aliasesArray {
-			if strings.Compare(v, cname) == 0 {
-				return errors.New("cname already exists")
-			}
-		}
-		aliasesArray = append(aliasesArray, []string{cname}...)
-		aliases = strings.Join(aliasesArray, " ")
-	}
-	annotations[k.annotationWithPrefix("server-alias")] = strings.TrimSpace(aliases)
-	ingress.SetAnnotations(annotations)
-
-	if val, ok := annotations[AnnotationsACMEKey]; ok && strings.Contains(val, "true") {
-		log.Printf("Acme-tls is enabled on ingress, creating TLS secret for CNAME.")
-		ingress.Spec.TLS = append(ingress.Spec.TLS,
-			[]v1beta1.IngressTLS{
-				{
-					Hosts:      []string{cname},
-					SecretName: k.secretName(id, cname),
-				},
-			}...)
-	}
-
-	_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
-
-	return err
-}
-
-// GetCnames get CNAMEs from app ingress
-func (k *IngressService) GetCnames(ctx context.Context, id router.InstanceID) (*router.CnamesResp, error) {
-	ingress, err := k.get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	aliases, ok := ingress.GetAnnotations()[k.annotationWithPrefix("server-alias")]
-	if !ok {
-		return &router.CnamesResp{}, err
-	}
-
-	return &router.CnamesResp{Cnames: strings.Split(aliases, " ")}, err
-}
-
-// UnsetCname delete CNAME from app ingress
-func (k *IngressService) UnsetCname(ctx context.Context, id router.InstanceID, cname string) error {
-	ns, err := k.getAppNamespace(ctx, id.AppName)
-	if err != nil {
-		return err
-	}
-	ingressClient, err := k.ingressClient(ns)
-	if err != nil {
-		return err
-	}
-	ingress, err := k.get(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	annotations := ingress.GetAnnotations()
-	aliases := strings.Split(annotations[k.annotationWithPrefix("server-alias")], " ")
-
-	for index, value := range aliases {
-		if strings.Compare(value, cname) == 0 {
-			aliases = append(aliases[:index], aliases[index+1:]...)
-			break
-		}
-	}
-
-	annotations[k.annotationWithPrefix("server-alias")] = strings.TrimSpace(strings.Join(aliases, " "))
-	ingress.SetAnnotations(annotations)
-
-	_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
-
 	return err
 }
 
