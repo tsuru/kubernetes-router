@@ -29,7 +29,7 @@ func TestGetWebService(t *testing.T) {
 		ExtensionsClient: fakeapiextensions.NewSimpleClientset(),
 	}
 
-	webService, err := svc.getWebService(ctx, "test", router.BackendTarget{Service: "test-not-found", Namespace: svc.Namespace})
+	_, err := svc.getWebService(ctx, "test", router.BackendTarget{Service: "test-not-found", Namespace: svc.Namespace})
 	assert.Equal(t, ErrNoService{App: "test"}, err)
 
 	svc1 := v1.Service{ObjectMeta: metav1.ObjectMeta{
@@ -44,7 +44,7 @@ func TestGetWebService(t *testing.T) {
 	}
 	_, err = svc.Client.CoreV1().Services(svc.Namespace).Create(ctx, &svc1, metav1.CreateOptions{})
 	require.NoError(t, err)
-	webService, err = svc.getWebService(ctx, "test", router.BackendTarget{Service: svc1.Name, Namespace: svc1.Namespace})
+	webService, err := svc.getWebService(ctx, "test", router.BackendTarget{Service: svc1.Name, Namespace: svc1.Namespace})
 	require.NoError(t, err)
 	assert.Equal(t, "test-single", webService.Name)
 

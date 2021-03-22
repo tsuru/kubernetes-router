@@ -25,7 +25,6 @@ import (
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -38,7 +37,6 @@ const (
 	// externalServiceLabel should be added to every service with tsuru app
 	// labels that are NOT created or managed by tsuru itself.
 	externalServiceLabel = "tsuru.io/external-controller"
-	headlessServiceLabel = "tsuru.io/is-headless-service"
 
 	appBaseServiceNamespaceLabel = "router.tsuru.io/base-service-namespace"
 	appBaseServiceNameLabel      = "router.tsuru.io/base-service-name"
@@ -52,7 +50,6 @@ const (
 	processLabel       = "tsuru.io/app-process"
 	swapLabel          = "tsuru.io/swapped-with"
 	appPoolLabel       = "tsuru.io/app-pool"
-	webProcessName     = "web"
 
 	appCRDName = "apps.tsuru.io"
 )
@@ -226,29 +223,6 @@ func (k *BaseService) hasCRD(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return true, nil
-}
-
-func makeWebSvcSelector(appName string) (labels.Selector, error) {
-	reqs := []struct {
-		key string
-		op  selection.Operator
-		val string
-	}{
-		{appLabel, selection.Equals, appName},
-		{managedServiceLabel, selection.NotEquals, "true"},
-		{externalServiceLabel, selection.NotEquals, "true"},
-		{headlessServiceLabel, selection.NotEquals, "true"},
-	}
-
-	sel := labels.NewSelector()
-	for _, reqInfo := range reqs {
-		req, err := labels.NewRequirement(reqInfo.key, reqInfo.op, []string{reqInfo.val})
-		if err != nil {
-			return nil, err
-		}
-		sel = sel.Add(*req)
-	}
-	return sel, nil
 }
 
 func (s *BaseService) getDefaultBackendTarget(prefixes []router.BackendPrefix) (*router.BackendTarget, error) {
