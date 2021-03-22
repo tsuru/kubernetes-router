@@ -101,7 +101,7 @@ func main() {
 				IngressClass:          *ingressClass,
 				AnnotationsPrefix:     *ingressAnnotationsPrefix,
 			}
-		case "service":
+		case "service", "loadbalancer":
 			localBackend.Routers[mode] = &kubernetes.LBService{
 				BaseService:      base,
 				OptsAsLabels:     *optsToLabels,

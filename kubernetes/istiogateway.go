@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 
@@ -21,14 +20,11 @@ import (
 )
 
 const (
-	placeHolderServiceName = "kubernetes-router-placeholder"
-
 	hostsAnnotation = "tsuru.io/additional-hosts"
 )
 
 var (
-	_ router.Router      = &IstioGateway{}
-	_ router.RouterCNAME = &IstioGateway{}
+	_ router.Router = &IstioGateway{}
 )
 
 // IstioGateway manages gateways in a Kubernetes cluster with istio enabled.
@@ -163,16 +159,15 @@ func vsRemoveHost(v *networking.VirtualService, host string) {
 func (k *IstioGateway) updateVirtualService(v *networking.VirtualService, id router.InstanceID, dstHost string) {
 	v.Spec.Gateways = addToSet(v.Spec.Gateways, k.gatewayName(id))
 	v.Spec.Hosts = addToSet(v.Spec.Hosts, k.gatewayHost(id))
-	if dstHost != placeHolderServiceName {
-		v.Spec.Hosts = addToSet(v.Spec.Hosts, dstHost)
-	}
+	v.Spec.Hosts = addToSet(v.Spec.Hosts, dstHost)
+
 	if len(v.Spec.Http) == 0 {
 		v.Spec.Http = append(v.Spec.Http, &apiNetworking.HTTPRoute{})
 	}
 	dstIdx := -1
 	for i, dst := range v.Spec.Http[0].Route {
 		if dst.Destination != nil &&
-			(dst.Destination.Host == dstHost || dst.Destination.Host == placeHolderServiceName) {
+			(dst.Destination.Host == dstHost) {
 			dstIdx = i
 			break
 		}
@@ -187,12 +182,17 @@ func (k *IstioGateway) updateVirtualService(v *networking.VirtualService, id rou
 }
 
 // Create adds a new gateway and a virtualservice for the app
-func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerOpts router.Opts) error {
+func (k *IstioGateway) Ensure(ctx context.Context, id router.InstanceID, o router.EnsureBackendOpts) error {
 	cli, err := k.getClient()
 	if err != nil {
 		return err
 	}
 	namespace, err := k.getAppNamespace(ctx, id.AppName)
+	if err != nil {
+		return err
+	}
+
+	defaultTarget, err := k.getDefaultBackendTarget(o.Prefixes)
 	if err != nil {
 		return err
 	}
@@ -216,7 +216,7 @@ func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerO
 		},
 	}
 
-	k.updateObjectMeta(&gateway.ObjectMeta, id.AppName, routerOpts)
+	k.updateObjectMeta(&gateway.ObjectMeta, id.AppName, o.Opts)
 
 	_, err = cli.Gateways(namespace).Create(ctx, gateway, metav1.CreateOptions{})
 	isAlreadyExists := false
@@ -245,17 +245,26 @@ func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerO
 		}
 	}
 
-	k.updateObjectMeta(&virtualSvc.ObjectMeta, id.AppName, routerOpts)
+	k.updateObjectMeta(&virtualSvc.ObjectMeta, id.AppName, o.Opts)
 
-	webServiceName := placeHolderServiceName
-	webService, err := k.getWebService(ctx, id.AppName, router.RoutesRequestExtraData{}, virtualSvc.Labels)
-	if err == nil {
-		webServiceName = webService.Name
-	} else {
-		log.Printf("ignored error trying to find app web service: %v", err)
+	webService, err := k.getWebService(ctx, id.AppName, *defaultTarget)
+	if err != nil {
+		return err
 	}
 
-	k.updateVirtualService(virtualSvc, id, webServiceName)
+	k.updateVirtualService(virtualSvc, id, webService.Name)
+	virtualSvc.Labels[appBaseServiceNamespaceLabel] = defaultTarget.Namespace
+	virtualSvc.Labels[appBaseServiceNameLabel] = defaultTarget.Service
+
+	existingCNames := hostsFromAnnotation(virtualSvc.Annotations)
+	cnamesToAdd, cnamesToRemove := diffCNames(existingCNames, o.CNames)
+	for _, cname := range cnamesToAdd {
+		vsAddHost(virtualSvc, cname)
+	}
+	for _, cname := range cnamesToRemove {
+		vsRemoveHost(virtualSvc, cname)
+	}
+
 	if existingSvc {
 		_, err = cli.VirtualServices(namespace).Update(ctx, virtualSvc, metav1.UpdateOptions{})
 	} else {
@@ -269,30 +278,6 @@ func (k *IstioGateway) Create(ctx context.Context, id router.InstanceID, routerO
 		return router.ErrIngressAlreadyExists
 	}
 	return nil
-}
-
-// Update sets the app web service into the existing virtualservice
-func (k *IstioGateway) Update(ctx context.Context, id router.InstanceID, extraData router.RoutesRequestExtraData) error {
-	cli, err := k.getClient()
-	if err != nil {
-		return err
-	}
-	virtualSvc, err := k.getVS(ctx, cli, id)
-	if err != nil {
-		return err
-	}
-	service, err := k.getWebService(ctx, id.AppName, extraData, virtualSvc.Labels)
-	if err != nil {
-		return err
-	}
-	if extraData.Namespace != "" && extraData.Service != "" {
-		virtualSvc.Labels[appBaseServiceNamespaceLabel] = extraData.Namespace
-		virtualSvc.Labels[appBaseServiceNameLabel] = extraData.Service
-	}
-	k.updateObjectMeta(&virtualSvc.ObjectMeta, id.AppName, router.Opts{})
-	k.updateVirtualService(virtualSvc, id, service.Name)
-	_, err = cli.VirtualServices(virtualSvc.Namespace).Update(ctx, virtualSvc, metav1.UpdateOptions{})
-	return err
 }
 
 // Get returns the address in the gateway
@@ -336,52 +321,26 @@ func (k *IstioGateway) Remove(ctx context.Context, id router.InstanceID) error {
 	return cli.Gateways(ns).Delete(ctx, k.gatewayName(id), metav1.DeleteOptions{})
 }
 
-// SetCname adds a new host to the gateway
-func (k *IstioGateway) SetCname(ctx context.Context, id router.InstanceID, cname string) error {
-	cli, err := k.getClient()
-	if err != nil {
-		return err
-	}
-	virtualSvc, err := k.getVS(ctx, cli, id)
-	if err != nil {
-		return err
-	}
-	vsAddHost(virtualSvc, cname)
-	_, err = cli.VirtualServices(virtualSvc.Namespace).Update(ctx, virtualSvc, metav1.UpdateOptions{})
-	return err
-}
+func diffCNames(existing []string, expected []string) (toAdd []string, toRemove []string) {
+	mapExisting := map[string]bool{}
+	mapExpected := map[string]bool{}
 
-// GetCnames returns hosts in gateway
-func (k *IstioGateway) GetCnames(ctx context.Context, id router.InstanceID) (*router.CnamesResp, error) {
-	cli, err := k.getClient()
-	if err != nil {
-		return nil, err
+	for _, e := range existing {
+		mapExisting[e] = true
 	}
-	virtualSvc, err := k.getVS(ctx, cli, id)
-	if err != nil {
-		return nil, err
-	}
-	var rsp router.CnamesResp
-	hostsRaw := virtualSvc.Annotations[hostsAnnotation]
-	for _, h := range strings.Split(hostsRaw, ",") {
-		if h != "" {
-			rsp.Cnames = append(rsp.Cnames, h)
+
+	for _, itemExpected := range expected {
+		mapExpected[itemExpected] = true
+		if !mapExisting[itemExpected] {
+			toAdd = append(toAdd, itemExpected)
 		}
 	}
-	return &rsp, nil
-}
 
-// UnsetCname removes a host from a gateway
-func (k *IstioGateway) UnsetCname(ctx context.Context, id router.InstanceID, cname string) error {
-	cli, err := k.getClient()
-	if err != nil {
-		return err
+	for _, e := range existing {
+		if !mapExpected[e] {
+			toRemove = append(toRemove, e)
+		}
 	}
-	virtualSvc, err := k.getVS(ctx, cli, id)
-	if err != nil {
-		return err
-	}
-	vsRemoveHost(virtualSvc, cname)
-	_, err = cli.VirtualServices(virtualSvc.Namespace).Update(ctx, virtualSvc, metav1.UpdateOptions{})
-	return err
+
+	return toAdd, toRemove
 }

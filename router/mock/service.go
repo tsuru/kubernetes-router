@@ -15,38 +15,24 @@ var _ router.Router = &RouterMock{}
 // RouterMock is a router.Router mock implementation to be
 // used by tests
 type RouterMock struct {
-	CreateFn                 func(router.InstanceID, router.Opts) error
+	EnsureFn                 func(router.InstanceID, router.EnsureBackendOpts) error
 	RemoveFn                 func(router.InstanceID) error
-	UpdateFn                 func(router.InstanceID, router.RoutesRequestExtraData) error
 	SwapFn                   func(router.InstanceID, router.InstanceID) error
 	GetAddressesFn           func(router.InstanceID) ([]string, error)
 	GetStatusFn              func(router.InstanceID) (router.BackendStatus, string, error)
 	GetCertificateFn         func(router.InstanceID, string) (*router.CertData, error)
 	AddCertificateFn         func(router.InstanceID, string, router.CertData) error
 	RemoveCertificateFn      func(router.InstanceID, string) error
-	SetCnameFn               func(id router.InstanceID, cname string) error
-	GetCnamesFn              func(id router.InstanceID) (*router.CnamesResp, error)
-	UnsetCnameFn             func(id router.InstanceID, cname string) error
 	SupportedOptionsFn       func() map[string]string
-	CreateInvoked            bool
 	RemoveInvoked            bool
-	UpdateInvoked            bool
+	EnsureInvoked            bool
 	SwapInvoked              bool
 	GetAddressesInvoked      bool
 	AddCertificateInvoked    bool
 	GetCertificateInvoked    bool
 	RemoveCertificateInvoked bool
-	GetCnamesInvoked         bool
-	SetCnameInvoked          bool
-	UnsetCnameInvoked        bool
 	SupportedOptionsInvoked  bool
 	GetStatusInvoked         bool
-}
-
-// Create calls CreateFn
-func (s *RouterMock) Create(ctx context.Context, id router.InstanceID, opts router.Opts) error {
-	s.CreateInvoked = true
-	return s.CreateFn(id, opts)
 }
 
 // Remove calls RemoveFn
@@ -56,9 +42,9 @@ func (s *RouterMock) Remove(ctx context.Context, id router.InstanceID) error {
 }
 
 // Update calls UpdateFn
-func (s *RouterMock) Update(ctx context.Context, id router.InstanceID, extraData router.RoutesRequestExtraData) error {
-	s.UpdateInvoked = true
-	return s.UpdateFn(id, extraData)
+func (s *RouterMock) Ensure(ctx context.Context, id router.InstanceID, o router.EnsureBackendOpts) error {
+	s.EnsureInvoked = true
+	return s.EnsureFn(id, o)
 }
 
 // Swap calls SwapFn
@@ -94,24 +80,6 @@ func (s *RouterMock) AddCertificate(ctx context.Context, id router.InstanceID, c
 func (s *RouterMock) RemoveCertificate(ctx context.Context, id router.InstanceID, certName string) error {
 	s.RemoveCertificateInvoked = true
 	return s.RemoveCertificateFn(id, certName)
-}
-
-// SetCname calls SetCnameFn
-func (s *RouterMock) SetCname(ctx context.Context, id router.InstanceID, cname string) error {
-	s.SetCnameInvoked = true
-	return s.SetCnameFn(id, cname)
-}
-
-// GetCnames calls GetCnames
-func (s *RouterMock) GetCnames(ctx context.Context, id router.InstanceID) (*router.CnamesResp, error) {
-	s.GetCnamesInvoked = true
-	return s.GetCnamesFn(id)
-}
-
-// UnsetCname calls UnsetCnameFn
-func (s *RouterMock) UnsetCname(ctx context.Context, id router.InstanceID, cname string) error {
-	s.UnsetCnameInvoked = true
-	return s.UnsetCnameFn(id, cname)
 }
 
 // SupportedOptions calls SupportedOptionsFn

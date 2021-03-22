@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
@@ -34,13 +33,10 @@ func (a *RouterAPI) Routes() *mux.Router {
 
 func (a *RouterAPI) registerRoutes(r *mux.Router) {
 	r.Handle("/backend/{name}", handler(a.getBackend)).Methods(http.MethodGet)
-	r.Handle("/backend/{name}", handler(a.addBackend)).Methods(http.MethodPost)
-	r.Handle("/backend/{name}", handler(a.updateBackend)).Methods(http.MethodPut)
+	r.Handle("/backend/{name}", handler(a.ensureBackend)).Methods(http.MethodPut)
 	r.Handle("/backend/{name}", handler(a.removeBackend)).Methods(http.MethodDelete)
 	r.Handle("/backend/{name}/status", handler(a.status)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}/routes", handler(a.getRoutes)).Methods(http.MethodGet)
-	r.Handle("/backend/{name}/routes", handler(a.addRoutes)).Methods(http.MethodPost)
-	r.Handle("/backend/{name}/routes/remove", handler(a.removeRoutes)).Methods(http.MethodPost)
 	r.Handle("/backend/{name}/swap", handler(a.swap)).Methods(http.MethodPost)
 
 	r.Handle("/info", handler(a.info)).Methods(http.MethodGet)
@@ -50,14 +46,8 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 	r.Handle("/backend/{name}/certificate/{certname}", handler(a.getCertificate)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}/certificate/{certname}", handler(a.removeCertificate)).Methods(http.MethodDelete)
 
-	// CNAME
-	r.Handle("/backend/{name}/cname/{cname}", handler(a.setCname)).Methods(http.MethodPost)
-	r.Handle("/backend/{name}/cname", handler(a.getCnames)).Methods(http.MethodGet)
-	r.Handle("/backend/{name}/cname/{cname}", handler(a.unsetCname)).Methods(http.MethodDelete)
-
 	// Supports
 	r.Handle("/support/tls", handler(a.supportTLS)).Methods(http.MethodGet)
-	r.Handle("/support/cname", handler(a.supportCNAME)).Methods(http.MethodGet)
 	r.Handle("/support/info", handler(func(w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusOK)
 		return nil
@@ -67,6 +57,10 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 		return nil
 	})).Methods(http.MethodGet)
 	r.Handle("/support/prefix", handler(func(w http.ResponseWriter, r *http.Request) error {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	})).Methods(http.MethodGet)
+	r.Handle("/support/v2", handler(func(w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusOK)
 		return nil
 	})).Methods(http.MethodGet)
@@ -145,33 +139,6 @@ func (a *RouterAPI) status(w http.ResponseWriter, r *http.Request) error {
 	return json.NewEncoder(w).Encode(rsp)
 }
 
-// addBackend creates a Ingress for a given app configuration pointing
-// to a non existent service
-func (a *RouterAPI) addBackend(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	vars := mux.Vars(r)
-	routerOpts := router.Opts{
-		HeaderOpts: r.Header.Values("X-Router-Opt"),
-	}
-	err := json.NewDecoder(r.Body).Decode(&routerOpts)
-	if err != nil {
-		return err
-	}
-	if len(routerOpts.Domain) > 0 && len(routerOpts.Route) == 0 {
-		routerOpts.Route = "/"
-	}
-	svc, err := a.router(ctx, vars["mode"], r.Header)
-	if err != nil {
-		return err
-	}
-	return svc.Create(ctx, instanceID(r), routerOpts)
-}
-
-// updateBackend is no-op
-func (a *RouterAPI) updateBackend(w http.ResponseWriter, r *http.Request) error {
-	return nil
-}
-
 // removeBackend removes the Ingress for a given app
 func (a *RouterAPI) removeBackend(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
@@ -184,18 +151,22 @@ func (a *RouterAPI) removeBackend(w http.ResponseWriter, r *http.Request) error 
 }
 
 // addRoutes updates the Ingress to point to the correct service
-func (a *RouterAPI) addRoutes(w http.ResponseWriter, r *http.Request) error {
+func (a *RouterAPI) ensureBackend(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	ctx := r.Context()
 
-	var routesData router.RoutesRequestData
-	err := json.NewDecoder(r.Body).Decode(&routesData)
+	opts := &router.EnsureBackendOpts{
+		Opts: router.Opts{
+			HeaderOpts: r.Header.Values("X-Router-Opt"),
+		},
+	}
+	err := json.NewDecoder(r.Body).Decode(opts)
 	if err != nil {
 		return err
 	}
-	if routesData.Prefix != "" {
-		// Do nothing for all prefixes, except the default one.
-		return nil
+
+	if len(opts.Opts.Domain) > 0 && len(opts.Opts.Route) == 0 {
+		opts.Opts.Route = "/"
 	}
 
 	svc, err := a.router(ctx, vars["mode"], r.Header)
@@ -203,12 +174,7 @@ func (a *RouterAPI) addRoutes(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	return svc.Update(ctx, instanceID(r), routesData.ExtraData)
-}
-
-// removeRoutes is no-op
-func (a *RouterAPI) removeRoutes(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	return svc.Ensure(ctx, instanceID(r), *opts)
 }
 
 // getRoutes always returns an empty address list to force tsuru to call
@@ -341,64 +307,6 @@ func (a *RouterAPI) removeCertificate(w http.ResponseWriter, r *http.Request) er
 	return err
 }
 
-// setCname Add CNAME to app
-func (a *RouterAPI) setCname(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	vars := mux.Vars(r)
-	name := vars["name"]
-	cname := vars["cname"]
-	log.Printf("Adding on %s CNAME %s", name, cname)
-	svc, err := a.router(ctx, vars["mode"], r.Header)
-	if err != nil {
-		return err
-	}
-	err = svc.(router.RouterCNAME).SetCname(ctx, instanceID(r), cname)
-	if err != nil {
-		if strings.Contains(err.Error(), "exists") {
-			w.WriteHeader(http.StatusConflict)
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}
-	return err
-}
-
-// getCnames Return CNAMEs for app
-func (a *RouterAPI) getCnames(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	vars := mux.Vars(r)
-	name := vars["name"]
-	log.Printf("Getting CNAMEs from %s", name)
-	svc, err := a.router(ctx, vars["mode"], r.Header)
-	if err != nil {
-		return err
-	}
-	cnames, err := svc.(router.RouterCNAME).GetCnames(ctx, instanceID(r))
-	if err != nil {
-		return err
-	}
-	b, err := json.Marshal(&cnames)
-	if err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, err = w.Write(b)
-	return err
-}
-
-// unsetCname Delete CNAME for app
-func (a *RouterAPI) unsetCname(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	vars := mux.Vars(r)
-	name := vars["name"]
-	cname := vars["cname"]
-	log.Printf("Removing CNAME %s from %s", cname, name)
-	svc, err := a.router(ctx, vars["mode"], r.Header)
-	if err != nil {
-		return err
-	}
-	return svc.(router.RouterCNAME).UnsetCname(ctx, instanceID(r), cname)
-}
-
 // Check for TLS Support
 func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 	var err error
@@ -411,24 +319,6 @@ func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		_, err = w.Write([]byte("No TLS Capabilities"))
-		return err
-	}
-	_, err = w.Write([]byte("OK"))
-	return err
-}
-
-// Check for CNAME Support
-func (a *RouterAPI) supportCNAME(w http.ResponseWriter, r *http.Request) error {
-	var err error
-	vars := mux.Vars(r)
-	svc, err := a.router(r.Context(), vars["mode"], r.Header)
-	if err != nil {
-		return err
-	}
-	_, ok := svc.(router.RouterCNAME)
-	if !ok {
-		w.WriteHeader(http.StatusNotFound)
-		_, err = w.Write([]byte("No CNAME Capabilities"))
 		return err
 	}
 	_, err = w.Write([]byte("OK"))

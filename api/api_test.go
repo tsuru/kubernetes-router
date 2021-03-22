@@ -108,44 +108,82 @@ func (s *RouterAPISuite) TestGetBackendInvalidMode() {
 	s.Equal(http.StatusNotFound, resp.StatusCode)
 }
 
-func (s *RouterAPISuite) TestAddBackend() {
-	s.mockRouter.CreateFn = func(id router.InstanceID, opts router.Opts) error {
+func (s *RouterAPISuite) TestEnsureBackend() {
+	s.mockRouter.EnsureFn = func(id router.InstanceID, o router.EnsureBackendOpts) error {
 		s.Equal("myapp", id.AppName)
-		s.Equal("mypool", opts.Pool)
-		s.Equal("443", opts.ExposedPort)
-		s.Equal(map[string]string{"custom": "val"}, opts.AdditionalOpts)
+		s.Equal([]router.BackendPrefix{
+			{
+				Target: router.BackendTarget{Namespace: "tsuru", Service: "myapp-web"},
+			},
+		}, o.Prefixes)
+		s.Equal("mypool", o.Opts.Pool)
+		s.Equal("443", o.Opts.ExposedPort)
+		s.Equal(map[string]string{"custom": "val"}, o.Opts.AdditionalOpts)
 		return nil
 	}
 
-	reqData, _ := json.Marshal(map[string]string{"tsuru.io/app-pool": "mypool", "exposed-port": "443", "custom": "val"})
+	reqData, _ := json.Marshal(
+		map[string]interface{}{
+			"opts": map[string]interface{}{
+				"tsuru.io/app-pool": "mypool",
+				"exposed-port":      "443",
+				"custom":            "val",
+			},
+			"prefixes": []map[string]interface{}{
+				{
+					"prefix": "",
+					"target": map[string]string{
+						"service":   "myapp-web",
+						"namespace": "tsuru",
+					},
+				},
+			},
+		})
 	body := bytes.NewReader(reqData)
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp", body)
+	req := httptest.NewRequest(http.MethodPut, "http://localhost/api/backend/myapp", body)
 	w := httptest.NewRecorder()
 
 	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
 	s.Equal(http.StatusOK, resp.StatusCode)
-
-	if !s.mockRouter.CreateInvoked {
-		s.Fail("Service Create function not invoked")
-	}
+	s.True(s.mockRouter.EnsureInvoked)
 }
 
-func (s *RouterAPISuite) TestAddBackendWithHeaderOpts() {
-	s.mockRouter.CreateFn = func(id router.InstanceID, opts router.Opts) error {
+func (s *RouterAPISuite) TestEnsureBackendWithHeaderOpts() {
+	s.mockRouter.EnsureFn = func(id router.InstanceID, o router.EnsureBackendOpts) error {
 		s.Equal("myapp", id.AppName)
-		s.Equal("mypool", opts.Pool)
-		s.Equal("443", opts.ExposedPort)
-		s.Equal("a.b", opts.Domain)
-		s.Equal("test.io", opts.DomainSuffix)
+		s.Equal([]router.BackendPrefix{
+			{Prefix: "", Target: router.BackendTarget{Namespace: "tsuru", Service: "myapp-web"}},
+		}, o.Prefixes)
+		s.Equal("mypool", o.Opts.Pool)
+		s.Equal("443", o.Opts.ExposedPort)
+		s.Equal("a.b", o.Opts.Domain)
+		s.Equal("test.io", o.Opts.DomainSuffix)
 		expectedAdditional := map[string]string{"custom": "val", "custom2": "val2"}
-		s.Equal(expectedAdditional, opts.AdditionalOpts)
+		s.Equal(expectedAdditional, o.Opts.AdditionalOpts)
+
 		return nil
 	}
 
-	reqData, _ := json.Marshal(map[string]string{"tsuru.io/app-pool": "mypool", "exposed-port": "443", "custom": "val"})
+	reqData, _ := json.Marshal(
+		map[string]interface{}{
+			"opts": map[string]interface{}{
+				"tsuru.io/app-pool": "mypool",
+				"exposed-port":      "443",
+				"custom":            "val",
+			},
+			"prefixes": []map[string]interface{}{
+				{
+					"prefix": "",
+					"target": map[string]string{
+						"service":   "myapp-web",
+						"namespace": "tsuru",
+					},
+				},
+			},
+		})
 	body := bytes.NewReader(reqData)
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp", body)
+	req := httptest.NewRequest(http.MethodPut, "http://localhost/api/backend/myapp", body)
 	req.Header.Add("X-Router-Opt", "domain=a.b")
 	req.Header.Add("X-Router-Opt", "domain-suffix=test.io")
 	req.Header.Add("X-Router-Opt", "custom2=val2")
@@ -154,7 +192,7 @@ func (s *RouterAPISuite) TestAddBackendWithHeaderOpts() {
 	s.handler.ServeHTTP(w, req)
 	resp := w.Result()
 	s.Equal(http.StatusOK, resp.StatusCode)
-	s.True(s.mockRouter.CreateInvoked)
+	s.True(s.mockRouter.EnsureInvoked)
 }
 
 func (s *RouterAPISuite) TestRemoveBackend() {
@@ -173,24 +211,6 @@ func (s *RouterAPISuite) TestRemoveBackend() {
 	if !s.mockRouter.RemoveInvoked {
 		s.Fail("Service Remove function not invoked")
 	}
-}
-
-func (s *RouterAPISuite) TestAddRoutes() {
-	s.mockRouter.UpdateFn = func(id router.InstanceID, extraData router.RoutesRequestExtraData) error {
-		s.Equal("myapp", id.AppName)
-		return nil
-	}
-	reqData := router.RoutesRequestData{}
-	bodyData, err := json.Marshal(reqData)
-	s.NoError(err)
-
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/routes", bytes.NewReader(bodyData))
-	w := httptest.NewRecorder()
-
-	s.handler.ServeHTTP(w, req)
-	resp := w.Result()
-	s.Equal(http.StatusOK, resp.StatusCode)
-	s.True(s.mockRouter.UpdateInvoked)
 }
 
 func (s *RouterAPISuite) TestSwap() {
@@ -311,74 +331,6 @@ func (s *RouterAPISuite) TestRemoveCertificate() {
 	s.Equal(http.StatusOK, resp.StatusCode)
 
 	if !s.mockRouter.RemoveCertificateInvoked {
-		s.Fail("Service Addresses function not invoked")
-	}
-}
-
-func (s *RouterAPISuite) TestSetCname() {
-	cnameExpected := "cname1"
-
-	s.mockRouter.SetCnameFn = func(id router.InstanceID, cname string) error {
-		s.Equal(cnameExpected, cname)
-		return nil
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/cname/cname1", nil)
-	w := httptest.NewRecorder()
-
-	s.handler.ServeHTTP(w, req)
-	resp := w.Result()
-	s.Equal(http.StatusOK, resp.StatusCode)
-
-	if !s.mockRouter.SetCnameInvoked {
-		s.Fail("Service Addresses function not invoked")
-	}
-}
-
-func (s *RouterAPISuite) TestGetCnames() {
-	cnames := router.CnamesResp{
-		Cnames: []string{
-			"cname1",
-			"cname2",
-		},
-	}
-	s.mockRouter.GetCnamesFn = func(id router.InstanceID) (*router.CnamesResp, error) {
-		return &cnames, nil
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp/cname", nil)
-	w := httptest.NewRecorder()
-
-	s.handler.ServeHTTP(w, req)
-	resp := w.Result()
-	s.Equal(http.StatusOK, resp.StatusCode)
-
-	if !s.mockRouter.GetCnamesInvoked {
-		s.Fail("Service Addresses function not invoked")
-	}
-	var data router.CnamesResp
-	err := json.Unmarshal(w.Body.Bytes(), &data)
-	s.Require().NoError(err)
-	s.Equal(data, cnames)
-
-}
-
-func (s *RouterAPISuite) TestUnsetCname() {
-	cnameExpected := "cname1"
-
-	s.mockRouter.UnsetCnameFn = func(id router.InstanceID, cname string) error {
-		s.Equal(cnameExpected, cname)
-		return nil
-	}
-
-	req := httptest.NewRequest(http.MethodDelete, "http://localhost/api/backend/myapp/cname/cname1", nil)
-	w := httptest.NewRecorder()
-
-	s.handler.ServeHTTP(w, req)
-	resp := w.Result()
-	s.Equal(http.StatusOK, resp.StatusCode)
-
-	if !s.mockRouter.UnsetCnameInvoked {
 		s.Fail("Service Addresses function not invoked")
 	}
 }

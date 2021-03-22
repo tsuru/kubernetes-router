@@ -6,9 +6,9 @@ package kubernetes
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
+	"reflect"
 	"strings"
 
 	"github.com/tsuru/kubernetes-router/router"
@@ -36,7 +36,6 @@ var (
 
 var (
 	_ router.Router       = &IngressService{}
-	_ router.RouterCNAME  = &IngressService{}
 	_ router.RouterTLS    = &IngressService{}
 	_ router.RouterStatus = &IngressService{}
 )
@@ -55,87 +54,9 @@ type IngressService struct {
 	OptsAsAnnotationsDocs map[string]string
 }
 
-// Create creates an Ingress resource pointing to a service
-// with the same name as the App
-func (k *IngressService) Create(ctx context.Context, id router.InstanceID, routerOpts router.Opts) error {
-	var spec v1beta1.IngressSpec
-	var vhost string
-	app, err := k.getApp(ctx, id.AppName)
-	if err != nil {
-		return err
-	}
-	ns := k.Namespace
-	if app != nil {
-		ns = app.Spec.NamespaceName
-	}
-	client, err := k.ingressClient(ns)
-	if err != nil {
-		return err
-	}
-
-	domainSuffix := routerOpts.DomainSuffix
-	if k.DomainSuffix != "" {
-		domainSuffix = k.DomainSuffix
-	}
-
-	if len(routerOpts.Domain) > 0 {
-		vhost = routerOpts.Domain
-	} else if routerOpts.DomainPrefix == "" {
-		vhost = fmt.Sprintf("%v.%v", id.AppName, domainSuffix)
-	} else {
-		vhost = fmt.Sprintf("%v.%v.%v", routerOpts.DomainPrefix, id.AppName, domainSuffix)
-	}
-	spec = v1beta1.IngressSpec{
-		Rules: []v1beta1.IngressRule{
-			{
-				Host: vhost,
-				IngressRuleValue: v1beta1.IngressRuleValue{
-					HTTP: &v1beta1.HTTPIngressRuleValue{
-						Paths: []v1beta1.HTTPIngressPath{
-							{
-								Path: routerOpts.Route,
-								Backend: v1beta1.IngressBackend{
-									ServiceName: id.AppName,
-									ServicePort: intstr.FromInt(defaultServicePort),
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	namespace, err := k.getAppNamespace(ctx, id.AppName)
-	if err != nil {
-		return err
-	}
-	i := &v1beta1.Ingress{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      k.ingressName(id),
-			Namespace: namespace,
-		},
-		Spec: spec,
-	}
-	k.fillIngressMeta(i, routerOpts, id)
-
-	i, isNew, err := mergeIngresses(ctx, client, i)
-	if err != nil {
-		if _, isSwapped := err.(ErrAppSwapped); isSwapped {
-			return nil
-		}
-		return err
-	}
-	if isNew {
-		_, err = client.Create(ctx, i, metav1.CreateOptions{})
-	} else {
-		_, err = client.Update(ctx, i, metav1.UpdateOptions{})
-	}
-	return err
-}
-
-// Update updates an Ingress resource to point it to either
+// Ensure creates or updates an Ingress resource to point it to either
 // the only service or the one responsible for the process web
-func (k *IngressService) Update(ctx context.Context, id router.InstanceID, extraData router.RoutesRequestExtraData) error {
+func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o router.EnsureBackendOpts) error {
 	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		return err
@@ -144,26 +65,125 @@ func (k *IngressService) Update(ctx context.Context, id router.InstanceID, extra
 	if err != nil {
 		return err
 	}
-	ingress, err := k.get(ctx, id)
+	isNew := false
+	existingIngress, err := k.get(ctx, id)
+	if err != nil {
+		if !k8sErrors.IsNotFound(err) {
+			return err
+
+		}
+		isNew = true
+	}
+
+	if !isNew {
+		if _, isSwapped := isSwapped(existingIngress.ObjectMeta); isSwapped {
+			log.Println("Update with swapped ingress it is not supported yet")
+			return nil
+		}
+	}
+
+	defaultTarget, err := k.getDefaultBackendTarget(o.Prefixes)
 	if err != nil {
 		return err
 	}
-	if _, isSwapped := isSwapped(ingress.ObjectMeta); isSwapped {
-		log.Println("Update with swapped ingress it is not supported yet")
-		return nil
-	}
-	service, err := k.getWebService(ctx, id.AppName, extraData, ingress.Labels)
+	service, err := k.getWebService(ctx, id.AppName, *defaultTarget)
 	if err != nil {
 		return err
 	}
-	if extraData.Namespace != "" && extraData.Service != "" {
-		ingress.Labels[appBaseServiceNamespaceLabel] = extraData.Namespace
-		ingress.Labels[appBaseServiceNameLabel] = extraData.Service
+
+	domainSuffix := o.Opts.DomainSuffix
+	if k.DomainSuffix != "" {
+		domainSuffix = k.DomainSuffix
 	}
-	ingress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName = service.Name
-	ingress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServicePort = intstr.FromInt(int(service.Spec.Ports[0].Port))
-	_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
-	return err
+
+	var vhost string
+	if len(o.Opts.Domain) > 0 {
+		vhost = o.Opts.Domain
+	} else if o.Opts.DomainPrefix == "" {
+		vhost = fmt.Sprintf("%v.%v", id.AppName, domainSuffix)
+	} else {
+		vhost = fmt.Sprintf("%v.%v.%v", o.Opts.DomainPrefix, id.AppName, domainSuffix)
+	}
+	spec := v1beta1.IngressSpec{
+		Rules: []v1beta1.IngressRule{
+			{
+				Host: vhost,
+				IngressRuleValue: v1beta1.IngressRuleValue{
+					HTTP: &v1beta1.HTTPIngressRuleValue{
+						Paths: []v1beta1.HTTPIngressPath{
+							{
+								Path: o.Opts.Route,
+								Backend: v1beta1.IngressBackend{
+									ServiceName: service.Name,
+									ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	ingress := &v1beta1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      k.ingressName(id),
+			Namespace: ns,
+			Labels: map[string]string{
+				appBaseServiceNamespaceLabel: defaultTarget.Namespace,
+				appBaseServiceNameLabel:      defaultTarget.Service,
+			},
+		},
+		Spec: spec,
+	}
+	k.fillIngressMeta(ingress, o.Opts, id)
+
+	acmeTLSEnabled := ingress.Annotations[AnnotationsACMEKey] == "true"
+	for _, cname := range o.CNames {
+		ingress.Spec.Rules = append(ingress.Spec.Rules, v1beta1.IngressRule{
+			Host: cname,
+			IngressRuleValue: v1beta1.IngressRuleValue{
+				HTTP: &v1beta1.HTTPIngressRuleValue{
+					Paths: []v1beta1.HTTPIngressPath{
+						{
+							Path: o.Opts.Route,
+							Backend: v1beta1.IngressBackend{
+								ServiceName: service.Name,
+								ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),
+							},
+						},
+					},
+				},
+			},
+		})
+		if acmeTLSEnabled {
+			log.Printf("Acme-tls is enabled on ingress, creating TLS secret for CNAME.")
+			ingress.Spec.TLS = append(ingress.Spec.TLS,
+				[]v1beta1.IngressTLS{
+					{
+						Hosts:      []string{cname},
+						SecretName: k.secretName(id, cname),
+					},
+				}...)
+		}
+	}
+
+	if isNew {
+		_, err = ingressClient.Create(ctx, ingress, metav1.CreateOptions{})
+		return err
+	}
+
+	hasChanges := ingressHasChanges(existingIngress, ingress)
+	if hasChanges {
+		ingress.ObjectMeta.ResourceVersion = existingIngress.ObjectMeta.ResourceVersion
+		if existingIngress.Spec.Backend != nil {
+			ingress.Spec.Backend = existingIngress.Spec.Backend
+		}
+		_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
+		return err
+	}
+
+	return nil
 }
 
 // Swap swaps backend services of two applications ingresses
@@ -419,104 +439,6 @@ func (k *IngressService) RemoveCertificate(ctx context.Context, id router.Instan
 	return err
 }
 
-// SetCname adds CNAME to app ingress
-func (k *IngressService) SetCname(ctx context.Context, id router.InstanceID, cname string) error {
-	ns, err := k.getAppNamespace(ctx, id.AppName)
-	if err != nil {
-		return err
-	}
-	ingressClient, err := k.ingressClient(ns)
-	if err != nil {
-		return err
-	}
-	ingress, err := k.get(ctx, id)
-	if err != nil {
-		return err
-	}
-	annotations := ingress.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-	aliases, ok := annotations[k.annotationWithPrefix("server-alias")]
-	if !ok {
-		aliases = cname
-	} else {
-		aliasesArray := strings.Split(aliases, " ")
-		for _, v := range aliasesArray {
-			if strings.Compare(v, cname) == 0 {
-				return errors.New("cname already exists")
-			}
-		}
-		aliasesArray = append(aliasesArray, []string{cname}...)
-		aliases = strings.Join(aliasesArray, " ")
-	}
-	annotations[k.annotationWithPrefix("server-alias")] = strings.TrimSpace(aliases)
-	ingress.SetAnnotations(annotations)
-
-	if val, ok := annotations[AnnotationsACMEKey]; ok && strings.Contains(val, "true") {
-		log.Printf("Acme-tls is enabled on ingress, creating TLS secret for CNAME.")
-		ingress.Spec.TLS = append(ingress.Spec.TLS,
-			[]v1beta1.IngressTLS{
-				{
-					Hosts:      []string{cname},
-					SecretName: k.secretName(id, cname),
-				},
-			}...)
-	}
-
-	_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
-
-	return err
-}
-
-// GetCnames get CNAMEs from app ingress
-func (k *IngressService) GetCnames(ctx context.Context, id router.InstanceID) (*router.CnamesResp, error) {
-	ingress, err := k.get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	aliases, ok := ingress.GetAnnotations()[k.annotationWithPrefix("server-alias")]
-	if !ok {
-		return &router.CnamesResp{}, err
-	}
-
-	return &router.CnamesResp{Cnames: strings.Split(aliases, " ")}, err
-}
-
-// UnsetCname delete CNAME from app ingress
-func (k *IngressService) UnsetCname(ctx context.Context, id router.InstanceID, cname string) error {
-	ns, err := k.getAppNamespace(ctx, id.AppName)
-	if err != nil {
-		return err
-	}
-	ingressClient, err := k.ingressClient(ns)
-	if err != nil {
-		return err
-	}
-	ingress, err := k.get(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	annotations := ingress.GetAnnotations()
-	aliases := strings.Split(annotations[k.annotationWithPrefix("server-alias")], " ")
-
-	for index, value := range aliases {
-		if strings.Compare(value, cname) == 0 {
-			aliases = append(aliases[:index], aliases[index+1:]...)
-			break
-		}
-	}
-
-	annotations[k.annotationWithPrefix("server-alias")] = strings.TrimSpace(strings.Join(aliases, " "))
-	ingress.SetAnnotations(annotations)
-
-	_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
-
-	return err
-}
-
 // SupportedOptions returns the supported options
 func (s *IngressService) SupportedOptions(ctx context.Context) map[string]string {
 	opts := map[string]string{
@@ -586,25 +508,21 @@ func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.O
 	i.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 }
 
-func mergeIngresses(ctx context.Context, client typedV1beta1.IngressInterface, ing *v1beta1.Ingress) (*v1beta1.Ingress, bool, error) {
-	existing, err := client.Get(ctx, ing.Name, metav1.GetOptions{})
-	if err != nil {
-		if k8sErrors.IsNotFound(err) {
-			return ing, true, nil
+func ingressHasChanges(existing *v1beta1.Ingress, ing *v1beta1.Ingress) (hasChanges bool) {
+	if !reflect.DeepEqual(existing.Spec, ing.Spec) {
+		return true
+	}
+	for key, value := range ing.Annotations {
+		if existing.Annotations[key] != value {
+			return true
 		}
-		return nil, false, err
 	}
-
-	if dstApp, isSwapped := isSwapped(existing.ObjectMeta); isSwapped {
-		log.Println("Creating with swapped ingress it is not supported yet")
-		return nil, true, ErrAppSwapped{App: existing.Labels[appLabel], DstApp: dstApp}
+	for key, value := range ing.Labels {
+		if existing.Labels[key] != value {
+			return true
+		}
 	}
-
-	ing.ObjectMeta.ResourceVersion = existing.ObjectMeta.ResourceVersion
-	if existing.Spec.Backend != nil {
-		ing.Spec.Backend = existing.Spec.Backend
-	}
-	return ing, false, nil
+	return false
 }
 
 func isIngressReady(ingress *v1beta1.Ingress) bool {

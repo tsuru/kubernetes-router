@@ -79,7 +79,7 @@ func (m *MultiCluster) Router(ctx context.Context, mode string, headers http.Hea
 		RestConfig: kubernetesRestConfig,
 	}
 
-	if mode == "service" || mode == "" {
+	if mode == "service" || mode == "loadbalancer" || mode == "" {
 		return &kubernetes.LBService{
 			BaseService: baseService,
 		}, nil
