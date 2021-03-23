@@ -696,6 +696,9 @@ func TestGetCertificate(t *testing.T) {
 
 func defaultIngress(name, namespace string) v1beta1.Ingress {
 	serviceName := name + "-web"
+	blockOwnerDeletion := true
+	controller := true
+
 	return v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "kubernetes-router-" + name + "-ingress",
@@ -706,6 +709,15 @@ func defaultIngress(name, namespace string) v1beta1.Ingress {
 				appBaseServiceNameLabel:      serviceName,
 			},
 			Annotations: make(map[string]string),
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion:         "v1",
+					Kind:               "Service",
+					Name:               name + "-web",
+					BlockOwnerDeletion: &blockOwnerDeletion,
+					Controller:         &controller,
+				},
+			},
 		},
 		Spec: v1beta1.IngressSpec{
 			Rules: []v1beta1.IngressRule{

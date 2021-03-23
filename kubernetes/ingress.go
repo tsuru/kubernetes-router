@@ -16,6 +16,7 @@ import (
 	v1beta1 "k8s.io/api/extensions/v1beta1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	typedV1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	typedV1beta1 "k8s.io/client-go/kubernetes/typed/extensions/v1beta1"
@@ -132,6 +133,13 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			Labels: map[string]string{
 				appBaseServiceNamespaceLabel: defaultTarget.Namespace,
 				appBaseServiceNameLabel:      defaultTarget.Service,
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(service, schema.GroupVersionKind{
+					Group:   v1.SchemeGroupVersion.Group,
+					Version: v1.SchemeGroupVersion.Version,
+					Kind:    "Service",
+				}),
 			},
 		},
 		Spec: spec,
@@ -510,18 +518,35 @@ func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.O
 
 func ingressHasChanges(existing *v1beta1.Ingress, ing *v1beta1.Ingress) (hasChanges bool) {
 	if !reflect.DeepEqual(existing.Spec, ing.Spec) {
+		log.Printf("DEBUG: ingress %q has changed the spec\n", existing.Name)
 		return true
 	}
 	for key, value := range ing.Annotations {
 		if existing.Annotations[key] != value {
+			log.Printf(
+				"DEBUG: ingress %q has changed the annotation %q, %q != %q\n",
+				existing.Name,
+				key,
+				existing.Annotations[key],
+				value,
+			)
+
 			return true
 		}
 	}
 	for key, value := range ing.Labels {
 		if existing.Labels[key] != value {
+			log.Printf(
+				"DEBUG: ingress %q has changed the label %q, %q != %q\n",
+				existing.Name,
+				key,
+				existing.Labels[key],
+				value,
+			)
 			return true
 		}
 	}
+	log.Printf("DEBUG: ingress %q has no changes\n", existing.Name)
 	return false
 }
 
