@@ -105,6 +105,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	} else {
 		vhost = fmt.Sprintf("%v.%v.%v", o.Opts.DomainPrefix, id.AppName, domainSuffix)
 	}
+	pathType := v1beta1.PathTypeImplementationSpecific
 	spec := v1beta1.IngressSpec{
 		Rules: []v1beta1.IngressRule{
 			{
@@ -113,7 +114,8 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 					HTTP: &v1beta1.HTTPIngressRuleValue{
 						Paths: []v1beta1.HTTPIngressPath{
 							{
-								Path: o.Opts.Route,
+								Path:     o.Opts.Route,
+								PathType: &pathType,
 								Backend: v1beta1.IngressBackend{
 									ServiceName: service.Name,
 									ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),
@@ -154,7 +156,8 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 				HTTP: &v1beta1.HTTPIngressRuleValue{
 					Paths: []v1beta1.HTTPIngressPath{
 						{
-							Path: o.Opts.Route,
+							Path:     o.Opts.Route,
+							PathType: &pathType,
 							Backend: v1beta1.IngressBackend{
 								ServiceName: service.Name,
 								ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),

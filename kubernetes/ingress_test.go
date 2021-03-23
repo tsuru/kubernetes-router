@@ -145,6 +145,8 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 		t.Errorf("Expected 1 item. Got %d.", len(ingressList.Items))
 	}
 	expectedIngress := defaultIngress("test", "default")
+	pathType := v1beta1.PathTypeImplementationSpecific
+
 	expectedIngress.Spec.Rules[0].HTTP.Paths[0].Path = "/admin"
 	expectedIngress.Spec.Rules = append(expectedIngress.Spec.Rules,
 		v1beta1.IngressRule{
@@ -153,7 +155,8 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 				HTTP: &v1beta1.HTTPIngressRuleValue{
 					Paths: []v1beta1.HTTPIngressPath{
 						{
-							Path: "/admin",
+							Path:     "/admin",
+							PathType: &pathType,
 							Backend: v1beta1.IngressBackend{
 								ServiceName: "test-web",
 								ServicePort: intstr.FromInt(8888),
@@ -169,7 +172,8 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 				HTTP: &v1beta1.HTTPIngressRuleValue{
 					Paths: []v1beta1.HTTPIngressPath{
 						{
-							Path: "/admin",
+							Path:     "/admin",
+							PathType: &pathType,
 							Backend: v1beta1.IngressBackend{
 								ServiceName: "test-web",
 								ServicePort: intstr.FromInt(8888),
@@ -698,6 +702,7 @@ func defaultIngress(name, namespace string) v1beta1.Ingress {
 	serviceName := name + "-web"
 	blockOwnerDeletion := true
 	controller := true
+	pathType := v1beta1.PathTypeImplementationSpecific
 
 	return v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
@@ -727,7 +732,8 @@ func defaultIngress(name, namespace string) v1beta1.Ingress {
 						HTTP: &v1beta1.HTTPIngressRuleValue{
 							Paths: []v1beta1.HTTPIngressPath{
 								{
-									Path: "",
+									Path:     "",
+									PathType: &pathType,
 									Backend: v1beta1.IngressBackend{
 										ServiceName: serviceName,
 										ServicePort: intstr.FromInt(defaultServicePort),
