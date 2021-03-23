@@ -111,6 +111,7 @@ func addToSet(dst []string, toAdd ...string) []string {
 			dst = append(dst, v)
 		}
 	}
+	sort.Strings(dst)
 	return dst
 }
 

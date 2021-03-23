@@ -86,8 +86,8 @@ func TestIstioGateway_Ensure(t *testing.T) {
 			"myapp",
 		},
 		Hosts: []string{
-			"myapp.my.domain",
 			"myapp-web",
+			"myapp.my.domain",
 		},
 		Http: []*apiNetworking.HTTPRoute{
 			{
@@ -156,8 +156,8 @@ func TestIstioGateway_EnsureWithCNames(t *testing.T) {
 			"myapp",
 		},
 		Hosts: []string{
-			"myapp.my.domain",
 			"myapp-web",
+			"myapp.my.domain",
 			"test.io",
 			"www.test.io",
 		},
@@ -250,9 +250,9 @@ func TestIstioGateway_Create_existingVirtualService(t *testing.T) {
 			"myapp",
 		},
 		Hosts: []string{
-			"older-host",
-			"myapp.my.domain",
 			"myapp-web",
+			"myapp.my.domain",
+			"older-host",
 		},
 		Http: []*apiNetworking.HTTPRoute{
 			{
