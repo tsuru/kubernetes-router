@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/opentracing/opentracing-go"
 	"github.com/tsuru/kubernetes-router/router"
 	v1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -222,6 +223,9 @@ func isReady(service *v1.Service) bool {
 // labels, selectors, annotations and ports
 
 func (s *LBService) Ensure(ctx context.Context, id router.InstanceID, o router.EnsureBackendOpts) error {
+	span, ctx := opentracing.StartSpanFromContext(ctx, "ensureLoadbalancer")
+	defer span.Finish()
+
 	app, err := s.getApp(ctx, id.AppName)
 	if err != nil {
 		return err
@@ -290,7 +294,7 @@ func (s *LBService) Ensure(ctx context.Context, id router.InstanceID, o router.E
 		return err
 	}
 
-	hasChanges := serviceHasChanges(existingLBService, lbService)
+	hasChanges := serviceHasChanges(span, existingLBService, lbService)
 
 	if hasChanges {
 		_, err = client.CoreV1().Services(lbService.Namespace).Update(ctx, lbService, metav1.UpdateOptions{})
@@ -440,20 +444,42 @@ func (s *LBService) portsForService(svc *v1.Service, opts router.Opts, baseSvc *
 	return wantedPorts, nil
 }
 
-func serviceHasChanges(existing *v1.Service, svc *v1.Service) (hasChanges bool) {
+func serviceHasChanges(span opentracing.Span, existing *v1.Service, svc *v1.Service) (hasChanges bool) {
 	if !reflect.DeepEqual(existing.Spec, svc.Spec) {
+		span.LogKV(
+			"message", "service has changed the spec",
+			"service", existing.Name,
+		)
 		return true
 	}
 	for key, value := range svc.Annotations {
 		if existing.Annotations[key] != value {
+			span.LogKV(
+				"message", "service has changed the annotation",
+				"service", existing.Name,
+				"annotation", key,
+				"existingValue", existing.Annotations[key],
+				"newValue", value,
+			)
 			return true
 		}
 	}
 	for key, value := range svc.Labels {
 		if existing.Labels[key] != value {
+			span.LogKV(
+				"message", "service has changed the label",
+				"service", existing.Name,
+				"label", key,
+				"existingValue", existing.Labels[key],
+				"newValue", value,
+			)
 			return true
 		}
 	}
+	span.LogKV(
+		"message", "service has no changes",
+		"service", existing.Name,
+	)
 	return false
 }
 

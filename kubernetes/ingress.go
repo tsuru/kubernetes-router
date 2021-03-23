@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/opentracing/opentracing-go"
 	"github.com/tsuru/kubernetes-router/router"
 	v1 "k8s.io/api/core/v1"
 	v1beta1 "k8s.io/api/extensions/v1beta1"
@@ -58,6 +59,9 @@ type IngressService struct {
 // Ensure creates or updates an Ingress resource to point it to either
 // the only service or the one responsible for the process web
 func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o router.EnsureBackendOpts) error {
+	span, ctx := opentracing.StartSpanFromContext(ctx, "ensureIngress")
+	defer span.Finish()
+
 	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		return err
@@ -184,7 +188,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		return err
 	}
 
-	hasChanges := ingressHasChanges(existingIngress, ingress)
+	hasChanges := ingressHasChanges(span, existingIngress, ingress)
 	if hasChanges {
 		ingress.ObjectMeta.ResourceVersion = existingIngress.ObjectMeta.ResourceVersion
 		if existingIngress.Spec.Backend != nil {
@@ -523,19 +527,23 @@ func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.O
 	i.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 }
 
-func ingressHasChanges(existing *v1beta1.Ingress, ing *v1beta1.Ingress) (hasChanges bool) {
+func ingressHasChanges(span opentracing.Span, existing *v1beta1.Ingress, ing *v1beta1.Ingress) (hasChanges bool) {
 	if !reflect.DeepEqual(existing.Spec, ing.Spec) {
-		log.Printf("DEBUG: ingress %q has changed the spec\n", existing.Name)
+		span.LogKV(
+			"message", "ingress has changed the spec",
+			"ingress", existing.Name,
+		)
 		return true
 	}
+
 	for key, value := range ing.Annotations {
 		if existing.Annotations[key] != value {
-			log.Printf(
-				"DEBUG: ingress %q has changed the annotation %q, %q != %q\n",
-				existing.Name,
-				key,
-				existing.Annotations[key],
-				value,
+			span.LogKV(
+				"message", "ingress has changed the annotation",
+				"ingress", existing.Name,
+				"annotation", key,
+				"existingValue", existing.Annotations[key],
+				"newValue", value,
 			)
 
 			return true
@@ -543,17 +551,20 @@ func ingressHasChanges(existing *v1beta1.Ingress, ing *v1beta1.Ingress) (hasChan
 	}
 	for key, value := range ing.Labels {
 		if existing.Labels[key] != value {
-			log.Printf(
-				"DEBUG: ingress %q has changed the label %q, %q != %q\n",
-				existing.Name,
-				key,
-				existing.Labels[key],
-				value,
+			span.LogKV(
+				"message", "ingress has changed the label",
+				"ingress", existing.Name,
+				"label", key,
+				"existingValue", existing.Labels[key],
+				"newValue", value,
 			)
 			return true
 		}
 	}
-	log.Printf("DEBUG: ingress %q has no changes\n", existing.Name)
+	span.LogKV(
+		"message", "ingress has no changes",
+		"ingress", existing.Name,
+	)
 	return false
 }
 
