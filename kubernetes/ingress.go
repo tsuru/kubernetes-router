@@ -267,7 +267,11 @@ func (k *IngressService) Remove(ctx context.Context, id router.InstanceID) error
 // the app Ingress resource
 func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID) ([]string, error) {
 	ingress, err := k.get(ctx, id)
+
 	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return []string{""}, nil
+		}
 		return nil, err
 	}
 

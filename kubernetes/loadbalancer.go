@@ -134,6 +134,9 @@ func (s *LBService) Swap(ctx context.Context, srcID, dstID router.InstanceID) er
 func (s *LBService) GetAddresses(ctx context.Context, id router.InstanceID) ([]string, error) {
 	service, err := s.getLBService(ctx, id)
 	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return []string{""}, nil
+		}
 		return nil, err
 	}
 	var addr string
