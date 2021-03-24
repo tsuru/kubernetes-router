@@ -57,7 +57,6 @@ var (
 type Router interface {
 	Ensure(ctx context.Context, id InstanceID, o EnsureBackendOpts) error
 	Remove(ctx context.Context, id InstanceID) error
-	Swap(ctx context.Context, appSrc, appDst InstanceID) error
 	GetAddresses(ctx context.Context, id InstanceID) ([]string, error)
 	SupportedOptions(ctx context.Context) map[string]string
 }

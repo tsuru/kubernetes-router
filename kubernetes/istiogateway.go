@@ -96,11 +96,6 @@ func (k *IstioGateway) getVS(ctx context.Context, cli networkingClientSet.Networ
 	return cli.VirtualServices(ns).Get(ctx, k.vsName(id), metav1.GetOptions{})
 }
 
-func (k *IstioGateway) isSwapped(meta metav1.ObjectMeta) (target string, isSwapped bool) {
-	target = meta.Labels[swapLabel]
-	return target, target != ""
-}
-
 func addToSet(dst []string, toAdd ...string) []string {
 	existingSet := map[string]struct{}{}
 	for _, v := range dst {
@@ -300,9 +295,6 @@ func (k *IstioGateway) Remove(ctx context.Context, id router.InstanceID) error {
 	virtualSvc, err := k.getVS(ctx, cli, id)
 	if err != nil {
 		return err
-	}
-	if dstApp, swapped := k.isSwapped(virtualSvc.ObjectMeta); swapped {
-		return ErrAppSwapped{App: id.AppName, DstApp: dstApp}
 	}
 	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {

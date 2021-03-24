@@ -67,9 +67,6 @@ func (s *LBService) Remove(ctx context.Context, id router.InstanceID) error {
 		}
 		return err
 	}
-	if dstApp, swapped := isSwapped(service.ObjectMeta); swapped {
-		return ErrAppSwapped{App: id.AppName, DstApp: dstApp}
-	}
 	ns, err := s.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		return err
@@ -77,56 +74,6 @@ func (s *LBService) Remove(ctx context.Context, id router.InstanceID) error {
 	err = client.CoreV1().Services(ns).Delete(ctx, service.Name, metav1.DeleteOptions{})
 	if k8sErrors.IsNotFound(err) {
 		return nil
-	}
-	return err
-}
-
-// Swap swaps the two LB services selectors
-func (s *LBService) Swap(ctx context.Context, srcID, dstID router.InstanceID) error {
-	srcServ, err := s.getLBService(ctx, srcID)
-	if err != nil {
-		return err
-	}
-	if !isReady(srcServ) {
-		return ErrLoadBalancerNotReady
-	}
-	dstServ, err := s.getLBService(ctx, dstID)
-	if err != nil {
-		return err
-	}
-	if !isReady(dstServ) {
-		return ErrLoadBalancerNotReady
-	}
-	if isFrozenSvc(srcServ) || isFrozenSvc(dstServ) {
-		return nil
-	}
-	s.swap(srcServ, dstServ)
-	client, err := s.getClient()
-	if err != nil {
-		return err
-	}
-	ns, err := s.getAppNamespace(ctx, srcID.AppName)
-	if err != nil {
-		return err
-	}
-	ns2, err := s.getAppNamespace(ctx, dstID.AppName)
-	if err != nil {
-		return err
-	}
-	if ns != ns2 {
-		return fmt.Errorf("unable to swap apps with different namespaces: %v != %v", ns, ns2)
-	}
-	_, err = client.CoreV1().Services(ns).Update(ctx, srcServ, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-	_, err = client.CoreV1().Services(ns).Update(ctx, dstServ, metav1.UpdateOptions{})
-	if err != nil {
-		s.swap(srcServ, dstServ)
-		_, errRollback := client.CoreV1().Services(ns).Update(ctx, srcServ, metav1.UpdateOptions{})
-		if errRollback != nil {
-			return fmt.Errorf("failed to rollback swap %v: %v", err, errRollback)
-		}
 	}
 	return err
 }
@@ -202,11 +149,6 @@ func (s *LBService) getLBService(ctx context.Context, id router.InstanceID) (*v1
 	return client.CoreV1().Services(ns).Get(ctx, s.serviceName(id), metav1.GetOptions{})
 }
 
-func (s *LBService) swap(srcServ, dstServ *v1.Service) {
-	srcServ.Spec.Selector, dstServ.Spec.Selector = dstServ.Spec.Selector, srcServ.Spec.Selector
-	s.BaseService.swap(&srcServ.ObjectMeta, &dstServ.ObjectMeta)
-}
-
 func (s *LBService) serviceName(id router.InstanceID) string {
 	return s.hashedResourceName(id, fmt.Sprintf("%s-router-lb", id.AppName), 63)
 }
@@ -256,9 +198,6 @@ func (s *LBService) Ensure(ctx context.Context, id router.InstanceID, o router.E
 		lbService = existingLBService.DeepCopy()
 	}
 	if isFrozenSvc(lbService) {
-		return nil
-	}
-	if _, isSwapped := isSwapped(lbService.ObjectMeta); isSwapped {
 		return nil
 	}
 

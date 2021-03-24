@@ -255,9 +255,8 @@ func TestLBRemove(t *testing.T) {
 		expectedErr   error
 		expectedCount int
 	}{
-		{"success", "test", nil, 5},
-		{"failSwapped", "blue", ErrAppSwapped{App: "blue", DstApp: "green"}, 6},
-		{"ignoresNotFound", "notfound", nil, 6},
+		{"success", "test", nil, 1},
+		{"ignoresNotFound", "notfound", nil, 2},
 	}
 	for _, tc := range tt {
 		tc := tc
@@ -265,12 +264,6 @@ func TestLBRemove(t *testing.T) {
 			svc := createFakeLBService()
 
 			err := createAppWebService(svc.Client, svc.Namespace, "test")
-			require.NoError(t, err)
-
-			err = createAppWebService(svc.Client, svc.Namespace, "blue")
-			require.NoError(t, err)
-
-			err = createAppWebService(svc.Client, svc.Namespace, "green")
 			require.NoError(t, err)
 
 			err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
@@ -286,34 +279,7 @@ func TestLBRemove(t *testing.T) {
 			})
 			require.NoError(t, err)
 			setIP(t, svc, "test")
-			err = svc.Ensure(ctx, idForApp("blue"), router.EnsureBackendOpts{
-				Opts: router.Opts{},
-				Prefixes: []router.BackendPrefix{
-					{
-						Target: router.BackendTarget{
-							Service:   "blue-web",
-							Namespace: svc.Namespace,
-						},
-					},
-				},
-			})
-			require.NoError(t, err)
-			setIP(t, svc, "blue")
-			err = svc.Ensure(ctx, idForApp("green"), router.EnsureBackendOpts{
-				Opts: router.Opts{},
-				Prefixes: []router.BackendPrefix{
-					{
-						Target: router.BackendTarget{
-							Service:   "green-web",
-							Namespace: svc.Namespace,
-						},
-					},
-				},
-			})
-			require.NoError(t, err)
-			setIP(t, svc, "green")
-			err = svc.Swap(ctx, idForApp("blue"), idForApp("green"))
-			require.NoError(t, err)
+
 			err = svc.Remove(ctx, idForApp(tc.remove))
 
 			assert.Equal(t, tc.expectedErr, err)
@@ -880,39 +846,6 @@ func TestLBUpdateNoChangeInFrozenService(t *testing.T) {
 	}, service.Spec.Ports)
 }
 
-func TestLBUpdateSwapped(t *testing.T) {
-	svc := createFakeLBService()
-	for _, n := range []string{"blue", "green"} {
-		err := createAppWebService(svc.Client, svc.Namespace, "test-"+n)
-		require.NoError(t, err)
-
-		err = svc.Ensure(ctx, idForApp("test-"+n), router.EnsureBackendOpts{
-			Prefixes: []router.BackendPrefix{
-				{
-					Target: router.BackendTarget{
-						Service:   "test-" + n + "-web",
-						Namespace: svc.Namespace,
-					},
-				},
-			},
-		})
-		require.NoError(t, err)
-
-		setIP(t, svc, "test-"+n)
-	}
-	err := svc.Swap(ctx, idForApp("test-blue"), idForApp("test-green"))
-	require.NoError(t, err)
-
-	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{})
-	require.NoError(t, err)
-
-	service, err := svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, svc.serviceName(idForApp("test-blue")), metav1.GetOptions{})
-	require.NoError(t, err)
-
-	expectedSelector := map[string]string{"tsuru.io/app-name": "test-green", "tsuru.io/app-process": "web"}
-	assert.Equal(t, service.Spec.Selector, expectedSelector)
-}
-
 func TestGetStatus(t *testing.T) {
 	svc := createFakeLBService()
 
@@ -1052,98 +985,6 @@ func TestGetAddresses(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"myapp.zone.io", "myapp.com"}, addresses)
-}
-func TestLBSwap(t *testing.T) {
-	svc := createFakeLBService()
-
-	for _, n := range []string{"blue", "green"} {
-		err := createAppWebService(svc.Client, svc.Namespace, "test-"+n)
-		require.NoError(t, err)
-
-		err = svc.Ensure(ctx, idForApp("test-"+n), router.EnsureBackendOpts{
-			Prefixes: []router.BackendPrefix{
-				{
-					Target: router.BackendTarget{
-						Service:   "test-" + n + "-web",
-						Namespace: svc.Namespace,
-					},
-				},
-			},
-		})
-		require.NoError(t, err)
-
-		setIP(t, svc, "test-"+n)
-	}
-
-	blueSvc := defaultService("test-blue", "default", map[string]string{swapLabel: "test-green"}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"tsuru.io/app-name": "test-green", "tsuru.io/app-process": "web"})
-	greenSvc := defaultService("test-green", "default", map[string]string{swapLabel: "test-blue"}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"tsuru.io/app-name": "test-blue", "tsuru.io/app-process": "web"})
-	haveBeenSwapped := true
-	i := 1
-	for i <= 2 {
-		err := svc.Swap(ctx, idForApp("test-blue"), idForApp("test-green"))
-		require.NoError(t, err)
-		serviceList, err := svc.Client.CoreV1().Services(svc.Namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: fmt.Sprintf("%s=true", managedServiceLabel),
-		})
-		require.NoError(t, err)
-		assert.Equal(t, []v1.Service{*blueSvc, *greenSvc}, serviceList.Items)
-
-		if _, swapped := isSwapped(blueSvc.ObjectMeta); swapped != haveBeenSwapped {
-			t.Errorf("Iteration %d: Expected isSwapped to be %v. Got %v", i, haveBeenSwapped, swapped)
-		}
-
-		blueSvc = defaultService("test-blue", "default", map[string]string{swapLabel: ""}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"tsuru.io/app-name": "test-blue", "tsuru.io/app-process": "web"})
-		greenSvc = defaultService("test-green", "default", map[string]string{swapLabel: ""}, map[string]string{"router.tsuru.io/opts": "{}"}, map[string]string{"tsuru.io/app-name": "test-green", "tsuru.io/app-process": "web"})
-
-		haveBeenSwapped = !haveBeenSwapped
-		i++
-	}
-}
-
-func TestLBUpdateSwapWithouIPFails(t *testing.T) {
-	svc := createFakeLBService()
-	err := createAppWebService(svc.Client, svc.Namespace, "test-myapp1")
-	require.NoError(t, err)
-
-	err = createAppWebService(svc.Client, svc.Namespace, "test-myapp2")
-	require.NoError(t, err)
-
-	err = svc.Ensure(ctx, idForApp("test-myapp1"), router.EnsureBackendOpts{
-		Opts: router.Opts{Pool: "mypool"},
-		Prefixes: []router.BackendPrefix{
-			{
-				Target: router.BackendTarget{
-					Service:   "test-myapp1-web",
-					Namespace: svc.Namespace,
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-
-	err = svc.Ensure(ctx, idForApp("test-myapp2"), router.EnsureBackendOpts{
-		Opts: router.Opts{Pool: "mypool"},
-		Prefixes: []router.BackendPrefix{
-			{
-				Target: router.BackendTarget{
-					Service:   "test-myapp2-web",
-					Namespace: svc.Namespace,
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-
-	err = svc.Swap(ctx, idForApp("test-myapp1"), idForApp("test-myapp2"))
-	require.Equal(t, err, ErrLoadBalancerNotReady)
-
-	setIP(t, svc, "test-myapp1")
-	err = svc.Swap(ctx, idForApp("test-myapp1"), idForApp("test-myapp2"))
-	require.Equal(t, err, ErrLoadBalancerNotReady)
-
-	setIP(t, svc, "test-myapp2")
-	err = svc.Swap(ctx, idForApp("test-myapp1"), idForApp("test-myapp2"))
-	require.NoError(t, err)
 }
 
 func defaultService(app, namespace string, labels, annotations, selector map[string]string) *v1.Service {

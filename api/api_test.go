@@ -213,28 +213,6 @@ func (s *RouterAPISuite) TestRemoveBackend() {
 	}
 }
 
-func (s *RouterAPISuite) TestSwap() {
-	s.mockRouter.SwapFn = func(src, dst router.InstanceID) error {
-		s.Equal("myapp", src.AppName)
-		s.Equal("otherapp", dst.AppName)
-		return nil
-	}
-
-	data, _ := json.Marshal(map[string]string{"Target": "otherapp"})
-	body := bytes.NewReader(data)
-
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/backend/myapp/swap", body)
-	w := httptest.NewRecorder()
-
-	s.handler.ServeHTTP(w, req)
-	resp := w.Result()
-	s.Equal(http.StatusOK, resp.StatusCode)
-
-	if !s.mockRouter.SwapInvoked {
-		s.Fail("Service Swap function not invoked")
-	}
-}
-
 func (s *RouterAPISuite) TestInfo() {
 	s.mockRouter.SupportedOptionsFn = func() map[string]string {
 		return map[string]string{router.ExposedPort: "", router.Domain: "Custom help."}
