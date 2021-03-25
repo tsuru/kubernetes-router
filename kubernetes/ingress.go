@@ -148,6 +148,10 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		}
 	}
 
+	if o.PreserveOldCNames {
+		cnamesToRemove = []string{}
+	}
+
 	for _, cname := range cnamesToRemove {
 		err = k.removeCNameBackend(ctx, ensureCNameBackendOpts{
 			namespace:  ns,
