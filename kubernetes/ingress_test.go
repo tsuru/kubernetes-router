@@ -226,6 +226,38 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 
 	_, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-www.test.io", metav1.GetOptions{})
 	require.True(t, k8sErrors.IsNotFound(err))
+
+	// test removing all cnames
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			Route: "/admin",
+		},
+		CNames: []string{},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+			{
+				Prefix: "subscriber",
+				Target: router.BackendTarget{
+					Service:   "test-subscriber",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-test.io", metav1.GetOptions{})
+	require.True(t, k8sErrors.IsNotFound(err))
+
+	foundIngress, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, foundIngress.Annotations[AnnotationsCNames], "")
 }
 
 func TestIngressCreateDefaultClass(t *testing.T) {

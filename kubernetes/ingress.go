@@ -136,7 +136,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		Spec: buildIngressSpec(vhost, o.Opts.Route, service),
 	}
 	k.fillIngressMeta(ingress, o.Opts, id)
-	if len(o.CNames) > 1 {
+	if len(o.CNames) > 0 {
 		ingress.Annotations[AnnotationsCNames] = strings.Join(o.CNames, ",")
 	}
 
@@ -608,6 +608,10 @@ func ingressHasChanges(span opentracing.Span, existing *v1beta1.Ingress, ing *v1
 			"message", "ingress has changed the spec",
 			"ingress", existing.Name,
 		)
+		return true
+	}
+
+	if existing.Annotations[AnnotationsCNames] != ing.Annotations[AnnotationsCNames] {
 		return true
 	}
 
