@@ -65,30 +65,41 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	span, ctx := opentracing.StartSpanFromContext(ctx, "ensureIngress")
 	defer span.Finish()
 
+	span.SetTag("cnames", o.CNames)
+	span.SetTag("preserveOldCNames", o.PreserveOldCNames)
+
 	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
+		setSpanError(span, err)
 		return err
 	}
 	ingressClient, err := k.ingressClient(ns)
 	if err != nil {
+		setSpanError(span, err)
 		return err
 	}
 	isNew := false
 	existingIngress, err := k.get(ctx, id)
 	if err != nil {
 		if !k8sErrors.IsNotFound(err) {
+			setSpanError(span, err)
 			return err
-
 		}
 		isNew = true
 	}
 
 	defaultTarget, err := k.getDefaultBackendTarget(o.Prefixes)
 	if err != nil {
+		setSpanError(span, err)
 		return err
 	}
+
+	span.SetTag("defaultTarget.service", defaultTarget.Service)
+	span.SetTag("defaultTarget.namespace", defaultTarget.Namespace)
+
 	service, err := k.getWebService(ctx, id.AppName, *defaultTarget)
 	if err != nil {
+		setSpanError(span, err)
 		return err
 	}
 
@@ -144,14 +155,16 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			routerOpts: o.Opts,
 		})
 		if err != nil {
-			return errors.Wrapf(err, "could not ensure CName: %q", cname)
+			err = errors.Wrapf(err, "could not ensure CName: %q", cname)
+			setSpanError(span, err)
+			return err
 		}
 	}
 
 	if o.PreserveOldCNames {
 		cnamesToRemove = []string{}
 	}
-
+	span.LogKV("cnamesToRemove", cnamesToRemove)
 	for _, cname := range cnamesToRemove {
 		err = k.removeCNameBackend(ctx, ensureCNameBackendOpts{
 			namespace:  ns,
@@ -161,11 +174,16 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			routerOpts: o.Opts,
 		})
 		if err != nil {
-			return errors.Wrapf(err, "could not remove CName: %q", cname)
+			err = errors.Wrapf(err, "could not remove CName: %q", cname)
+			setSpanError(span, err)
+			return err
 		}
 	}
 	if isNew {
 		_, err = ingressClient.Create(ctx, ingress, metav1.CreateOptions{})
+		if err != nil {
+			setSpanError(span, err)
+		}
 		return err
 	}
 
@@ -176,6 +194,9 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			ingress.Spec.Backend = existingIngress.Spec.Backend
 		}
 		_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
+		if err != nil {
+			setSpanError(span, err)
+		}
 		return err
 	}
 
@@ -205,6 +226,11 @@ func buildIngressSpec(host, path string, service *v1.Service) v1beta1.IngressSpe
 			},
 		},
 	}
+}
+
+func setSpanError(span opentracing.Span, err error) {
+	span.SetTag("error", true)
+	span.LogKV("error.message", err.Error())
 }
 
 type ensureCNameBackendOpts struct {
