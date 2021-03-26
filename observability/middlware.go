@@ -9,6 +9,7 @@ import (
 
 	"github.com/opentracing/opentracing-go"
 	opentracingExt "github.com/opentracing/opentracing-go/ext"
+	"github.com/uber/jaeger-client-go"
 	"github.com/urfave/negroni"
 )
 
@@ -32,7 +33,11 @@ func (*middleware) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.
 		opentracing.HTTPHeadersCarrier(r.Header))
 
 	if err == nil {
-		tags = append(tags, opentracing.ChildOf(wireContext))
+		jaegerContext, isJaeger := wireContext.(*jaeger.SpanContext)
+		if !isJaeger || jaegerContext.IsSampled() {
+			// it's force all unsampled spans to be re-calculated and enforces use of const sampler with param 1
+			tags = append(tags, opentracing.ChildOf(wireContext))
+		}
 	}
 	span := tracer.StartSpan(r.Method, tags...)
 	defer span.Finish()
