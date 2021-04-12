@@ -48,7 +48,6 @@ const (
 	appLabel           = "tsuru.io/app-name"
 	domainLabel        = "tsuru.io/domain-name"
 	processLabel       = "tsuru.io/app-process"
-	swapLabel          = "tsuru.io/swapped-with"
 	appPoolLabel       = "tsuru.io/app-pool"
 
 	appCRDName = "apps.tsuru.io"
@@ -63,14 +62,6 @@ type ErrNoService struct{ App string }
 
 func (e ErrNoService) Error() string {
 	return fmt.Sprintf("no service found for app %q", e.App)
-}
-
-// ErrAppSwapped indicates when a operation cant be performed
-// because the app is swapped
-type ErrAppSwapped struct{ App, DstApp string }
-
-func (e ErrAppSwapped) Error() string {
-	return fmt.Sprintf("app %q currently swapped with %q", e.App, e.DstApp)
 }
 
 // BaseService has the base functionality needed by router.Service implementations
@@ -167,21 +158,6 @@ func (k *BaseService) getWebService(ctx context.Context, appName string, target 
 		return nil, err
 	}
 	return svc, nil
-}
-
-func (k *BaseService) swap(src, dst *metav1.ObjectMeta) {
-	if src.Labels[swapLabel] == dst.Labels[appLabel] {
-		src.Labels[swapLabel] = ""
-		dst.Labels[swapLabel] = ""
-	} else {
-		src.Labels[swapLabel] = dst.Labels[appLabel]
-		dst.Labels[swapLabel] = src.Labels[appLabel]
-	}
-}
-
-func isSwapped(obj metav1.ObjectMeta) (string, bool) {
-	target := obj.Labels[swapLabel]
-	return target, target != ""
 }
 
 func (k *BaseService) getApp(ctx context.Context, app string) (*tsuruv1.App, error) {

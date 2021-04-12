@@ -17,7 +17,6 @@ var _ router.Router = &RouterMock{}
 type RouterMock struct {
 	EnsureFn                 func(router.InstanceID, router.EnsureBackendOpts) error
 	RemoveFn                 func(router.InstanceID) error
-	SwapFn                   func(router.InstanceID, router.InstanceID) error
 	GetAddressesFn           func(router.InstanceID) ([]string, error)
 	GetStatusFn              func(router.InstanceID) (router.BackendStatus, string, error)
 	GetCertificateFn         func(router.InstanceID, string) (*router.CertData, error)
@@ -26,7 +25,6 @@ type RouterMock struct {
 	SupportedOptionsFn       func() map[string]string
 	RemoveInvoked            bool
 	EnsureInvoked            bool
-	SwapInvoked              bool
 	GetAddressesInvoked      bool
 	AddCertificateInvoked    bool
 	GetCertificateInvoked    bool
@@ -45,12 +43,6 @@ func (s *RouterMock) Remove(ctx context.Context, id router.InstanceID) error {
 func (s *RouterMock) Ensure(ctx context.Context, id router.InstanceID, o router.EnsureBackendOpts) error {
 	s.EnsureInvoked = true
 	return s.EnsureFn(id, o)
-}
-
-// Swap calls SwapFn
-func (s *RouterMock) Swap(ctx context.Context, appSrc, appDst router.InstanceID) error {
-	s.SwapInvoked = true
-	return s.SwapFn(appSrc, appDst)
 }
 
 // Get calls GetFn

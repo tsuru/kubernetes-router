@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/opentracing/opentracing-go"
+	"github.com/pkg/errors"
 	"github.com/tsuru/kubernetes-router/router"
 	v1 "k8s.io/api/core/v1"
 	v1beta1 "k8s.io/api/extensions/v1beta1"
@@ -26,6 +27,8 @@ import (
 var (
 	// AnnotationsACMEKey defines the common annotation used to enable acme-tls
 	AnnotationsACMEKey = "kubernetes.io/tls-acme"
+	labelCNameIngress  = "router.tsuru.io/is-cname-ingress"
+	AnnotationsCNames  = "router.tsuru.io/cnames"
 
 	defaultClassOpt          = "class"
 	defaultOptsAsAnnotations = map[string]string{
@@ -62,37 +65,41 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	span, ctx := opentracing.StartSpanFromContext(ctx, "ensureIngress")
 	defer span.Finish()
 
+	span.SetTag("cnames", o.CNames)
+	span.SetTag("preserveOldCNames", o.PreserveOldCNames)
+
 	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
+		setSpanError(span, err)
 		return err
 	}
 	ingressClient, err := k.ingressClient(ns)
 	if err != nil {
+		setSpanError(span, err)
 		return err
 	}
 	isNew := false
 	existingIngress, err := k.get(ctx, id)
 	if err != nil {
 		if !k8sErrors.IsNotFound(err) {
+			setSpanError(span, err)
 			return err
-
 		}
 		isNew = true
 	}
 
-	if !isNew {
-		if _, isSwapped := isSwapped(existingIngress.ObjectMeta); isSwapped {
-			log.Println("Update with swapped ingress it is not supported yet")
-			return nil
-		}
-	}
-
 	defaultTarget, err := k.getDefaultBackendTarget(o.Prefixes)
 	if err != nil {
+		setSpanError(span, err)
 		return err
 	}
+
+	span.SetTag("defaultTarget.service", defaultTarget.Service)
+	span.SetTag("defaultTarget.namespace", defaultTarget.Namespace)
+
 	service, err := k.getWebService(ctx, id.AppName, *defaultTarget)
 	if err != nil {
+		setSpanError(span, err)
 		return err
 	}
 
@@ -108,28 +115,6 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		vhost = fmt.Sprintf("%v.%v", id.AppName, domainSuffix)
 	} else {
 		vhost = fmt.Sprintf("%v.%v.%v", o.Opts.DomainPrefix, id.AppName, domainSuffix)
-	}
-	pathType := v1beta1.PathTypeImplementationSpecific
-	spec := v1beta1.IngressSpec{
-		Rules: []v1beta1.IngressRule{
-			{
-				Host: vhost,
-				IngressRuleValue: v1beta1.IngressRuleValue{
-					HTTP: &v1beta1.HTTPIngressRuleValue{
-						Paths: []v1beta1.HTTPIngressPath{
-							{
-								Path:     o.Opts.Route,
-								PathType: &pathType,
-								Backend: v1beta1.IngressBackend{
-									ServiceName: service.Name,
-									ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),
-								},
-							},
-						},
-					},
-				},
-			},
-		},
 	}
 
 	ingress := &v1beta1.Ingress{
@@ -148,39 +133,165 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 				}),
 			},
 		},
-		Spec: spec,
+		Spec: buildIngressSpec(vhost, o.Opts.Route, service),
 	}
 	k.fillIngressMeta(ingress, o.Opts, id)
+	if len(o.CNames) > 0 {
+		ingress.Annotations[AnnotationsCNames] = strings.Join(o.CNames, ",")
+	}
 
-	acmeTLSEnabled := ingress.Annotations[AnnotationsACMEKey] == "true"
+	var existingCNames []string
+	if existingIngress != nil {
+		existingCNames = strings.Split(existingIngress.Annotations[AnnotationsCNames], ",")
+	}
+	_, cnamesToRemove := diffCNames(existingCNames, o.CNames)
+
 	for _, cname := range o.CNames {
-		ingress.Spec.Rules = append(ingress.Spec.Rules, v1beta1.IngressRule{
-			Host: cname,
-			IngressRuleValue: v1beta1.IngressRuleValue{
-				HTTP: &v1beta1.HTTPIngressRuleValue{
-					Paths: []v1beta1.HTTPIngressPath{
-						{
-							Path:     o.Opts.Route,
-							PathType: &pathType,
-							Backend: v1beta1.IngressBackend{
-								ServiceName: service.Name,
-								ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),
+		err = k.ensureCNameBackend(ctx, ensureCNameBackendOpts{
+			namespace:  ns,
+			id:         id,
+			cname:      cname,
+			service:    service,
+			routerOpts: o.Opts,
+		})
+		if err != nil {
+			err = errors.Wrapf(err, "could not ensure CName: %q", cname)
+			setSpanError(span, err)
+			return err
+		}
+	}
+
+	if o.PreserveOldCNames {
+		cnamesToRemove = []string{}
+	}
+	span.LogKV("cnamesToRemove", cnamesToRemove)
+	for _, cname := range cnamesToRemove {
+		err = k.removeCNameBackend(ctx, ensureCNameBackendOpts{
+			namespace:  ns,
+			id:         id,
+			cname:      cname,
+			service:    service,
+			routerOpts: o.Opts,
+		})
+		if err != nil {
+			err = errors.Wrapf(err, "could not remove CName: %q", cname)
+			setSpanError(span, err)
+			return err
+		}
+	}
+	if isNew {
+		_, err = ingressClient.Create(ctx, ingress, metav1.CreateOptions{})
+		if err != nil {
+			setSpanError(span, err)
+		}
+		return err
+	}
+
+	hasChanges := ingressHasChanges(span, existingIngress, ingress)
+	if hasChanges {
+		ingress.ObjectMeta.ResourceVersion = existingIngress.ObjectMeta.ResourceVersion
+		if existingIngress.Spec.Backend != nil {
+			ingress.Spec.Backend = existingIngress.Spec.Backend
+		}
+		_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
+		if err != nil {
+			setSpanError(span, err)
+		}
+		return err
+	}
+
+	return nil
+}
+
+func buildIngressSpec(host, path string, service *v1.Service) v1beta1.IngressSpec {
+	pathType := v1beta1.PathTypeImplementationSpecific
+	return v1beta1.IngressSpec{
+		Rules: []v1beta1.IngressRule{
+			{
+				Host: host,
+				IngressRuleValue: v1beta1.IngressRuleValue{
+					HTTP: &v1beta1.HTTPIngressRuleValue{
+						Paths: []v1beta1.HTTPIngressPath{
+							{
+								Path:     path,
+								PathType: &pathType,
+								Backend: v1beta1.IngressBackend{
+									ServiceName: service.Name,
+									ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),
+								},
 							},
 						},
 					},
 				},
 			},
-		})
-		if acmeTLSEnabled {
-			log.Printf("Acme-tls is enabled on ingress, creating TLS secret for CNAME.")
-			ingress.Spec.TLS = append(ingress.Spec.TLS,
-				[]v1beta1.IngressTLS{
-					{
-						Hosts:      []string{cname},
-						SecretName: k.secretName(id, cname),
-					},
-				}...)
+		},
+	}
+}
+
+func setSpanError(span opentracing.Span, err error) {
+	span.SetTag("error", true)
+	span.LogKV("error.message", err.Error())
+}
+
+type ensureCNameBackendOpts struct {
+	namespace  string
+	id         router.InstanceID
+	cname      string
+	service    *v1.Service
+	routerOpts router.Opts
+}
+
+func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNameBackendOpts) error {
+	span, ctx := opentracing.StartSpanFromContext(ctx, "ensureIngressCName")
+	defer span.Finish()
+
+	span.SetTag("cname", opts.cname)
+
+	ingressClient, err := k.ingressClient(opts.namespace)
+	if err != nil {
+		return err
+	}
+	isNew := false
+	existingIngress, err := ingressClient.Get(ctx, k.ingressCName(opts.id, opts.cname), metav1.GetOptions{})
+	if err != nil {
+		if !k8sErrors.IsNotFound(err) {
+			return err
+
 		}
+		isNew = true
+	}
+
+	ingress := &v1beta1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      k.ingressCName(opts.id, opts.cname),
+			Namespace: opts.namespace,
+			Labels: map[string]string{
+				appBaseServiceNamespaceLabel: opts.service.Namespace,
+				appBaseServiceNameLabel:      opts.service.Name,
+				labelCNameIngress:            "true",
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(opts.service, schema.GroupVersionKind{
+					Group:   v1.SchemeGroupVersion.Group,
+					Version: v1.SchemeGroupVersion.Version,
+					Kind:    "Service",
+				}),
+			},
+		},
+		Spec: buildIngressSpec(opts.cname, opts.routerOpts.Route, opts.service),
+	}
+
+	k.fillIngressMeta(ingress, opts.routerOpts, opts.id)
+
+	if ingress.Annotations[AnnotationsACMEKey] == "true" {
+		log.Printf("Acme-tls is enabled on ingress, creating TLS secret for CNAME.")
+		ingress.Spec.TLS = append(ingress.Spec.TLS,
+			[]v1beta1.IngressTLS{
+				{
+					Hosts:      []string{opts.cname},
+					SecretName: k.secretName(opts.id, opts.cname),
+				},
+			}...)
 	}
 
 	if isNew {
@@ -201,59 +312,25 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	return nil
 }
 
-// Swap swaps backend services of two applications ingresses
-func (k *IngressService) Swap(ctx context.Context, srcApp, dstApp router.InstanceID) error {
-	srcIngress, err := k.get(ctx, srcApp)
+func (k *IngressService) removeCNameBackend(ctx context.Context, opts ensureCNameBackendOpts) error {
+	span, ctx := opentracing.StartSpanFromContext(ctx, "removeIngressCName")
+	defer span.Finish()
+
+	span.SetTag("cname", opts.cname)
+
+	ingressClient, err := k.ingressClient(opts.namespace)
 	if err != nil {
 		return err
 	}
-	dstIngress, err := k.get(ctx, dstApp)
-	if err != nil {
+	err = ingressClient.Delete(ctx, k.ingressCName(opts.id, opts.cname), metav1.DeleteOptions{})
+	if err != nil && !k8sErrors.IsNotFound(err) {
 		return err
 	}
-	k.swap(srcIngress, dstIngress)
-	ns, err := k.getAppNamespace(ctx, srcApp.AppName)
-	if err != nil {
-		return err
-	}
-	ns2, err := k.getAppNamespace(ctx, dstApp.AppName)
-	if err != nil {
-		return err
-	}
-	if ns != ns2 {
-		return fmt.Errorf("unable to swap apps with different namespaces: %v != %v", ns, ns2)
-	}
-	client, err := k.ingressClient(ns)
-	if err != nil {
-		return err
-	}
-	_, err = client.Update(ctx, srcIngress, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-	_, err = client.Update(ctx, dstIngress, metav1.UpdateOptions{})
-	if err != nil {
-		k.swap(srcIngress, dstIngress)
-		_, errRollback := client.Update(ctx, srcIngress, metav1.UpdateOptions{})
-		if errRollback != nil {
-			return fmt.Errorf("failed to rollback swap %v: %v", err, errRollback)
-		}
-	}
-	return err
+	return nil
 }
 
 // Remove removes the Ingress resource associated with the app
 func (k *IngressService) Remove(ctx context.Context, id router.InstanceID) error {
-	ingress, err := k.get(ctx, id)
-	if err != nil {
-		if k8sErrors.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
-	if dstApp, swapped := isSwapped(ingress.ObjectMeta); swapped {
-		return ErrAppSwapped{App: id.AppName, DstApp: dstApp}
-	}
 	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		return err
@@ -337,6 +414,10 @@ func (s *IngressService) ingressName(id router.InstanceID) string {
 	return s.hashedResourceName(id, "kubernetes-router-"+id.AppName+"-ingress", 253)
 }
 
+func (s *IngressService) ingressCName(id router.InstanceID, cname string) string {
+	return s.hashedResourceName(id, "kubernetes-router-cname-"+cname, 253)
+}
+
 func (s *IngressService) secretName(id router.InstanceID, certName string) string {
 	return s.hashedResourceName(id, "kr-"+id.AppName+"-"+certName, 253)
 }
@@ -346,12 +427,6 @@ func (s *IngressService) annotationWithPrefix(suffix string) string {
 		return suffix
 	}
 	return fmt.Sprintf("%v/%v", s.AnnotationsPrefix, suffix)
-}
-
-func (k *IngressService) swap(srcIngress, dstIngress *v1beta1.Ingress) {
-	srcIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName, dstIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName = dstIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName, srcIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServiceName
-	srcIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServicePort, dstIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServicePort = dstIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServicePort, srcIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths[0].Backend.ServicePort
-	k.BaseService.swap(&srcIngress.ObjectMeta, &dstIngress.ObjectMeta)
 }
 
 // AddCertificate adds certificates to app ingress
@@ -533,6 +608,10 @@ func ingressHasChanges(span opentracing.Span, existing *v1beta1.Ingress, ing *v1
 			"message", "ingress has changed the spec",
 			"ingress", existing.Name,
 		)
+		return true
+	}
+
+	if existing.Annotations[AnnotationsCNames] != ing.Annotations[AnnotationsCNames] {
 		return true
 	}
 

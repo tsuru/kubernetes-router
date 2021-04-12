@@ -7,7 +7,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -37,8 +36,6 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 	r.Handle("/backend/{name}", handler(a.removeBackend)).Methods(http.MethodDelete)
 	r.Handle("/backend/{name}/status", handler(a.status)).Methods(http.MethodGet)
 	r.Handle("/backend/{name}/routes", handler(a.getRoutes)).Methods(http.MethodGet)
-	r.Handle("/backend/{name}/swap", handler(a.swap)).Methods(http.MethodPost)
-
 	r.Handle("/info", handler(a.info)).Methods(http.MethodGet)
 
 	// TLS
@@ -184,32 +181,6 @@ func (a *RouterAPI) getRoutes(w http.ResponseWriter, r *http.Request) error {
 		Addresses []string `json:"addresses"`
 	}
 	return json.NewEncoder(w).Encode(resp{})
-}
-
-func (a *RouterAPI) swap(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	vars := mux.Vars(r)
-	type swapReq struct {
-		Target string
-	}
-	var req swapReq
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		return errors.New("error parsing request")
-	}
-	if req.Target == "" {
-		return httpError{Body: "empty target", Status: http.StatusBadRequest}
-	}
-	svc, err := a.router(ctx, vars["mode"], r.Header)
-	if err != nil {
-		return err
-	}
-	src := instanceID(r)
-	dst := router.InstanceID{
-		InstanceName: src.InstanceName,
-		AppName:      req.Target,
-	}
-	return svc.Swap(ctx, src, dst)
 }
 
 func (a *RouterAPI) info(w http.ResponseWriter, r *http.Request) error {

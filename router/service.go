@@ -57,7 +57,6 @@ var (
 type Router interface {
 	Ensure(ctx context.Context, id InstanceID, o EnsureBackendOpts) error
 	Remove(ctx context.Context, id InstanceID) error
-	Swap(ctx context.Context, appSrc, appDst InstanceID) error
 	GetAddresses(ctx context.Context, id InstanceID) ([]string, error)
 	SupportedOptions(ctx context.Context) map[string]string
 }
@@ -104,6 +103,8 @@ type EnsureBackendOpts struct {
 	Opts     Opts            `json:"opts"`
 	CNames   []string        `json:"cnames"`
 	Prefixes []BackendPrefix `json:"prefixes"`
+
+	PreserveOldCNames bool `json:"preserveOldCNames,omitempty"`
 }
 
 type BackendTarget struct {
