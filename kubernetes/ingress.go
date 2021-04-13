@@ -365,6 +365,9 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 func (k *IngressService) GetStatus(ctx context.Context, id router.InstanceID) (router.BackendStatus, string, error) {
 	ingress, err := k.get(ctx, id)
 	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return router.BackendStatusNotReady, "waiting for deploy", nil
+		}
 		return router.BackendStatusNotReady, "", err
 	}
 	if isIngressReady(ingress) {

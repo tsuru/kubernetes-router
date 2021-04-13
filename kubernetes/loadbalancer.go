@@ -124,6 +124,9 @@ func (s *LBService) SupportedOptions(ctx context.Context) map[string]string {
 func (s *LBService) GetStatus(ctx context.Context, id router.InstanceID) (router.BackendStatus, string, error) {
 	service, err := s.getLBService(ctx, id)
 	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return router.BackendStatusNotReady, "waiting for deploy", nil
+		}
 		return router.BackendStatusNotReady, "", err
 	}
 	if isReady(service) {
