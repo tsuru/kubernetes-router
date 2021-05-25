@@ -76,6 +76,41 @@ func TestLBEnsure(t *testing.T) {
 	assert.Equal(t, expectedService, foundService)
 }
 
+func TestLBEnsureWithExternalTrafficPolicy(t *testing.T) {
+	svc := createFakeLBService()
+	err := createAppWebService(svc.Client, svc.Namespace, "test")
+	require.NoError(t, err)
+	svc.Labels = map[string]string{"label": "labelval"}
+	svc.Annotations = map[string]string{"annotation": "annval"}
+	svc.PoolLabels = map[string]map[string]string{"mypool": {"pool-env": "dev"}, "otherpool": {"pool-env": "prod"}}
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{Pool: "mypool", ExternalTrafficPolicy: "Local", AdditionalOpts: map[string]string{}, DomainSuffix: "myapps.io"},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	setIP(t, svc, "test")
+	foundService, err := svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, "test-router-lb", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	svc.Labels[appPoolLabel] = "mypool"
+	svc.Labels["pool-env"] = "dev"
+	expectedAnnotations := map[string]string{
+		"annotation": "annval",
+		"external-dns.alpha.kubernetes.io/hostname": "test.myapps.io",
+		"router.tsuru.io/opts":                      `{"Pool":"mypool","DomainSuffix":"myapps.io","ExternalTrafficPolicy":"Local"}`,
+	}
+	expectedService := defaultService("test", "default", svc.Labels, expectedAnnotations, nil)
+	expectedService.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeLocal
+	assert.Equal(t, expectedService, foundService)
+}
+
 func TestLBEnsureWithDomain(t *testing.T) {
 	svc := createFakeLBService()
 	svc.Labels = map[string]string{"label": "labelval"}

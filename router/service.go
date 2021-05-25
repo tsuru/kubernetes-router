@@ -32,6 +32,8 @@ const (
 	// Acme is the acme option name
 	Acme = "tls-acme"
 
+	ExternalTrafficPolicy = "external-traffic-policy"
+
 	// optsAnnotation is the name of the annotation used to store opts.
 	optsAnnotation = "router.tsuru.io/opts"
 )
@@ -77,15 +79,16 @@ type RouterTLS interface {
 
 // Opts used when creating/updating routers
 type Opts struct {
-	Pool           string            `json:",omitempty"`
-	ExposedPort    string            `json:",omitempty"`
-	Domain         string            `json:",omitempty"`
-	Route          string            `json:",omitempty"`
-	DomainSuffix   string            `json:",omitempty"`
-	DomainPrefix   string            `json:",omitempty"`
-	Acme           bool              `json:",omitempty"`
-	AdditionalOpts map[string]string `json:",omitempty"`
-	HeaderOpts     []string          `json:",omitempty"`
+	Pool                  string            `json:",omitempty"`
+	ExposedPort           string            `json:",omitempty"`
+	Domain                string            `json:",omitempty"`
+	Route                 string            `json:",omitempty"`
+	DomainSuffix          string            `json:",omitempty"`
+	DomainPrefix          string            `json:",omitempty"`
+	ExternalTrafficPolicy string            `json:",omitempty"`
+	Acme                  bool              `json:",omitempty"`
+	AdditionalOpts        map[string]string `json:",omitempty"`
+	HeaderOpts            []string          `json:",omitempty"`
 }
 
 // CertData user when adding certificates
@@ -179,6 +182,8 @@ func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 			o.DomainPrefix = strV
 		case Route:
 			o.Route = strV
+		case ExternalTrafficPolicy:
+			o.ExternalTrafficPolicy = strV
 		case Acme:
 			o.Acme, err = strconv.ParseBool(strV)
 			if err != nil {

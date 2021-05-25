@@ -204,6 +204,10 @@ func (s *LBService) Ensure(ctx context.Context, id router.InstanceID, o router.E
 		return nil
 	}
 
+	if o.Opts.ExternalTrafficPolicy == "Cluster" || o.Opts.ExternalTrafficPolicy == "Local" {
+		lbService.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyType(o.Opts.ExternalTrafficPolicy)
+	}
+
 	defaultTarget, err := s.getDefaultBackendTarget(o.Prefixes)
 	if err != nil {
 		return err
