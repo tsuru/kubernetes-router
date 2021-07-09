@@ -359,6 +359,10 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 		return nil, err
 	}
 
+	if ingress.Annotations[AnnotationsACMEKey] == "true" {
+		return []string{fmt.Sprintf("https://%v", ingress.Spec.Rules[0].Host)}, nil
+	}
+
 	return []string{fmt.Sprintf("%v", ingress.Spec.Rules[0].Host)}, nil
 }
 

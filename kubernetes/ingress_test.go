@@ -511,6 +511,53 @@ func TestEnsureIngressAppNamespace(t *testing.T) {
 	assert.Len(t, ingressList.Items, 1)
 }
 
+func TestIngressGetAddress(t *testing.T) {
+	svc := createFakeService()
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			DomainSuffix: "apps.example.org",
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+
+	addrs, err := svc.GetAddresses(ctx, idForApp("test"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"test.apps.example.org"}, addrs)
+}
+
+func TestIngressGetAddressTLS(t *testing.T) {
+	svc := createFakeService()
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			DomainSuffix: "apps.example.org",
+			Acme:         true,
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+
+	addrs, err := svc.GetAddresses(ctx, idForApp("test"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"https://test.apps.example.org"}, addrs)
+}
+
 func TestRemove(t *testing.T) {
 	tt := []struct {
 		testName      string
