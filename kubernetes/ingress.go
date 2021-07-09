@@ -502,8 +502,8 @@ func (k *IngressService) GetCertificate(ctx context.Context, id router.InstanceI
 		return nil, err
 	}
 
-	certificate := fmt.Sprintf("%s", retSecret.Data["tls.crt"])
-	key := fmt.Sprintf("%s", retSecret.Data["tls.key"])
+	certificate := string(retSecret.Data["tls.crt"])
+	key := string(retSecret.Data["tls.key"])
 	return &router.CertData{Certificate: certificate, Key: key}, err
 }
 

@@ -528,6 +528,7 @@ func TestIngressGetAddress(t *testing.T) {
 			},
 		},
 	})
+	require.NoError(t, err)
 
 	addrs, err := svc.GetAddresses(ctx, idForApp("test"))
 	require.NoError(t, err)
@@ -552,6 +553,7 @@ func TestIngressGetAddressTLS(t *testing.T) {
 			},
 		},
 	})
+	require.NoError(t, err)
 
 	addrs, err := svc.GetAddresses(ctx, idForApp("test"))
 	require.NoError(t, err)
