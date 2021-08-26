@@ -162,10 +162,6 @@ func (a *RouterAPI) ensureBackend(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 
-	if len(opts.Opts.Domain) > 0 && len(opts.Opts.Route) == 0 {
-		opts.Opts.Route = "/"
-	}
-
 	svc, err := a.router(ctx, vars["mode"], r.Header)
 	if err != nil {
 		return err
