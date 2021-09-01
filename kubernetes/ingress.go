@@ -658,5 +658,5 @@ func isIngressReady(ingress *v1beta1.Ingress) bool {
 	if len(ingress.Status.LoadBalancer.Ingress) == 0 {
 		return false
 	}
-	return ingress.Status.LoadBalancer.Ingress[0].IP != ""
+	return ingress.Status.LoadBalancer.Ingress[0].IP != "" || ingress.Status.LoadBalancer.Ingress[0].Hostname != ""
 }
