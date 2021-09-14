@@ -690,6 +690,99 @@ func TestGetCertificate(t *testing.T) {
 	assert.Equal(t, &router.CertData{Certificate: "", Key: ""}, cert)
 }
 
+func TestEnsureWithTLSAndCName(t *testing.T) {
+	svc := createFakeService()
+	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			Acme: true,
+		},
+		CNames: []string{"test.io"},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	foundIngress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	expectedIngress := defaultIngress("test", "default")
+	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io"
+	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
+	expectedIngress.Spec.TLS = []v1beta1.IngressTLS{
+		{
+			Hosts:      []string{"test."},
+			SecretName: "kr-test-test.",
+		},
+	}
+	assert.Equal(t, expectedIngress, foundIngress)
+
+	foundIngress, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-test.io", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	expectedIngress = defaultIngress("test", "default")
+	expectedIngress.Spec.Rules[0].Host = "test.io"
+	expectedIngress.Name = "kubernetes-router-cname-test.io"
+	expectedIngress.Labels["router.tsuru.io/is-cname-ingress"] = "true"
+
+	assert.Equal(t, expectedIngress, foundIngress)
+}
+
+func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
+	svc := createFakeService()
+	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			Acme:      true,
+			AcmeCName: true,
+		},
+		CNames: []string{"test.io"},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	foundIngress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	expectedIngress := defaultIngress("test", "default")
+	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io"
+	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
+	expectedIngress.Spec.TLS = []v1beta1.IngressTLS{
+		{
+			Hosts:      []string{"test."},
+			SecretName: "kr-test-test.",
+		},
+	}
+	assert.Equal(t, expectedIngress, foundIngress)
+
+	foundIngress, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-test.io", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	expectedIngress = defaultIngress("test", "default")
+	expectedIngress.Spec.Rules[0].Host = "test.io"
+	expectedIngress.Name = "kubernetes-router-cname-test.io"
+	expectedIngress.Labels["router.tsuru.io/is-cname-ingress"] = "true"
+	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
+
+	expectedIngress.Spec.TLS = []v1beta1.IngressTLS{
+		{
+			Hosts:      []string{"test.io"},
+			SecretName: "kr-test-test.io",
+		},
+	}
+
+	assert.Equal(t, expectedIngress, foundIngress)
+}
+
 func defaultIngress(name, namespace string) *v1beta1.Ingress {
 	serviceName := name + "-web"
 	blockOwnerDeletion := true

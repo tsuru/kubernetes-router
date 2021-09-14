@@ -136,6 +136,9 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		Spec: buildIngressSpec(vhost, o.Opts.Route, service),
 	}
 	k.fillIngressMeta(ingress, o.Opts, id)
+	if o.Opts.Acme {
+		k.fillIngressTLS(ingress, id)
+	}
 	if len(o.CNames) > 0 {
 		ingress.Annotations[AnnotationsCNames] = strings.Join(o.CNames, ",")
 	}
@@ -282,16 +285,9 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 	}
 
 	k.fillIngressMeta(ingress, opts.routerOpts, opts.id)
-
-	if ingress.Annotations[AnnotationsACMEKey] == "true" {
+	if opts.routerOpts.AcmeCName {
 		log.Printf("Acme-tls is enabled on ingress, creating TLS secret for CNAME.")
-		ingress.Spec.TLS = append(ingress.Spec.TLS,
-			[]v1beta1.IngressTLS{
-				{
-					Hosts:      []string{opts.cname},
-					SecretName: k.secretName(opts.id, opts.cname),
-				},
-			}...)
+		k.fillIngressTLS(ingress, opts.id)
 	}
 
 	if isNew {
@@ -595,9 +591,9 @@ func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.O
 			i.ObjectMeta.Annotations[labelName] = optValue
 		}
 	}
-	if !routerOpts.Acme {
-		return
-	}
+}
+
+func (s *IngressService) fillIngressTLS(i *v1beta1.Ingress, id router.InstanceID) {
 	if len(i.Spec.Rules) > 0 {
 		i.Spec.TLS = []v1beta1.IngressTLS{
 			{

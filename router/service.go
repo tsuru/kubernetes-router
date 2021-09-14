@@ -32,6 +32,9 @@ const (
 	// Acme is the acme option name
 	Acme = "tls-acme"
 
+	// AcmeCName is the acme option for cnames
+	AcmeCName = "tls-acme-cname"
+
 	ExternalTrafficPolicy = "external-traffic-policy"
 
 	// optsAnnotation is the name of the annotation used to store opts.
@@ -87,6 +90,7 @@ type Opts struct {
 	DomainPrefix          string            `json:",omitempty"`
 	ExternalTrafficPolicy string            `json:",omitempty"`
 	Acme                  bool              `json:",omitempty"`
+	AcmeCName             bool              `json:",omitempty"`
 	AdditionalOpts        map[string]string `json:",omitempty"`
 	HeaderOpts            []string          `json:",omitempty"`
 }
@@ -189,6 +193,11 @@ func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 			if err != nil {
 				o.Acme = false
 			}
+		case AcmeCName:
+			o.AcmeCName, err = strconv.ParseBool(strV)
+			if err != nil {
+				o.AcmeCName = false
+			}
 		default:
 			o.AdditionalOpts[k] = strV
 		}
@@ -205,6 +214,7 @@ func DescribedOptions() map[string]string {
 		Domain:      "Domain used on Ingress.",
 		Route:       "Path used on Ingress rule.",
 		Acme:        "If set to true, adds ingress TLS options to Ingress. Defaults to false.",
+		AcmeCName:   "If set to true, adds ingress TLS options to CName Ingresses. Defaults to false.",
 	}
 }
 
