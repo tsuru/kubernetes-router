@@ -211,6 +211,25 @@ func (s *BaseService) getDefaultBackendTarget(prefixes []router.BackendPrefix) (
 	return nil, ErrNoBackendTarget
 }
 
+func (s *BaseService) getBackendTargets(prefixes []router.BackendPrefix, allBackends bool) (map[string]*router.BackendTarget, error) {
+	allTargets := map[string]*router.BackendTarget{}
+	for _, prefix := range prefixes {
+		if prefix.Prefix == "" {
+			allTargets["default"] = &prefix.Target
+			if !allBackends {
+				break
+			}
+			continue
+		}
+		allTargets[prefix.Prefix] = &prefix.Target
+	}
+	if len(allTargets) <= 0 {
+		return nil, ErrNoBackendTarget
+	}
+
+	return allTargets, nil
+}
+
 func (s *BaseService) hashedResourceName(id router.InstanceID, name string, limit int) string {
 	if id.InstanceName != "" {
 		name += "-" + id.InstanceName

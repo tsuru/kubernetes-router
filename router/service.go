@@ -93,6 +93,7 @@ type Opts struct {
 	AcmeCName             bool              `json:",omitempty"`
 	AdditionalOpts        map[string]string `json:",omitempty"`
 	HeaderOpts            []string          `json:",omitempty"`
+	ExposeAllServices     bool              `json:",omitempty"`
 }
 
 // CertData user when adding certificates

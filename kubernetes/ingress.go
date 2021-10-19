@@ -88,19 +88,23 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		isNew = true
 	}
 
-	defaultTarget, err := k.getDefaultBackendTarget(o.Prefixes)
+	backendTargets, err := k.getBackendTargets(o.Prefixes, o.Opts.ExposeAllServices)
 	if err != nil {
 		setSpanError(span, err)
 		return err
 	}
+	for k, v := range backendTargets {
+		span.SetTag(fmt.Sprintf("%sTarget.service", k), v.Service)
+		span.SetTag(fmt.Sprintf("%sTarget.namespace", k), v.Namespace)
+	}
 
-	span.SetTag("defaultTarget.service", defaultTarget.Service)
-	span.SetTag("defaultTarget.namespace", defaultTarget.Namespace)
-
-	service, err := k.getWebService(ctx, id.AppName, *defaultTarget)
-	if err != nil {
-		setSpanError(span, err)
-		return err
+	backendServices := map[string]*v1.Service{}
+	for key, target := range backendTargets {
+		backendServices[key], err = k.getWebService(ctx, id.AppName, *target)
+		if err != nil {
+			setSpanError(span, err)
+			return err
+		}
 	}
 
 	domainSuffix := o.Opts.DomainSuffix
@@ -108,32 +112,54 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		domainSuffix = k.DomainSuffix
 	}
 
-	var vhost string
-	if len(o.Opts.Domain) > 0 {
-		vhost = o.Opts.Domain
-	} else if o.Opts.DomainPrefix == "" {
-		vhost = fmt.Sprintf("%v.%v", id.AppName, domainSuffix)
-	} else {
-		vhost = fmt.Sprintf("%v.%v.%v", o.Opts.DomainPrefix, id.AppName, domainSuffix)
+	vhosts := map[string]string{}
+	for prefixString := range backendServices {
+		if prefixString == "default" {
+			if len(o.Opts.Domain) > 0 {
+				vhosts["default"] = o.Opts.Domain
+			} else if o.Opts.DomainPrefix == "" {
+				vhosts["default"] = fmt.Sprintf("%v.%v", id.AppName, domainSuffix)
+			} else {
+				vhosts["default"] = fmt.Sprintf("%v.%v.%v", o.Opts.DomainPrefix, id.AppName, domainSuffix)
+			}
+			continue
+		}
+
+		if len(o.Opts.Domain) > 0 {
+			vhosts[prefixString] = fmt.Sprintf("%v.%v", prefixString, o.Opts.Domain)
+		} else if o.Opts.DomainPrefix == "" {
+			vhosts[prefixString] = fmt.Sprintf("%v.%v.%v", prefixString, id.AppName, domainSuffix)
+		} else {
+			vhosts[prefixString] = fmt.Sprintf("%v.%v.%v.%v", prefixString, o.Opts.DomainPrefix, id.AppName, domainSuffix)
+		}
 	}
+
+	// var vhost string
+	// if len(o.Opts.Domain) > 0 {
+	// 	vhost = o.Opts.Domain
+	// } else if o.Opts.DomainPrefix == "" {
+	// 	vhost = fmt.Sprintf("%v.%v", id.AppName, domainSuffix)
+	// } else {
+	// 	vhost = fmt.Sprintf("%v.%v.%v", o.Opts.DomainPrefix, id.AppName, domainSuffix)
+	// }
 
 	ingress := &v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      k.ingressName(id),
 			Namespace: ns,
 			Labels: map[string]string{
-				appBaseServiceNamespaceLabel: defaultTarget.Namespace,
-				appBaseServiceNameLabel:      defaultTarget.Service,
+				appBaseServiceNamespaceLabel: backendTargets["default"].Namespace,
+				appBaseServiceNameLabel:      backendTargets["default"].Service,
 			},
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(service, schema.GroupVersionKind{
+				*metav1.NewControllerRef(backendServices["default"], schema.GroupVersionKind{
 					Group:   v1.SchemeGroupVersion.Group,
 					Version: v1.SchemeGroupVersion.Version,
 					Kind:    "Service",
 				}),
 			},
 		},
-		Spec: buildIngressSpec(vhost, o.Opts.Route, service),
+		Spec: buildIngressSpec(vhosts, o.Opts.Route, backendServices),
 	}
 	k.fillIngressMeta(ingress, o.Opts, id)
 	if o.Opts.Acme {
@@ -154,7 +180,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			namespace:  ns,
 			id:         id,
 			cname:      cname,
-			service:    service,
+			service:    backendServices["default"],
 			routerOpts: o.Opts,
 		})
 		if err != nil {
@@ -173,7 +199,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			namespace:  ns,
 			id:         id,
 			cname:      cname,
-			service:    service,
+			service:    backendServices["default"],
 			routerOpts: o.Opts,
 		})
 		if err != nil {
@@ -206,29 +232,54 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	return nil
 }
 
-func buildIngressSpec(host, path string, service *v1.Service) v1beta1.IngressSpec {
+func buildIngressSpec(hosts map[string]string, path string, services map[string]*v1.Service) v1beta1.IngressSpec {
 	pathType := v1beta1.PathTypeImplementationSpecific
-	return v1beta1.IngressSpec{
-		Rules: []v1beta1.IngressRule{
-			{
-				Host: host,
-				IngressRuleValue: v1beta1.IngressRuleValue{
-					HTTP: &v1beta1.HTTPIngressRuleValue{
-						Paths: []v1beta1.HTTPIngressPath{
-							{
-								Path:     path,
-								PathType: &pathType,
-								Backend: v1beta1.IngressBackend{
-									ServiceName: service.Name,
-									ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),
-								},
+	rules := []v1beta1.IngressRule{}
+	for k, service := range services {
+		r := v1beta1.IngressRule{
+			Host: hosts[k],
+			IngressRuleValue: v1beta1.IngressRuleValue{
+				HTTP: &v1beta1.HTTPIngressRuleValue{
+					Paths: []v1beta1.HTTPIngressPath{
+						{
+							Path:     path,
+							PathType: &pathType,
+							Backend: v1beta1.IngressBackend{
+								ServiceName: service.Name,
+								ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),
 							},
 						},
 					},
 				},
 			},
-		},
+		}
+		rules = append(rules, r)
 	}
+
+	return v1beta1.IngressSpec{
+		Rules: rules,
+	}
+	// return v1beta1.IngressSpec{
+	// 	Rules: []v1beta1.IngressRule{
+	// 		{
+	// 			Host: host,
+	// 			IngressRuleValue: v1beta1.IngressRuleValue{
+	// 				HTTP: &v1beta1.HTTPIngressRuleValue{
+	// 					Paths: []v1beta1.HTTPIngressPath{
+	// 						{
+	// 							Path:     path,
+	// 							PathType: &pathType,
+	// 							Backend: v1beta1.IngressBackend{
+	// 								ServiceName: service.Name,
+	// 								ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),
+	// 							},
+	// 						},
+	// 					},
+	// 				},
+	// 			},
+	// 		},
+	// 	},
+	// }
 }
 
 func setSpanError(span opentracing.Span, err error) {
@@ -281,7 +332,7 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 				}),
 			},
 		},
-		Spec: buildIngressSpec(opts.cname, opts.routerOpts.Route, opts.service),
+		Spec: buildIngressSpec(map[string]string{"ensureCnameBackend": opts.cname}, opts.routerOpts.Route, map[string]*v1.Service{"ensureCnameBackend": opts.service}),
 	}
 
 	k.fillIngressMeta(ingress, opts.routerOpts, opts.id)
