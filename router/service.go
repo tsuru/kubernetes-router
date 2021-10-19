@@ -39,6 +39,8 @@ const (
 
 	// optsAnnotation is the name of the annotation used to store opts.
 	optsAnnotation = "router.tsuru.io/opts"
+
+	AllPrefixes = "all-prefixes"
 )
 
 // ErrIngressAlreadyExists is the error returned by the service when
@@ -199,6 +201,11 @@ func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 			if err != nil {
 				o.AcmeCName = false
 			}
+		case AllPrefixes:
+			o.ExposeAllServices, err = strconv.ParseBool(strV)
+			if err != nil {
+				o.ExposeAllServices = false
+			}
 		default:
 			o.AdditionalOpts[k] = strV
 		}
@@ -216,6 +223,7 @@ func DescribedOptions() map[string]string {
 		Route:       "Path used on Ingress rule.",
 		Acme:        "If set to true, adds ingress TLS options to Ingress. Defaults to false.",
 		AcmeCName:   "If set to true, adds ingress TLS options to CName Ingresses. Defaults to false.",
+		AllPrefixes: "If set to true, exposes all of the services of the app, allowing them to be accessable from the router.",
 	}
 }
 
