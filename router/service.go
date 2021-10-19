@@ -89,10 +89,10 @@ type Opts struct {
 	DomainSuffix          string            `json:",omitempty"`
 	DomainPrefix          string            `json:",omitempty"`
 	ExternalTrafficPolicy string            `json:",omitempty"`
-	Acme                  bool              `json:",omitempty"`
-	AcmeCName             bool              `json:",omitempty"`
 	AdditionalOpts        map[string]string `json:",omitempty"`
 	HeaderOpts            []string          `json:",omitempty"`
+	Acme                  bool              `json:",omitempty"`
+	AcmeCName             bool              `json:",omitempty"`
 	ExposeAllServices     bool              `json:",omitempty"`
 }
 
