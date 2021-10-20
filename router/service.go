@@ -223,7 +223,7 @@ func DescribedOptions() map[string]string {
 		Route:       "Path used on Ingress rule.",
 		Acme:        "If set to true, adds ingress TLS options to Ingress. Defaults to false.",
 		AcmeCName:   "If set to true, adds ingress TLS options to CName Ingresses. Defaults to false.",
-		AllPrefixes: "If set to true, exposes all of the services of the app, allowing them to be accessable from the router.",
+		AllPrefixes: "If set to true, exposes all of the services of the app, allowing them to be accessible from the router.",
 	}
 }
 
