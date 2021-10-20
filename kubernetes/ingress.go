@@ -590,9 +590,10 @@ func (k *IngressService) RemoveCertificate(ctx context.Context, id router.Instan
 // SupportedOptions returns the supported options
 func (s *IngressService) SupportedOptions(ctx context.Context) map[string]string {
 	opts := map[string]string{
-		router.Domain: "",
-		router.Acme:   "",
-		router.Route:  "",
+		router.Domain:      "",
+		router.Acme:        "",
+		router.Route:       "",
+		router.AllPrefixes: "",
 	}
 	docs := mergeMaps(defaultOptsAsAnnotationsDocs, s.OptsAsAnnotationsDocs)
 	for k, v := range mergeMaps(defaultOptsAsAnnotations, s.OptsAsAnnotations) {
