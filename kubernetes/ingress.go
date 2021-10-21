@@ -134,15 +134,6 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		}
 	}
 
-	// var vhost string
-	// if len(o.Opts.Domain) > 0 {
-	// 	vhost = o.Opts.Domain
-	// } else if o.Opts.DomainPrefix == "" {
-	// 	vhost = fmt.Sprintf("%v.%v", id.AppName, domainSuffix)
-	// } else {
-	// 	vhost = fmt.Sprintf("%v.%v.%v", o.Opts.DomainPrefix, id.AppName, domainSuffix)
-	// }
-
 	ingress := &v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      k.ingressName(id),
@@ -259,27 +250,6 @@ func buildIngressSpec(hosts map[string]string, path string, services map[string]
 	return v1beta1.IngressSpec{
 		Rules: rules,
 	}
-	// return v1beta1.IngressSpec{
-	// 	Rules: []v1beta1.IngressRule{
-	// 		{
-	// 			Host: host,
-	// 			IngressRuleValue: v1beta1.IngressRuleValue{
-	// 				HTTP: &v1beta1.HTTPIngressRuleValue{
-	// 					Paths: []v1beta1.HTTPIngressPath{
-	// 						{
-	// 							Path:     path,
-	// 							PathType: &pathType,
-	// 							Backend: v1beta1.IngressBackend{
-	// 								ServiceName: service.Name,
-	// 								ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),
-	// 							},
-	// 						},
-	// 					},
-	// 				},
-	// 			},
-	// 		},
-	// 	},
-	// }
 }
 
 func setSpanError(span opentracing.Span, err error) {
