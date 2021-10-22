@@ -212,17 +212,17 @@ func (s *BaseService) getDefaultBackendTarget(prefixes []router.BackendPrefix) (
 }
 
 // getBackendTargets returns all targets pointed by the app services or only the base target according to the allBackends flag
-func (s *BaseService) getBackendTargets(prefixes []router.BackendPrefix, allBackends bool) (map[string]*router.BackendTarget, error) {
-	allTargets := map[string]*router.BackendTarget{}
+func (s *BaseService) getBackendTargets(prefixes []router.BackendPrefix, allBackends bool) (map[string]router.BackendTarget, error) {
+	allTargets := map[string]router.BackendTarget{}
 	for _, prefix := range prefixes {
 		if prefix.Prefix == "" {
-			allTargets["default"] = &prefix.Target
+			allTargets["default"] = prefix.Target
 			if !allBackends {
 				break
 			}
 			continue
 		}
-		allTargets[prefix.Prefix] = &prefix.Target
+		allTargets[prefix.Prefix] = prefix.Target
 	}
 	if len(allTargets) <= 0 {
 		return nil, ErrNoBackendTarget

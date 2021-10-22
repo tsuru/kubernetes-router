@@ -100,7 +100,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 
 	backendServices := map[string]*v1.Service{}
 	for key, target := range backendTargets {
-		backendServices[key], err = k.getWebService(ctx, id.AppName, *target)
+		backendServices[key], err = k.getWebService(ctx, id.AppName, target)
 		if err != nil {
 			setSpanError(span, err)
 			return err
@@ -244,6 +244,8 @@ func buildIngressSpec(hosts map[string]string, path string, services map[string]
 				},
 			},
 		}
+		fmt.Printf("DEBUG: setting rule %v inside ingress\n", r)
+
 		rules = append(rules, r)
 	}
 
