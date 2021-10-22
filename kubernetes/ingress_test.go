@@ -205,7 +205,7 @@ func TestIngressEnsureWithMultipleBackends(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, expectedIngressRules, ingressFound.Spec.Rules)
+	assert.ElementsMatch(t, expectedIngressRules, ingressFound.Spec.Rules)
 }
 
 func TestIngressEnsureWithCNames(t *testing.T) {
