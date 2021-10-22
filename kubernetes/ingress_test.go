@@ -167,14 +167,8 @@ func TestIngressEnsureWithMultipleBackends(t *testing.T) {
 	ingressFound, err := ingressService.Client.ExtensionsV1beta1().Ingresses("default").Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
-	expectedIngress := defaultIngress("test", "default")
-	expectedIngress.Labels["controller"] = "my-controller"
-	expectedIngress.Labels["XPTO"] = "true"
-	expectedIngress.Annotations["ann1"] = "val1"
-	expectedIngress.Annotations["ann2"] = "val2"
-
 	pathType := v1beta1.PathTypeImplementationSpecific
-	expectedIngress.Spec.Rules = []v1beta1.IngressRule{
+	expectedIngressRules := []v1beta1.IngressRule{
 		{
 			Host: "test" + ".",
 			IngressRuleValue: v1beta1.IngressRuleValue{
@@ -211,7 +205,7 @@ func TestIngressEnsureWithMultipleBackends(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, expectedIngress, ingressFound)
+	assert.Equal(t, expectedIngressRules, ingressFound.Spec.Rules)
 }
 
 func TestIngressEnsureWithCNames(t *testing.T) {
