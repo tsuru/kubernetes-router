@@ -109,6 +109,111 @@ func TestIngressEnsure(t *testing.T) {
 	assert.Equal(t, expectedIngress, ingressFound)
 }
 
+func TestIngressEnsureWithMultipleBackends(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	err := createAppWebService(client, "default", "test")
+	require.NoError(t, err)
+	_, err = client.CoreV1().Services("default").Create(context.TODO(), &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test" + "-web" + "-v1",
+		},
+		Spec: v1.ServiceSpec{
+			Selector: map[string]string{
+				"tsuru.io/app-name":    "test",
+				"tsuru.io/app-process": "web",
+			},
+			Ports: []v1.ServicePort{
+				{
+					Protocol:   "TCP",
+					Port:       defaultServicePort,
+					TargetPort: intstr.FromInt(defaultServicePort),
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+	ingressService := IngressService{
+		BaseService: &BaseService{
+			Namespace:        "default",
+			Client:           client,
+			TsuruClient:      faketsuru.NewSimpleClientset(),
+			ExtensionsClient: fakeapiextensions.NewSimpleClientset(),
+		},
+	}
+
+	ingressService.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	ingressService.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	err = ingressService.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			ExposeAllServices: true,
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+			{
+				Prefix: "v1.version",
+				Target: router.BackendTarget{
+					Service:   "test-web-v1",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	ingressFound, err := ingressService.Client.ExtensionsV1beta1().Ingresses("default").Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	expectedIngress := defaultIngress("test", "default")
+	expectedIngress.Labels["controller"] = "my-controller"
+	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Annotations["ann1"] = "val1"
+	expectedIngress.Annotations["ann2"] = "val2"
+
+	pathType := v1beta1.PathTypeImplementationSpecific
+	expectedIngress.Spec.Rules = []v1beta1.IngressRule{
+		{
+			Host: "test" + ".",
+			IngressRuleValue: v1beta1.IngressRuleValue{
+				HTTP: &v1beta1.HTTPIngressRuleValue{
+					Paths: []v1beta1.HTTPIngressPath{
+						{
+							Path:     "",
+							PathType: &pathType,
+							Backend: v1beta1.IngressBackend{
+								ServiceName: "test-web",
+								ServicePort: intstr.FromInt(defaultServicePort),
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			Host: "v1." + "version." + "test.",
+			IngressRuleValue: v1beta1.IngressRuleValue{
+				HTTP: &v1beta1.HTTPIngressRuleValue{
+					Paths: []v1beta1.HTTPIngressPath{
+						{
+							Path:     "",
+							PathType: &pathType,
+							Backend: v1beta1.IngressBackend{
+								ServiceName: "test-web-v1",
+								ServicePort: intstr.FromInt(defaultServicePort),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	assert.Equal(t, expectedIngress, ingressFound)
+}
+
 func TestIngressEnsureWithCNames(t *testing.T) {
 	svc := createFakeService()
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
