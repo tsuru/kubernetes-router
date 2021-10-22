@@ -244,7 +244,6 @@ func buildIngressSpec(hosts map[string]string, path string, services map[string]
 				},
 			},
 		}
-		fmt.Printf("DEBUG: setting rule %v inside ingress\n", r)
 
 		rules = append(rules, r)
 	}
