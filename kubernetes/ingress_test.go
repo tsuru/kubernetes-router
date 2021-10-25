@@ -659,6 +659,68 @@ func TestIngressGetAddressTLS(t *testing.T) {
 	assert.Equal(t, []string{"https://test.apps.example.org"}, addrs)
 }
 
+func TestIngressGetMultipleAddresses(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	err := createAppWebService(client, "default", "test")
+	require.NoError(t, err)
+	_, err = client.CoreV1().Services("default").Create(context.TODO(), &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test" + "-web" + "-v1",
+		},
+		Spec: v1.ServiceSpec{
+			Selector: map[string]string{
+				"tsuru.io/app-name":    "test",
+				"tsuru.io/app-process": "web",
+			},
+			Ports: []v1.ServicePort{
+				{
+					Protocol:   "TCP",
+					Port:       defaultServicePort,
+					TargetPort: intstr.FromInt(defaultServicePort),
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+	ingressSvc := IngressService{
+		BaseService: &BaseService{
+			Namespace:        "default",
+			Client:           client,
+			TsuruClient:      faketsuru.NewSimpleClientset(),
+			ExtensionsClient: fakeapiextensions.NewSimpleClientset(),
+		},
+	}
+	ingressSvc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	ingressSvc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	err = ingressSvc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			DomainSuffix:      "apps.example.org",
+			Acme:              true,
+			ExposeAllServices: true,
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+			{
+				Prefix: "v1.version",
+				Target: router.BackendTarget{
+					Service:   "test-web-v1",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	addrs, err := ingressSvc.GetAddresses(ctx, idForApp("test"))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"https://v1.version.test.apps.example.org", "https://test.apps.example.org"}, addrs)
+}
+
 func TestRemove(t *testing.T) {
 	tt := []struct {
 		testName      string

@@ -377,11 +377,19 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 		return nil, err
 	}
 
+	hosts := []string{}
+	for _, rule := range ingress.Spec.Rules {
+		hosts = append(hosts, rule.Host)
+	}
 	if ingress.Annotations[AnnotationsACMEKey] == "true" {
-		return []string{fmt.Sprintf("https://%v", ingress.Spec.Rules[0].Host)}, nil
+		urls := []string{}
+		for _, h := range hosts {
+			urls = append(urls, fmt.Sprintf("https://%v", h))
+		}
+		return urls, nil
 	}
 
-	return []string{fmt.Sprintf("%v", ingress.Spec.Rules[0].Host)}, nil
+	return hosts, nil
 }
 
 func (k *IngressService) GetStatus(ctx context.Context, id router.InstanceID) (router.BackendStatus, string, error) {
