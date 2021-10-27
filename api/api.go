@@ -142,9 +142,9 @@ func (a *RouterAPI) status(w http.ResponseWriter, r *http.Request) error {
 	grp, ctx := errgroup.WithContext(ctx)
 
 	grp.Go(func() error {
-		checks, err := checkPath(ctx, r.URL.Query().Get("checkpath"), svc, instanceID(r))
-		if err != nil {
-			return err
+		checks, checkErr := checkPath(ctx, r.URL.Query().Get("checkpath"), svc, instanceID(r))
+		if checkErr != nil {
+			return checkErr
 		}
 		rsp.Checks = checks
 		return nil
@@ -155,9 +155,9 @@ func (a *RouterAPI) status(w http.ResponseWriter, r *http.Request) error {
 		if !ok {
 			return nil
 		}
-		status, detail, err := statusRouter.GetStatus(ctx, instanceID(r))
-		if err != nil {
-			return err
+		status, detail, statusErr := statusRouter.GetStatus(ctx, instanceID(r))
+		if statusErr != nil {
+			return statusErr
 		}
 		rsp.Status = status
 		rsp.Detail = detail
