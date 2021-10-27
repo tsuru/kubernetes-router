@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -311,4 +312,78 @@ func (s *RouterAPISuite) TestRemoveCertificate() {
 	if !s.mockRouter.RemoveCertificateInvoked {
 		s.Fail("Service Addresses function not invoked")
 	}
+}
+
+func (s *RouterAPISuite) TestGetBackendStatus() {
+	s.mockRouter.GetStatusFn = func(id router.InstanceID) (router.BackendStatus, string, error) {
+		s.Assert().Equal("myapp", id.AppName)
+		return router.BackendStatusReady, "xyz", nil
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp/status", nil)
+	w := httptest.NewRecorder()
+
+	s.handler.ServeHTTP(w, req)
+	resp := w.Result()
+	s.Equal(http.StatusOK, resp.StatusCode)
+	s.False(s.mockRouter.GetAddressesInvoked)
+	s.True(s.mockRouter.GetStatusInvoked)
+
+	expectedStatus := statusResp{
+		Status: "ready",
+		Detail: "xyz",
+	}
+
+	var data statusResp
+	err := json.Unmarshal(w.Body.Bytes(), &data)
+	s.NoError(err)
+	s.Equal(expectedStatus, data)
+}
+
+func (s *RouterAPISuite) TestGetBackendStatusWithCheckPath() {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(209)
+	}))
+	defer srv.Close()
+
+	s.mockRouter.GetAddressesFn = func(id router.InstanceID) ([]string, error) {
+		s.Assert().Equal("myapp", id.AppName)
+		return []string{srv.URL, srv.URL + "/x"}, nil
+	}
+	s.mockRouter.GetStatusFn = func(id router.InstanceID) (router.BackendStatus, string, error) {
+		s.Assert().Equal("myapp", id.AppName)
+		return router.BackendStatusReady, "xyz", nil
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/api/backend/myapp/status?checkpath=/", nil)
+	w := httptest.NewRecorder()
+
+	s.handler.ServeHTTP(w, req)
+	resp := w.Result()
+	s.Equal(http.StatusOK, resp.StatusCode)
+	s.True(s.mockRouter.GetAddressesInvoked)
+	s.True(s.mockRouter.GetStatusInvoked)
+
+	expectedStatus := statusResp{
+		Status: "ready",
+		Detail: "xyz",
+		Checks: []urlCheck{
+			{
+				Address: srv.URL,
+				Status:  209,
+			},
+			{
+				Address: srv.URL + "/x",
+				Status:  209,
+			},
+		},
+	}
+
+	var parsedRsp statusResp
+	err := json.Unmarshal(w.Body.Bytes(), &parsedRsp)
+	s.NoError(err)
+
+	sort.Slice(parsedRsp.Checks, func(i, j int) bool {
+		return parsedRsp.Checks[i].Address < parsedRsp.Checks[j].Address
+	})
+
+	s.Equal(expectedStatus, parsedRsp)
 }

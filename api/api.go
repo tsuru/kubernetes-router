@@ -10,12 +10,21 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"github.com/tsuru/kubernetes-router/backend"
 	"github.com/tsuru/kubernetes-router/router"
+	"golang.org/x/sync/errgroup"
 )
+
+var httpSchemeRegex = regexp.MustCompile(`^https?://`)
+
+const checkPathTimeout = 2 * time.Second
 
 // RouterAPI implements Tsuru HTTP router API
 type RouterAPI struct {
@@ -105,6 +114,18 @@ func (a *RouterAPI) getBackend(w http.ResponseWriter, r *http.Request) error {
 	return json.NewEncoder(w).Encode(rsp)
 }
 
+type statusResp struct {
+	Status router.BackendStatus `json:"status"`
+	Detail string               `json:"detail"`
+	Checks []urlCheck           `json:"checks,omitempty"`
+}
+
+type urlCheck struct {
+	Address string `json:"address"`
+	Status  int    `json:"status"`
+	Error   string `json:"error"`
+}
+
 // status returns backend events
 func (a *RouterAPI) status(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
@@ -113,26 +134,41 @@ func (a *RouterAPI) status(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	type statusResp struct {
-		Status router.BackendStatus `json:"status"`
-		Detail string               `json:"detail"`
+
+	rsp := statusResp{
+		Status: router.BackendStatusReady,
 	}
 
-	statusRouter, ok := svc.(router.RouterStatus)
-	if !ok {
-		return json.NewEncoder(w).Encode(&statusResp{
-			Status: router.BackendStatusReady,
-		})
-	}
+	grp, ctx := errgroup.WithContext(ctx)
 
-	status, detail, err := statusRouter.GetStatus(ctx, instanceID(r))
+	grp.Go(func() error {
+		checks, err := checkPath(ctx, r.URL.Query().Get("checkpath"), svc, instanceID(r))
+		if err != nil {
+			return err
+		}
+		rsp.Checks = checks
+		return nil
+	})
+
+	grp.Go(func() error {
+		statusRouter, ok := svc.(router.RouterStatus)
+		if !ok {
+			return nil
+		}
+		status, detail, err := statusRouter.GetStatus(ctx, instanceID(r))
+		if err != nil {
+			return err
+		}
+		rsp.Status = status
+		rsp.Detail = detail
+		return nil
+	})
+
+	err = grp.Wait()
 	if err != nil {
 		return err
 	}
-	rsp := statusResp{
-		Status: status,
-		Detail: detail,
-	}
+
 	return json.NewEncoder(w).Encode(rsp)
 }
 
@@ -290,4 +326,58 @@ func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 	}
 	_, err = w.Write([]byte("OK"))
 	return err
+}
+
+func checkPath(ctx context.Context, path string, svc router.Router, instance router.InstanceID) ([]urlCheck, error) {
+	if path == "" {
+		return nil, nil
+	}
+
+	addrs, err := svc.GetAddresses(ctx, instance)
+	if err != nil {
+		return nil, err
+	}
+
+	wg := sync.WaitGroup{}
+	checks := make(chan urlCheck, len(addrs))
+	for _, addr := range addrs {
+		wg.Add(1)
+		go func(addr string) {
+			defer wg.Done()
+			check := urlCheck{
+				Address: addr,
+			}
+
+			url := fmt.Sprintf("%s/%s", strings.TrimSuffix(addr, "/"), strings.TrimPrefix(path, "/"))
+			if !httpSchemeRegex.MatchString(url) {
+				url = "http://" + url
+			}
+
+			ctxWithTimeout, cancel := context.WithTimeout(ctx, checkPathTimeout)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctxWithTimeout, http.MethodGet, url, nil)
+			if err != nil {
+				check.Error = err.Error()
+				checks <- check
+				return
+			}
+			rsp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				check.Error = err.Error()
+				checks <- check
+				return
+			}
+			check.Status = rsp.StatusCode
+			checks <- check
+		}(addr)
+	}
+
+	wg.Wait()
+	close(checks)
+
+	var ret []urlCheck
+	for check := range checks {
+		ret = append(ret, check)
+	}
+	return ret, nil
 }
