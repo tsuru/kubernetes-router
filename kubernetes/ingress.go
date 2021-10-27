@@ -114,23 +114,16 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 
 	vhosts := map[string]string{}
 	for prefixString := range backendServices {
-		if prefixString == "default" {
-			if len(o.Opts.Domain) > 0 {
-				vhosts["default"] = o.Opts.Domain
-			} else if o.Opts.DomainPrefix == "" {
-				vhosts["default"] = fmt.Sprintf("%v.%v", id.AppName, domainSuffix)
-			} else {
-				vhosts["default"] = fmt.Sprintf("%v.%v.%v", o.Opts.DomainPrefix, id.AppName, domainSuffix)
-			}
-			continue
+		prefix := ""
+		if prefixString != "default" {
+			prefix = prefixString + "."
 		}
-
 		if len(o.Opts.Domain) > 0 {
-			vhosts[prefixString] = fmt.Sprintf("%v.%v", prefixString, o.Opts.Domain)
+			vhosts[prefixString] = fmt.Sprintf("%s%s.%s", prefix, prefixString, o.Opts.Domain)
 		} else if o.Opts.DomainPrefix == "" {
-			vhosts[prefixString] = fmt.Sprintf("%v.%v.%v", prefixString, id.AppName, domainSuffix)
+			vhosts[prefixString] = fmt.Sprintf("%s%s.%s", prefix, id.AppName, domainSuffix)
 		} else {
-			vhosts[prefixString] = fmt.Sprintf("%v.%v.%v.%v", prefixString, o.Opts.DomainPrefix, id.AppName, domainSuffix)
+			vhosts[prefixString] = fmt.Sprintf("%s%s.%s.%s", prefix, o.Opts.DomainPrefix, id.AppName, domainSuffix)
 		}
 	}
 
