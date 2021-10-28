@@ -119,7 +119,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			prefix = prefixString + "."
 		}
 		if len(o.Opts.Domain) > 0 {
-			vhosts[prefixString] = fmt.Sprintf("%s%s.%s", prefix, prefixString, o.Opts.Domain)
+			vhosts[prefixString] = fmt.Sprintf("%s%s", prefix, o.Opts.Domain)
 		} else if o.Opts.DomainPrefix == "" {
 			vhosts[prefixString] = fmt.Sprintf("%s%s.%s", prefix, id.AppName, domainSuffix)
 		} else {
