@@ -8,7 +8,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/opentracing/opentracing-go"
@@ -53,8 +55,8 @@ type IngressService struct {
 	// AnnotationsPrefix defines the common prefix used in the nginx ingress controller
 	AnnotationsPrefix string
 	// IngressClass defines the default ingress class used by the controller
-	IngressClass string
-
+	IngressClass          string
+	httpPort              int
 	OptsAsAnnotations     map[string]string
 	OptsAsAnnotationsDocs map[string]string
 }
@@ -377,7 +379,12 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 	if ingress.Annotations[AnnotationsACMEKey] == "true" {
 		urls := []string{}
 		for _, h := range hosts {
-			urls = append(urls, fmt.Sprintf("https://%v", h))
+			if k.httpPort == 0 {
+				urls = append(urls, fmt.Sprintf("https://%v", h))
+			} else {
+				hostPort := net.JoinHostPort(h, strconv.Itoa(k.httpPort))
+				urls = append(urls, fmt.Sprintf("https://%v", hostPort))
+			}
 		}
 		return urls, nil
 	}
