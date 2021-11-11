@@ -20,6 +20,7 @@ import (
 
 func main() {
 	listenAddr := flag.String("listen-addr", ":8077", "Listen address")
+	ingressPort := flag.Int("ingress-http-port", 0, "The port that ingress services are exposed")
 	k8sNamespace := flag.String("k8s-namespace", "tsuru", "Kubernetes namespace to create resources")
 	k8sTimeout := flag.Duration("k8s-timeout", time.Second*10, "Kubernetes per-request timeout")
 	k8sLabels := &cmd.MapFlag{}
@@ -100,6 +101,7 @@ func main() {
 				OptsAsAnnotationsDocs: *optsToIngressAnnotationsDocs,
 				IngressClass:          *ingressClass,
 				AnnotationsPrefix:     *ingressAnnotationsPrefix,
+				HTTPPort:              *ingressPort,
 			}
 		case "service", "loadbalancer":
 			localBackend.Routers[mode] = &kubernetes.LBService{

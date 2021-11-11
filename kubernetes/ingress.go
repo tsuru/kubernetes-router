@@ -8,7 +8,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/opentracing/opentracing-go"
@@ -53,8 +55,8 @@ type IngressService struct {
 	// AnnotationsPrefix defines the common prefix used in the nginx ingress controller
 	AnnotationsPrefix string
 	// IngressClass defines the default ingress class used by the controller
-	IngressClass string
-
+	IngressClass          string
+	HTTPPort              int
 	OptsAsAnnotations     map[string]string
 	OptsAsAnnotationsDocs map[string]string
 }
@@ -362,17 +364,20 @@ func (k *IngressService) Remove(ctx context.Context, id router.InstanceID) error
 // the app Ingress resource
 func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID) ([]string, error) {
 	ingress, err := k.get(ctx, id)
-
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return []string{""}, nil
 		}
 		return nil, err
 	}
-
 	hosts := []string{}
 	for _, rule := range ingress.Spec.Rules {
-		hosts = append(hosts, rule.Host)
+		if k.HTTPPort == 0 {
+			hosts = append(hosts, rule.Host)
+		} else {
+			hostPort := net.JoinHostPort(rule.Host, strconv.Itoa(k.HTTPPort))
+			hosts = append(hosts, hostPort)
+		}
 	}
 	if ingress.Annotations[AnnotationsACMEKey] == "true" {
 		urls := []string{}
@@ -384,7 +389,6 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 
 	return hosts, nil
 }
-
 func (k *IngressService) GetStatus(ctx context.Context, id router.InstanceID) (router.BackendStatus, string, error) {
 	ingress, err := k.get(ctx, id)
 	if err != nil {
