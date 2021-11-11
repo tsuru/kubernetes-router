@@ -101,7 +101,7 @@ func main() {
 				OptsAsAnnotationsDocs: *optsToIngressAnnotationsDocs,
 				IngressClass:          *ingressClass,
 				AnnotationsPrefix:     *ingressAnnotationsPrefix,
-				HttpPort:              *ingressPort,
+				HTTPPort:              *ingressPort,
 			}
 		case "service", "loadbalancer":
 			localBackend.Routers[mode] = &kubernetes.LBService{

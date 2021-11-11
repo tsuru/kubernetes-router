@@ -56,7 +56,7 @@ type IngressService struct {
 	AnnotationsPrefix string
 	// IngressClass defines the default ingress class used by the controller
 	IngressClass          string
-	HttpPort              int
+	HTTPPort              int
 	OptsAsAnnotations     map[string]string
 	OptsAsAnnotationsDocs map[string]string
 }
@@ -372,10 +372,10 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 	}
 	hosts := []string{}
 	for _, rule := range ingress.Spec.Rules {
-		if k.HttpPort == 0 {
+		if k.HTTPPort == 0 {
 			hosts = append(hosts, rule.Host)
 		} else {
-			hostPort := net.JoinHostPort(rule.Host, strconv.Itoa(k.HttpPort))
+			hostPort := net.JoinHostPort(rule.Host, strconv.Itoa(k.HTTPPort))
 			hosts = append(hosts, hostPort)
 		}
 	}
