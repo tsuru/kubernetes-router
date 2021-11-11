@@ -370,7 +370,6 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 		}
 		return nil, err
 	}
-
 	hosts := []string{}
 	for _, rule := range ingress.Spec.Rules {
 		hosts = append(hosts, rule.Host)

@@ -642,6 +642,7 @@ func TestIngressGetAddressWithPort(t *testing.T) {
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
 		Opts: router.Opts{
 			DomainSuffix: "apps.example.org",
+			Acme:         true,
 		},
 		Prefixes: []router.BackendPrefix{
 			{
@@ -656,7 +657,7 @@ func TestIngressGetAddressWithPort(t *testing.T) {
 
 	addrs, err := svc.GetAddresses(ctx, idForApp("test"))
 	require.NoError(t, err)
-	assert.Equal(t, []string{"test.apps.example.org"}, addrs)
+	assert.Equal(t, []string{"https://test.apps.example.org:8888"}, addrs)
 }
 func TestIngressGetAddressTLS(t *testing.T) {
 	svc := createFakeService()
