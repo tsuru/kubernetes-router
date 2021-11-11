@@ -372,17 +372,17 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 	}
 	hosts := []string{}
 	for _, rule := range ingress.Spec.Rules {
-		hosts = append(hosts, rule.Host)
+		if k.HttpPort == 0 {
+			hosts = append(hosts, rule.Host)
+		} else {
+			hostPort := net.JoinHostPort(rule.Host, strconv.Itoa(k.HttpPort))
+			hosts = append(hosts, hostPort)
+		}
 	}
 	if ingress.Annotations[AnnotationsACMEKey] == "true" {
 		urls := []string{}
 		for _, h := range hosts {
-			if k.HttpPort == 0 {
-				urls = append(urls, fmt.Sprintf("https://%v", h))
-			} else {
-				hostPort := net.JoinHostPort(h, strconv.Itoa(k.HttpPort))
-				urls = append(urls, fmt.Sprintf("https://%v", hostPort))
-			}
+			urls = append(urls, fmt.Sprintf("https://%v", h))
 		}
 		return urls, nil
 	}
