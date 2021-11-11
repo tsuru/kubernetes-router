@@ -56,7 +56,7 @@ type IngressService struct {
 	AnnotationsPrefix string
 	// IngressClass defines the default ingress class used by the controller
 	IngressClass          string
-	httpPort              int
+	HttpPort              int
 	OptsAsAnnotations     map[string]string
 	OptsAsAnnotationsDocs map[string]string
 }
@@ -364,7 +364,6 @@ func (k *IngressService) Remove(ctx context.Context, id router.InstanceID) error
 // the app Ingress resource
 func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID) ([]string, error) {
 	ingress, err := k.get(ctx, id)
-
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return []string{""}, nil
@@ -379,10 +378,10 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 	if ingress.Annotations[AnnotationsACMEKey] == "true" {
 		urls := []string{}
 		for _, h := range hosts {
-			if k.httpPort == 0 {
+			if k.HttpPort == 0 {
 				urls = append(urls, fmt.Sprintf("https://%v", h))
 			} else {
-				hostPort := net.JoinHostPort(h, strconv.Itoa(k.httpPort))
+				hostPort := net.JoinHostPort(h, strconv.Itoa(k.HttpPort))
 				urls = append(urls, fmt.Sprintf("https://%v", hostPort))
 			}
 		}
@@ -391,7 +390,6 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 
 	return hosts, nil
 }
-
 func (k *IngressService) GetStatus(ctx context.Context, id router.InstanceID) (router.BackendStatus, string, error) {
 	ingress, err := k.get(ctx, id)
 	if err != nil {

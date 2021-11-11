@@ -637,7 +637,7 @@ func TestIngressGetAddress(t *testing.T) {
 func TestIngressGetAddressWithPort(t *testing.T) {
 	svc := createFakeService()
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
-	svc.httpPort = 8888
+	svc.HttpPort = 8888
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
 		Opts: router.Opts{
