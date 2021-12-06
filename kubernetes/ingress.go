@@ -149,6 +149,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	}
 	k.fillIngressMeta(ingress, o.Opts, id)
 	if o.Opts.Acme {
+		log.Printf("Acme is set on router creating TLS entries")
 		k.fillIngressTLS(ingress, id)
 	}
 	if len(o.CNames) > 0 {
@@ -630,12 +631,6 @@ func (s *IngressService) fillIngressTLS(i *v1beta1.Ingress, id router.InstanceID
 				SecretName: s.secretName(id, rule.Host),
 			})
 		}
-		// i.Spec.TLS = []v1beta1.IngressTLS{
-		// 	{
-		// 		Hosts:      []string{i.Spec.Rules[0].Host},
-		// 		SecretName: s.secretName(id, i.Spec.Rules[0].Host),
-		// 	},
-		// }
 	}
 
 	i.Spec.TLS = tlsRules
