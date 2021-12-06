@@ -622,14 +622,17 @@ func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.O
 }
 
 func (s *IngressService) fillIngressTLS(i *v1beta1.Ingress, id router.InstanceID) {
+	tlsRules := []v1beta1.IngressTLS{}
 	if len(i.Spec.Rules) > 0 {
-		i.Spec.TLS = []v1beta1.IngressTLS{
-			{
-				Hosts:      []string{i.Spec.Rules[0].Host},
-				SecretName: s.secretName(id, i.Spec.Rules[0].Host),
-			},
+		for _, rule := range i.Spec.Rules {
+			tlsRules = append(tlsRules, v1beta1.IngressTLS{
+				Hosts:      []string{rule.Host},
+				SecretName: s.secretName(id, rule.Host),
+			})
 		}
 	}
+
+	i.Spec.TLS = tlsRules
 	i.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 }
 
