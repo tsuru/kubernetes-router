@@ -31,6 +31,7 @@ var (
 	AnnotationsACMEKey = "kubernetes.io/tls-acme"
 	labelCNameIngress  = "router.tsuru.io/is-cname-ingress"
 	AnnotationsCNames  = "router.tsuru.io/cnames"
+	AnnotationFreeze   = "router.tsuru.io/freeze"
 
 	defaultClassOpt          = "class"
 	defaultOptsAsAnnotations = map[string]string{
@@ -88,6 +89,12 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			return err
 		}
 		isNew = true
+	}
+
+	if !isNew && existingIngress != nil {
+		if existingIngress.Annotations[AnnotationFreeze] == "true" {
+			return nil
+		}
 	}
 
 	backendTargets, err := k.getBackendTargets(o.Prefixes, o.Opts.ExposeAllServices)
@@ -279,6 +286,12 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 
 		}
 		isNew = true
+	}
+
+	if !isNew && existingIngress != nil {
+		if existingIngress.Annotations[AnnotationFreeze] == "true" {
+			return nil
+		}
 	}
 
 	ingress := &v1beta1.Ingress{

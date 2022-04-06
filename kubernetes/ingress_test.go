@@ -6,6 +6,7 @@ package kubernetes
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -655,6 +656,59 @@ func TestEnsureExistingIngress(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+}
+
+func TestEnsureExistingIngressWithFreeze(t *testing.T) {
+	svc := createFakeService()
+	svcName := "test"
+	svcPort := 8000
+	resourceVersion := "123"
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+
+	svc.BaseService.Client.(*fake.Clientset).PrependReactor("get", "ingresses", func(action ktesting.Action) (bool, runtime.Object, error) {
+		ingress := &v1beta1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            svcName,
+				ResourceVersion: resourceVersion,
+				Annotations: map[string]string{
+					AnnotationFreeze: "true",
+				},
+			},
+			Spec: v1beta1.IngressSpec{
+				Backend: &v1beta1.IngressBackend{
+					ServiceName: svcName,
+					ServicePort: intstr.FromInt(svcPort),
+				},
+			},
+		}
+		return true, ingress, nil
+	})
+
+	called := false
+	svc.BaseService.Client.(*fake.Clientset).PrependReactor("update", "ingresses", func(action ktesting.Action) (bool, runtime.Object, error) {
+		called = true
+		return true, nil, errors.New("must never called")
+	})
+
+	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			Pool: "mypool",
+			AdditionalOpts: map[string]string{
+				"my-opt": "value",
+			},
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, called)
 }
 
 func TestEnsureIngressAppNamespace(t *testing.T) {
