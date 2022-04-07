@@ -93,6 +93,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 
 	if !isNew && existingIngress != nil {
 		if existingIngress.Annotations[AnnotationFreeze] == "true" {
+			log.Printf("Ingress is frozen, skipping: %s/%s", existingIngress.Namespace, existingIngress.Name)
 			return nil
 		}
 	}
@@ -290,6 +291,7 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 
 	if !isNew && existingIngress != nil {
 		if existingIngress.Annotations[AnnotationFreeze] == "true" {
+			log.Printf("Ingress is frozen, skipping: %s/%s", existingIngress.Namespace, existingIngress.Name)
 			return nil
 		}
 	}
