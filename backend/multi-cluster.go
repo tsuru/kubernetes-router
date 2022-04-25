@@ -15,7 +15,10 @@ import (
 	"github.com/tsuru/kubernetes-router/router"
 	kubernetesGO "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/transport"
+
+	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 )
 
 var _ Backend = &MultiCluster{}
@@ -25,6 +28,8 @@ type ClusterConfig struct {
 	Default bool   `json:"default"`
 	Address string `json:"address"`
 	Token   string `json:"token"`
+
+	AuthProvider string `json:"authProvider"`
 }
 
 type ClustersFile struct {
@@ -58,13 +63,9 @@ func (m *MultiCluster) Router(ctx context.Context, mode string, headers http.Hea
 		timeout = *m.K8sTimeout
 	}
 
-	kubernetesRestConfig := &rest.Config{
-		Host:        address,
-		BearerToken: m.getToken(name),
-		Timeout:     timeout,
-		WrapTransport: func(rt http.RoundTripper) http.RoundTripper {
-			return transport.DebugWrappers(observability.WrapTransport(rt))
-		},
+	kubernetesRestConfig, err := m.getKubeConfig(name, address, timeout)
+	if err != nil {
+		return nil, err
 	}
 
 	k8sClient, err := kubernetesGO.NewForConfig(kubernetesRestConfig)
@@ -111,6 +112,46 @@ func (m *MultiCluster) Router(ctx context.Context, mode string, headers http.Hea
 
 func (m *MultiCluster) Healthcheck(ctx context.Context) error {
 	return m.Fallback.Healthcheck(ctx)
+}
+
+func (m *MultiCluster) getKubeConfig(name, address string, timeout time.Duration) (*rest.Config, error) {
+	selectedCluster := ClusterConfig{}
+
+	for _, cluster := range m.Clusters {
+		if cluster.Default {
+			selectedCluster = cluster
+		}
+		if cluster.Name == name {
+			selectedCluster = cluster
+			break
+		}
+	}
+
+	if selectedCluster.Name == "" {
+		return nil, errors.New("cluster not found")
+	}
+
+	if selectedCluster.Address != "" {
+		address = selectedCluster.Address
+	}
+
+	restConfig := &rest.Config{
+		Host:        address,
+		BearerToken: selectedCluster.Token,
+		Timeout:     timeout,
+		WrapTransport: func(rt http.RoundTripper) http.RoundTripper {
+			return transport.DebugWrappers(observability.WrapTransport(rt))
+		},
+	}
+
+	if selectedCluster.AuthProvider != "" {
+		restConfig.AuthProvider = &api.AuthProviderConfig{
+			Name: selectedCluster.AuthProvider,
+		}
+	}
+
+	return restConfig, nil
+
 }
 
 func (m *MultiCluster) getToken(clusterName string) string {

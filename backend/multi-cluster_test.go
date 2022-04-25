@@ -89,6 +89,42 @@ func TestMultiClusterService(t *testing.T) {
 	})
 }
 
+func TestMultiClusterAuthProvider(t *testing.T) {
+	backend := &MultiCluster{
+		Namespace: "tsuru-test",
+		Fallback:  &fakeBackend{},
+		Clusters: []ClusterConfig{
+			{
+				Name:         "my-cluster",
+				Address:      "https://example.org",
+				AuthProvider: "gcp",
+			},
+		},
+	}
+	mockTracer := mocktracer.New()
+	span := mockTracer.StartSpan("test")
+	spanCtx := opentracing.ContextWithSpan(ctx, span)
+	router, err := backend.Router(spanCtx, "service", http.Header{
+		"X-Tsuru-Cluster-Name": {
+			"my-cluster",
+		},
+		"X-Tsuru-Cluster-Addresses": {
+			"https://mycluster.com",
+		},
+	})
+	assert.NoError(t, err)
+	lbService, ok := router.(*kubernetes.LBService)
+	require.True(t, ok)
+	assert.Equal(t, "tsuru-test", lbService.BaseService.Namespace)
+	assert.Equal(t, 10*time.Second, lbService.BaseService.Timeout)
+	assert.Equal(t, "https://example.org", lbService.BaseService.RestConfig.Host)
+	assert.Equal(t, "gcp", lbService.BaseService.RestConfig.AuthProvider.Name)
+	assert.Equal(t, span.(*mocktracer.MockSpan).Tags(), map[string]interface{}{
+		"cluster.address": "https://mycluster.com",
+		"cluster.name":    "my-cluster",
+	})
+}
+
 func TestMultiClusterIngress(t *testing.T) {
 	backend := &MultiCluster{
 		Namespace: "tsuru-test",
