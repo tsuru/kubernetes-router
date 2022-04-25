@@ -153,16 +153,3 @@ func (m *MultiCluster) getKubeConfig(name, address string, timeout time.Duration
 	return restConfig, nil
 
 }
-
-func (m *MultiCluster) getToken(clusterName string) string {
-	defaultToken := ""
-	for _, cluster := range m.Clusters {
-		if cluster.Default {
-			defaultToken = cluster.Token
-		}
-		if cluster.Name == clusterName {
-			return cluster.Token
-		}
-	}
-	return defaultToken
-}
