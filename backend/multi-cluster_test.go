@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tsuru/kubernetes-router/kubernetes"
 	"github.com/tsuru/kubernetes-router/router"
+	restclient "k8s.io/client-go/rest"
 )
 
 var _ Backend = &fakeBackend{}
@@ -89,7 +90,24 @@ func TestMultiClusterService(t *testing.T) {
 	})
 }
 
+type dummyAuthProvider struct{}
+
+func (d *dummyAuthProvider) WrapTransport(rt http.RoundTripper) http.RoundTripper {
+	return rt
+}
+
+func (d *dummyAuthProvider) Login() error {
+	return nil
+}
+
 func TestMultiClusterAuthProvider(t *testing.T) {
+	newDummyProvider := func(clusterAddress string, cfg map[string]string, persister restclient.AuthProviderConfigPersister) (restclient.AuthProvider, error) {
+		return &dummyAuthProvider{}, nil
+	}
+
+	err := restclient.RegisterAuthProviderPlugin("dummy-test", newDummyProvider)
+	require.NoError(t, err)
+
 	backend := &MultiCluster{
 		Namespace: "tsuru-test",
 		Fallback:  &fakeBackend{},
@@ -97,7 +115,7 @@ func TestMultiClusterAuthProvider(t *testing.T) {
 			{
 				Name:         "my-cluster",
 				Address:      "https://example.org",
-				AuthProvider: "gcp",
+				AuthProvider: "dummy-test",
 			},
 		},
 	}
@@ -118,7 +136,7 @@ func TestMultiClusterAuthProvider(t *testing.T) {
 	assert.Equal(t, "tsuru-test", lbService.BaseService.Namespace)
 	assert.Equal(t, 10*time.Second, lbService.BaseService.Timeout)
 	assert.Equal(t, "https://example.org", lbService.BaseService.RestConfig.Host)
-	assert.Equal(t, "gcp", lbService.BaseService.RestConfig.AuthProvider.Name)
+	assert.Equal(t, "dummy-test", lbService.BaseService.RestConfig.AuthProvider.Name)
 	assert.Equal(t, span.(*mocktracer.MockSpan).Tags(), map[string]interface{}{
 		"cluster.address": "https://mycluster.com",
 		"cluster.name":    "my-cluster",
