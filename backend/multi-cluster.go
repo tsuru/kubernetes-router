@@ -5,6 +5,7 @@ package backend
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"time"
@@ -152,7 +153,11 @@ func (m *MultiCluster) getKubeConfig(name, address string, timeout time.Duration
 	}
 
 	if selectedCluster.CA != "" {
-		restConfig.TLSClientConfig.CAData = []byte(selectedCluster.CA)
+		caData, err := base64.StdEncoding.DecodeString(selectedCluster.CA)
+		if err != nil {
+			return nil, err
+		}
+		restConfig.TLSClientConfig.CAData = caData
 	}
 
 	return restConfig, nil
