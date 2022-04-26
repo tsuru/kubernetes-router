@@ -18,6 +18,7 @@ import (
 	"github.com/tsuru/kubernetes-router/kubernetes"
 	"github.com/tsuru/kubernetes-router/router"
 	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd/api"
 )
 
 var _ Backend = &fakeBackend{}
@@ -115,7 +116,7 @@ func TestMultiClusterAuthProvider(t *testing.T) {
 			{
 				Name:         "my-cluster",
 				Address:      "https://example.org",
-				AuthProvider: "dummy-test",
+				AuthProvider: &api.AuthProviderConfig{Name: "dummy-test"},
 			},
 		},
 	}

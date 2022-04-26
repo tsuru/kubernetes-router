@@ -16,7 +16,7 @@ import (
 	"github.com/tsuru/kubernetes-router/router"
 	kubernetesGO "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd/api"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/transport"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -31,7 +31,7 @@ type ClusterConfig struct {
 	Token   string `json:"token"`
 	CA      string `json:"ca"`
 
-	AuthProvider string `json:"authProvider"`
+	AuthProvider *clientcmdapi.AuthProviderConfig `json:"authProvider"`
 }
 
 type ClustersFile struct {
@@ -146,10 +146,8 @@ func (m *MultiCluster) getKubeConfig(name, address string, timeout time.Duration
 		},
 	}
 
-	if selectedCluster.AuthProvider != "" {
-		restConfig.AuthProvider = &api.AuthProviderConfig{
-			Name: selectedCluster.AuthProvider,
-		}
+	if selectedCluster.AuthProvider != nil {
+		restConfig.AuthProvider = selectedCluster.AuthProvider
 	}
 
 	if selectedCluster.CA != "" {
