@@ -6,16 +6,17 @@ package main
 
 import (
 	"flag"
+	"io/ioutil"
 	"log"
 	"os"
 	"time"
 
+	"github.com/ghodss/yaml"
 	"github.com/tsuru/kubernetes-router/backend"
 	"github.com/tsuru/kubernetes-router/cmd"
 	"github.com/tsuru/kubernetes-router/kubernetes"
 	_ "github.com/tsuru/kubernetes-router/observability"
 	"github.com/tsuru/kubernetes-router/router"
-	"gopkg.in/yaml.v2"
 )
 
 func main() {
@@ -124,7 +125,12 @@ func main() {
 			return
 		}
 		clustersFile := &backend.ClustersFile{}
-		err = yaml.NewDecoder(f).Decode(clustersFile)
+		data, err := ioutil.ReadAll(f)
+		if err != nil {
+			log.Printf("failed to load clusters file: %v\n", err)
+			return
+		}
+		err = yaml.Unmarshal(data, clustersFile)
 		if err != nil {
 			log.Printf("failed to load clusters file: %v\n", err)
 			return
