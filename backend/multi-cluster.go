@@ -28,6 +28,7 @@ type ClusterConfig struct {
 	Default bool   `json:"default"`
 	Address string `json:"address"`
 	Token   string `json:"token"`
+	CA      string `json:"ca"`
 
 	AuthProvider string `json:"authProvider"`
 }
@@ -148,6 +149,10 @@ func (m *MultiCluster) getKubeConfig(name, address string, timeout time.Duration
 		restConfig.AuthProvider = &api.AuthProviderConfig{
 			Name: selectedCluster.AuthProvider,
 		}
+	}
+
+	if selectedCluster.CA != "" {
+		restConfig.TLSClientConfig.CAData = []byte(selectedCluster.CA)
 	}
 
 	return restConfig, nil
