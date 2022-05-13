@@ -14,7 +14,7 @@ import (
 	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
 	"github.com/tsuru/tsuru/types/provision"
 	v1 "k8s.io/api/core/v1"
-	v1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	apiextensionsV1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -71,12 +71,12 @@ func TestGetWebService(t *testing.T) {
 }
 
 func createCRD(svc *BaseService, app string, namespace string, configs *provision.TsuruYamlKubernetesConfig) error {
-	_, err := svc.ExtensionsClient.ApiextensionsV1beta1().CustomResourceDefinitions().Create(ctx, &v1beta1.CustomResourceDefinition{
+	_, err := svc.ExtensionsClient.ApiextensionsV1().CustomResourceDefinitions().Create(ctx, &apiextensionsV1.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{Name: "apps.tsuru.io"},
-		Spec: v1beta1.CustomResourceDefinitionSpec{
-			Group:   "tsuru.io",
-			Version: "v1",
-			Names: v1beta1.CustomResourceDefinitionNames{
+		Spec: apiextensionsV1.CustomResourceDefinitionSpec{
+			Group:    "tsuru.io",
+			Versions: []apiextensionsV1.CustomResourceDefinitionVersion{{Name: "v1"}},
+			Names: apiextensionsV1.CustomResourceDefinitionNames{
 				Plural:   "apps",
 				Singular: "app",
 				Kind:     "App",

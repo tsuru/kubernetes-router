@@ -191,7 +191,7 @@ func (k *BaseService) hasCRD(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	_, err = eclient.ApiextensionsV1beta1().CustomResourceDefinitions().Get(ctx, appCRDName, metav1.GetOptions{})
+	_, err = eclient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, appCRDName, metav1.GetOptions{})
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return false, nil
