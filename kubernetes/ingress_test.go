@@ -14,7 +14,8 @@ import (
 	"github.com/tsuru/kubernetes-router/router"
 	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
 	v1 "k8s.io/api/core/v1"
-	v1beta1 "k8s.io/api/extensions/v1beta1"
+	networkingV1 "k8s.io/api/networking/v1"
+
 	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -98,7 +99,7 @@ func TestIngressEnsure(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	ingressFound, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	ingressFound, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	expectedIngress := defaultIngress("test", "default")
@@ -165,22 +166,26 @@ func TestIngressEnsureWithMultipleBackends(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	ingressFound, err := ingressService.Client.ExtensionsV1beta1().Ingresses("default").Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	ingressFound, err := ingressService.Client.NetworkingV1().Ingresses("default").Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
-	pathType := v1beta1.PathTypeImplementationSpecific
-	expectedIngressRules := []v1beta1.IngressRule{
+	pathType := networkingV1.PathTypeImplementationSpecific
+	expectedIngressRules := []networkingV1.IngressRule{
 		{
 			Host: "test" + ".",
-			IngressRuleValue: v1beta1.IngressRuleValue{
-				HTTP: &v1beta1.HTTPIngressRuleValue{
-					Paths: []v1beta1.HTTPIngressPath{
+			IngressRuleValue: networkingV1.IngressRuleValue{
+				HTTP: &networkingV1.HTTPIngressRuleValue{
+					Paths: []networkingV1.HTTPIngressPath{
 						{
 							Path:     "",
 							PathType: &pathType,
-							Backend: v1beta1.IngressBackend{
-								ServiceName: "test-web",
-								ServicePort: intstr.FromInt(defaultServicePort),
+							Backend: networkingV1.IngressBackend{
+								Service: &networkingV1.IngressServiceBackend{
+									Name: "test-web",
+									Port: networkingV1.ServiceBackendPort{
+										Number: defaultServicePort,
+									},
+								},
 							},
 						},
 					},
@@ -189,15 +194,19 @@ func TestIngressEnsureWithMultipleBackends(t *testing.T) {
 		},
 		{
 			Host: "v1." + "version." + "test.",
-			IngressRuleValue: v1beta1.IngressRuleValue{
-				HTTP: &v1beta1.HTTPIngressRuleValue{
-					Paths: []v1beta1.HTTPIngressPath{
+			IngressRuleValue: networkingV1.IngressRuleValue{
+				HTTP: &networkingV1.HTTPIngressRuleValue{
+					Paths: []networkingV1.HTTPIngressPath{
 						{
 							Path:     "",
 							PathType: &pathType,
-							Backend: v1beta1.IngressBackend{
-								ServiceName: "test-web-v1",
-								ServicePort: intstr.FromInt(defaultServicePort),
+							Backend: networkingV1.IngressBackend{
+								Service: &networkingV1.IngressServiceBackend{
+									Name: "test-web-v1",
+									Port: networkingV1.ServiceBackendPort{
+										Number: defaultServicePort,
+									},
+								},
 							},
 						},
 					},
@@ -265,10 +274,10 @@ func TestIngressEnsureWithMultipleBackendsWithTLS(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	ingressFound, err := ingressService.Client.ExtensionsV1beta1().Ingresses("default").Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	ingressFound, err := ingressService.Client.NetworkingV1().Ingresses("default").Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
-	expectedIngressTLS := []v1beta1.IngressTLS{
+	expectedIngressTLS := []networkingV1.IngressTLS{
 		{
 			Hosts:      []string{"test."},
 			SecretName: "kr-test-test.",
@@ -308,11 +317,11 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	foundIngress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	expectedIngress := defaultIngress("test", "default")
-	pathType := v1beta1.PathTypeImplementationSpecific
+	pathType := networkingV1.PathTypeImplementationSpecific
 
 	expectedIngress.Spec.Rules[0].HTTP.Paths[0].Path = "/admin"
 	expectedIngress.Labels["controller"] = "my-controller"
@@ -323,24 +332,28 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 
 	assert.Equal(t, expectedIngress, foundIngress)
 
-	foundIngress, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-test.io", metav1.GetOptions{})
+	foundIngress, err = svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-test.io", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	expectedIngress.Name = "kubernetes-router-cname-test.io"
 	expectedIngress.Labels["router.tsuru.io/is-cname-ingress"] = "true"
 	delete(expectedIngress.Annotations, "router.tsuru.io/cnames")
 
-	expectedIngress.Spec.Rules[0] = v1beta1.IngressRule{
+	expectedIngress.Spec.Rules[0] = networkingV1.IngressRule{
 		Host: "test.io",
-		IngressRuleValue: v1beta1.IngressRuleValue{
-			HTTP: &v1beta1.HTTPIngressRuleValue{
-				Paths: []v1beta1.HTTPIngressPath{
+		IngressRuleValue: networkingV1.IngressRuleValue{
+			HTTP: &networkingV1.HTTPIngressRuleValue{
+				Paths: []networkingV1.HTTPIngressPath{
 					{
 						Path:     "/admin",
 						PathType: &pathType,
-						Backend: v1beta1.IngressBackend{
-							ServiceName: "test-web",
-							ServicePort: intstr.FromInt(8888),
+						Backend: networkingV1.IngressBackend{
+							Service: &networkingV1.IngressServiceBackend{
+								Name: "test-web",
+								Port: networkingV1.ServiceBackendPort{
+									Number: defaultServicePort,
+								},
+							},
 						},
 					},
 				},
@@ -350,21 +363,25 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 
 	assert.Equal(t, expectedIngress, foundIngress)
 
-	foundIngress, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-www.test.io", metav1.GetOptions{})
+	foundIngress, err = svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-www.test.io", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	expectedIngress.Name = "kubernetes-router-cname-www.test.io"
-	expectedIngress.Spec.Rules[0] = v1beta1.IngressRule{
+	expectedIngress.Spec.Rules[0] = networkingV1.IngressRule{
 		Host: "www.test.io",
-		IngressRuleValue: v1beta1.IngressRuleValue{
-			HTTP: &v1beta1.HTTPIngressRuleValue{
-				Paths: []v1beta1.HTTPIngressPath{
+		IngressRuleValue: networkingV1.IngressRuleValue{
+			HTTP: &networkingV1.HTTPIngressRuleValue{
+				Paths: []networkingV1.HTTPIngressPath{
 					{
 						Path:     "/admin",
 						PathType: &pathType,
-						Backend: v1beta1.IngressBackend{
-							ServiceName: "test-web",
-							ServicePort: intstr.FromInt(8888),
+						Backend: networkingV1.IngressBackend{
+							Service: &networkingV1.IngressServiceBackend{
+								Name: "test-web",
+								Port: networkingV1.ServiceBackendPort{
+									Number: defaultServicePort,
+								},
+							},
 						},
 					},
 				},
@@ -397,7 +414,7 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-www.test.io", metav1.GetOptions{})
+	_, err = svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-www.test.io", metav1.GetOptions{})
 	require.True(t, k8sErrors.IsNotFound(err))
 
 	// test removing all cnames
@@ -424,10 +441,10 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-test.io", metav1.GetOptions{})
+	_, err = svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-test.io", metav1.GetOptions{})
 	require.True(t, k8sErrors.IsNotFound(err))
 
-	foundIngress, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	foundIngress, err = svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	assert.Equal(t, foundIngress.Annotations[AnnotationsCNames], "")
@@ -452,7 +469,7 @@ func TestIngressCreateDefaultClass(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	foundIngress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	expectedIngress := defaultIngress("test", "default")
@@ -485,7 +502,7 @@ func TestIngressEnsureDefaultClassOverride(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	foundIngress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	expectedIngress := defaultIngress("test", "default")
@@ -521,7 +538,7 @@ func TestIngressEnsureDefaultPrefix(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	foundIngress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	expectedIngress := defaultIngress("test", "default")
@@ -556,7 +573,7 @@ func TestIngressEnsureRemoveAnnotation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	foundIngress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	expectedIngress := defaultIngress("test", "default")
@@ -575,12 +592,12 @@ func TestIngressCreateDefaultPort(t *testing.T) {
 	require.NoError(t, err)
 
 	svc.BaseService.Client.(*fake.Clientset).PrependReactor("create", "ingresses", func(action ktesting.Action) (bool, runtime.Object, error) {
-		newIng, ok := action.(ktesting.UpdateAction).GetObject().(*v1beta1.Ingress)
+		newIng, ok := action.(ktesting.UpdateAction).GetObject().(*networkingV1.Ingress)
 		if !ok {
 			t.Errorf("Error creating ingress.")
 		}
-		port := newIng.Spec.Rules[0].HTTP.Paths[0].Backend.ServicePort
-		require.Equal(t, intstr.FromInt(8888), port)
+		port := newIng.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Port.Number
+		require.Equal(t, int32(8888), port)
 		return false, nil, nil
 	})
 	err = svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
@@ -611,30 +628,32 @@ func TestEnsureExistingIngress(t *testing.T) {
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 
 	svc.BaseService.Client.(*fake.Clientset).PrependReactor("get", "ingresses", func(action ktesting.Action) (bool, runtime.Object, error) {
-		ingress := &v1beta1.Ingress{
+		ingress := &networkingV1.Ingress{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:            svcName,
 				ResourceVersion: resourceVersion,
 			},
-			Spec: v1beta1.IngressSpec{
-				Backend: &v1beta1.IngressBackend{
-					ServiceName: svcName,
-					ServicePort: intstr.FromInt(svcPort),
+			Spec: networkingV1.IngressSpec{
+				DefaultBackend: &networkingV1.IngressBackend{
+					Service: &networkingV1.IngressServiceBackend{
+						Name: svcName,
+						Port: networkingV1.ServiceBackendPort{Number: int32(svcPort)},
+					},
 				},
 			},
 		}
 		return true, ingress, nil
 	})
 	svc.BaseService.Client.(*fake.Clientset).PrependReactor("update", "ingresses", func(action ktesting.Action) (bool, runtime.Object, error) {
-		newIng, ok := action.(ktesting.UpdateAction).GetObject().(*v1beta1.Ingress)
+		newIng, ok := action.(ktesting.UpdateAction).GetObject().(*networkingV1.Ingress)
 		if !ok {
 			t.Fatalf("Error updating ingress.")
 		}
 		if newIng.ObjectMeta.ResourceVersion != resourceVersion {
 			t.Errorf("Expected ResourceVersion %q. Got %s", resourceVersion, newIng.ObjectMeta.ResourceVersion)
 		}
-		if newIng.Spec.Backend == nil || newIng.Spec.Backend.ServiceName != svcName || newIng.Spec.Backend.ServicePort.IntValue() != svcPort {
-			t.Errorf("Expected Backend with name %q and port %d. Got %v", svcName, svcPort, newIng.Spec.Backend)
+		if newIng.Spec.DefaultBackend == nil || newIng.Spec.DefaultBackend.Service.Name != svcName || newIng.Spec.DefaultBackend.Service.Port.Number != int32(svcPort) {
+			t.Errorf("Expected Backend with name %q and port %d. Got %v", svcName, svcPort, newIng.Spec.DefaultBackend)
 		}
 		return true, newIng, nil
 	})
@@ -667,7 +686,7 @@ func TestEnsureExistingIngressWithFreeze(t *testing.T) {
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 
 	svc.BaseService.Client.(*fake.Clientset).PrependReactor("get", "ingresses", func(action ktesting.Action) (bool, runtime.Object, error) {
-		ingress := &v1beta1.Ingress{
+		ingress := &networkingV1.Ingress{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:            svcName,
 				ResourceVersion: resourceVersion,
@@ -675,10 +694,14 @@ func TestEnsureExistingIngressWithFreeze(t *testing.T) {
 					AnnotationFreeze: "true",
 				},
 			},
-			Spec: v1beta1.IngressSpec{
-				Backend: &v1beta1.IngressBackend{
-					ServiceName: svcName,
-					ServicePort: intstr.FromInt(svcPort),
+			Spec: networkingV1.IngressSpec{
+				DefaultBackend: &networkingV1.IngressBackend{
+					Service: &networkingV1.IngressServiceBackend{
+						Name: svcName,
+						Port: networkingV1.ServiceBackendPort{
+							Number: int32(svcPort),
+						},
+					},
 				},
 			},
 		}
@@ -731,7 +754,7 @@ func TestEnsureIngressAppNamespace(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses("custom-namespace").List(ctx, metav1.ListOptions{})
+	ingressList, err := svc.Client.NetworkingV1().Ingresses("custom-namespace").List(ctx, metav1.ListOptions{})
 	require.NoError(t, err)
 
 	assert.Len(t, ingressList.Items, 1)
@@ -926,7 +949,7 @@ func TestRemove(t *testing.T) {
 			err = svc.Remove(ctx, idForApp(tc.remove))
 			assert.Equal(t, tc.expectedErr, err)
 
-			ingressList, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
+			ingressList, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).List(ctx, metav1.ListOptions{})
 			require.NoError(t, err)
 
 			assert.Len(t, ingressList.Items, tc.expectedCount)
@@ -977,14 +1000,14 @@ func TestAddCertificate(t *testing.T) {
 
 	certTest := defaultIngress("test-blue", "default")
 	certTest.Spec.TLS = append(certTest.Spec.TLS,
-		[]v1beta1.IngressTLS{
+		[]networkingV1.IngressTLS{
 			{
 				Hosts:      []string{"mycert"},
 				SecretName: svc.secretName(idForApp("test-blue"), "mycert"),
 			},
 		}...)
 
-	ingress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-blue-ingress", metav1.GetOptions{})
+	ingress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-blue-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, certTest.Spec.TLS, ingress.Spec.TLS)
 }
@@ -1010,14 +1033,14 @@ func TestGetCertificate(t *testing.T) {
 
 	certTest := defaultIngress("test-blue", "default")
 	certTest.Spec.TLS = append(certTest.Spec.TLS,
-		[]v1beta1.IngressTLS{
+		[]networkingV1.IngressTLS{
 			{
 				Hosts:      []string{"mycert"},
 				SecretName: svc.secretName(idForApp("test-blue"), "mycert"),
 			},
 		}...)
 
-	ingress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-blue-ingress", metav1.GetOptions{})
+	ingress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-blue-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, certTest.Spec.TLS, ingress.Spec.TLS)
 
@@ -1043,13 +1066,13 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	foundIngress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io"
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
-	expectedIngress.Spec.TLS = []v1beta1.IngressTLS{
+	expectedIngress.Spec.TLS = []networkingV1.IngressTLS{
 		{
 			Hosts:      []string{"test."},
 			SecretName: "kr-test-test.",
@@ -1057,7 +1080,7 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 	}
 	assert.Equal(t, expectedIngress, foundIngress)
 
-	foundIngress, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-test.io", metav1.GetOptions{})
+	foundIngress, err = svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-test.io", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	expectedIngress = defaultIngress("test", "default")
@@ -1086,13 +1109,13 @@ func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	foundIngress, err := svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io"
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
-	expectedIngress.Spec.TLS = []v1beta1.IngressTLS{
+	expectedIngress.Spec.TLS = []networkingV1.IngressTLS{
 		{
 			Hosts:      []string{"test."},
 			SecretName: "kr-test-test.",
@@ -1100,7 +1123,7 @@ func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
 	}
 	assert.Equal(t, expectedIngress, foundIngress)
 
-	foundIngress, err = svc.Client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-test.io", metav1.GetOptions{})
+	foundIngress, err = svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-test.io", metav1.GetOptions{})
 	require.NoError(t, err)
 
 	expectedIngress = defaultIngress("test", "default")
@@ -1109,7 +1132,7 @@ func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
 	expectedIngress.Labels["router.tsuru.io/is-cname-ingress"] = "true"
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
 
-	expectedIngress.Spec.TLS = []v1beta1.IngressTLS{
+	expectedIngress.Spec.TLS = []networkingV1.IngressTLS{
 		{
 			Hosts:      []string{"test.io"},
 			SecretName: "kr-test-test.io",
@@ -1119,13 +1142,13 @@ func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
 	assert.Equal(t, expectedIngress, foundIngress)
 }
 
-func defaultIngress(name, namespace string) *v1beta1.Ingress {
+func defaultIngress(name, namespace string) *networkingV1.Ingress {
 	serviceName := name + "-web"
 	blockOwnerDeletion := true
 	controller := true
-	pathType := v1beta1.PathTypeImplementationSpecific
+	pathType := networkingV1.PathTypeImplementationSpecific
 
-	return &v1beta1.Ingress{
+	return &networkingV1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "kubernetes-router-" + name + "-ingress",
 			Namespace: namespace,
@@ -1145,19 +1168,23 @@ func defaultIngress(name, namespace string) *v1beta1.Ingress {
 				},
 			},
 		},
-		Spec: v1beta1.IngressSpec{
-			Rules: []v1beta1.IngressRule{
+		Spec: networkingV1.IngressSpec{
+			Rules: []networkingV1.IngressRule{
 				{
 					Host: name + ".",
-					IngressRuleValue: v1beta1.IngressRuleValue{
-						HTTP: &v1beta1.HTTPIngressRuleValue{
-							Paths: []v1beta1.HTTPIngressPath{
+					IngressRuleValue: networkingV1.IngressRuleValue{
+						HTTP: &networkingV1.HTTPIngressRuleValue{
+							Paths: []networkingV1.HTTPIngressPath{
 								{
 									Path:     "",
 									PathType: &pathType,
-									Backend: v1beta1.IngressBackend{
-										ServiceName: serviceName,
-										ServicePort: intstr.FromInt(defaultServicePort),
+									Backend: networkingV1.IngressBackend{
+										Service: &networkingV1.IngressServiceBackend{
+											Name: serviceName,
+											Port: networkingV1.ServiceBackendPort{
+												Number: defaultServicePort,
+											},
+										},
 									},
 								},
 							},

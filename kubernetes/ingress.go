@@ -17,13 +17,13 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tsuru/kubernetes-router/router"
 	v1 "k8s.io/api/core/v1"
-	v1beta1 "k8s.io/api/extensions/v1beta1"
+	networkingV1 "k8s.io/api/networking/v1"
+
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	typedV1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	typedV1beta1 "k8s.io/client-go/kubernetes/typed/extensions/v1beta1"
+	networkingTypedV1 "k8s.io/client-go/kubernetes/typed/networking/v1"
 )
 
 var (
@@ -137,7 +137,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		}
 	}
 
-	ingress := &v1beta1.Ingress{
+	ingress := &networkingV1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      k.ingressName(id),
 			Namespace: ns,
@@ -213,8 +213,8 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	hasChanges := ingressHasChanges(span, existingIngress, ingress)
 	if hasChanges {
 		ingress.ObjectMeta.ResourceVersion = existingIngress.ObjectMeta.ResourceVersion
-		if existingIngress.Spec.Backend != nil {
-			ingress.Spec.Backend = existingIngress.Spec.Backend
+		if existingIngress.Spec.DefaultBackend != nil {
+			ingress.Spec.DefaultBackend = existingIngress.Spec.DefaultBackend
 		}
 		_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
 		if err != nil {
@@ -226,21 +226,25 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	return nil
 }
 
-func buildIngressSpec(hosts map[string]string, path string, services map[string]*v1.Service) v1beta1.IngressSpec {
-	pathType := v1beta1.PathTypeImplementationSpecific
-	rules := []v1beta1.IngressRule{}
+func buildIngressSpec(hosts map[string]string, path string, services map[string]*v1.Service) networkingV1.IngressSpec {
+	pathType := networkingV1.PathTypeImplementationSpecific
+	rules := []networkingV1.IngressRule{}
 	for k, service := range services {
-		r := v1beta1.IngressRule{
+		r := networkingV1.IngressRule{
 			Host: hosts[k],
-			IngressRuleValue: v1beta1.IngressRuleValue{
-				HTTP: &v1beta1.HTTPIngressRuleValue{
-					Paths: []v1beta1.HTTPIngressPath{
+			IngressRuleValue: networkingV1.IngressRuleValue{
+				HTTP: &networkingV1.HTTPIngressRuleValue{
+					Paths: []networkingV1.HTTPIngressPath{
 						{
 							Path:     path,
 							PathType: &pathType,
-							Backend: v1beta1.IngressBackend{
-								ServiceName: service.Name,
-								ServicePort: intstr.FromInt(int(service.Spec.Ports[0].Port)),
+							Backend: networkingV1.IngressBackend{
+								Service: &networkingV1.IngressServiceBackend{
+									Name: service.Name,
+									Port: networkingV1.ServiceBackendPort{
+										Number: service.Spec.Ports[0].Port,
+									},
+								},
 							},
 						},
 					},
@@ -251,7 +255,7 @@ func buildIngressSpec(hosts map[string]string, path string, services map[string]
 		rules = append(rules, r)
 	}
 
-	return v1beta1.IngressSpec{
+	return networkingV1.IngressSpec{
 		Rules: rules,
 	}
 }
@@ -296,7 +300,7 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 		}
 	}
 
-	ingress := &v1beta1.Ingress{
+	ingress := &networkingV1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      k.ingressCName(opts.id, opts.cname),
 			Namespace: opts.namespace,
@@ -330,8 +334,8 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 	hasChanges := ingressHasChanges(span, existingIngress, ingress)
 	if hasChanges {
 		ingress.ObjectMeta.ResourceVersion = existingIngress.ObjectMeta.ResourceVersion
-		if existingIngress.Spec.Backend != nil {
-			ingress.Spec.Backend = existingIngress.Spec.Backend
+		if existingIngress.Spec.DefaultBackend != nil {
+			ingress.Spec.DefaultBackend = existingIngress.Spec.DefaultBackend
 		}
 		_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
 		return err
@@ -423,7 +427,7 @@ func (k *IngressService) GetStatus(ctx context.Context, id router.InstanceID) (r
 	return router.BackendStatusNotReady, detail, nil
 }
 
-func (k *IngressService) get(ctx context.Context, id router.InstanceID) (*v1beta1.Ingress, error) {
+func (k *IngressService) get(ctx context.Context, id router.InstanceID) (*networkingV1.Ingress, error) {
 	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		return nil, err
@@ -439,12 +443,12 @@ func (k *IngressService) get(ctx context.Context, id router.InstanceID) (*v1beta
 	return ingress, nil
 }
 
-func (k *IngressService) ingressClient(namespace string) (typedV1beta1.IngressInterface, error) {
+func (k *IngressService) ingressClient(namespace string) (networkingTypedV1.IngressInterface, error) {
 	client, err := k.getClient()
 	if err != nil {
 		return nil, err
 	}
-	return client.ExtensionsV1beta1().Ingresses(namespace), nil
+	return client.NetworkingV1().Ingresses(namespace), nil
 }
 
 func (k *IngressService) secretClient(namespace string) (typedV1.SecretInterface, error) {
@@ -514,7 +518,7 @@ func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceI
 	}
 
 	ingress.Spec.TLS = append(ingress.Spec.TLS,
-		[]v1beta1.IngressTLS{
+		[]networkingV1.IngressTLS{
 			{
 				Hosts:      []string{certCname},
 				SecretName: retSecret.Name,
@@ -596,7 +600,7 @@ func (s *IngressService) SupportedOptions(ctx context.Context) map[string]string
 	return opts
 }
 
-func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.Opts, id router.InstanceID) {
+func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts router.Opts, id router.InstanceID) {
 	if i.ObjectMeta.Labels == nil {
 		i.ObjectMeta.Labels = map[string]string{}
 	}
@@ -636,11 +640,11 @@ func (s *IngressService) fillIngressMeta(i *v1beta1.Ingress, routerOpts router.O
 	}
 }
 
-func (s *IngressService) fillIngressTLS(i *v1beta1.Ingress, id router.InstanceID) {
-	tlsRules := []v1beta1.IngressTLS{}
+func (s *IngressService) fillIngressTLS(i *networkingV1.Ingress, id router.InstanceID) {
+	tlsRules := []networkingV1.IngressTLS{}
 	if len(i.Spec.Rules) > 0 {
 		for _, rule := range i.Spec.Rules {
-			tlsRules = append(tlsRules, v1beta1.IngressTLS{
+			tlsRules = append(tlsRules, networkingV1.IngressTLS{
 				Hosts:      []string{rule.Host},
 				SecretName: s.secretName(id, rule.Host),
 			})
@@ -651,7 +655,7 @@ func (s *IngressService) fillIngressTLS(i *v1beta1.Ingress, id router.InstanceID
 	i.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 }
 
-func ingressHasChanges(span opentracing.Span, existing *v1beta1.Ingress, ing *v1beta1.Ingress) (hasChanges bool) {
+func ingressHasChanges(span opentracing.Span, existing *networkingV1.Ingress, ing *networkingV1.Ingress) (hasChanges bool) {
 	if !reflect.DeepEqual(existing.Spec, ing.Spec) {
 		span.LogKV(
 			"message", "ingress has changed the spec",
@@ -696,7 +700,7 @@ func ingressHasChanges(span opentracing.Span, existing *v1beta1.Ingress, ing *v1
 	return false
 }
 
-func isIngressReady(ingress *v1beta1.Ingress) bool {
+func isIngressReady(ingress *networkingV1.Ingress) bool {
 	if len(ingress.Status.LoadBalancer.Ingress) == 0 {
 		return false
 	}
