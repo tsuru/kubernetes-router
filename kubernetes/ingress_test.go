@@ -163,6 +163,13 @@ func TestIngressEnsureWithMultipleBackends(t *testing.T) {
 					Namespace: "default",
 				},
 			},
+			{
+				Prefix: "my_process.process",
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
@@ -173,6 +180,27 @@ func TestIngressEnsureWithMultipleBackends(t *testing.T) {
 	expectedIngressRules := []networkingV1.IngressRule{
 		{
 			Host: "test" + ".",
+			IngressRuleValue: networkingV1.IngressRuleValue{
+				HTTP: &networkingV1.HTTPIngressRuleValue{
+					Paths: []networkingV1.HTTPIngressPath{
+						{
+							Path:     "",
+							PathType: &pathType,
+							Backend: networkingV1.IngressBackend{
+								Service: &networkingV1.IngressServiceBackend{
+									Name: "test-web",
+									Port: networkingV1.ServiceBackendPort{
+										Number: defaultServicePort,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			Host: "my-process." + "process." + "test.",
 			IngressRuleValue: networkingV1.IngressRuleValue{
 				HTTP: &networkingV1.HTTPIngressRuleValue{
 					Paths: []networkingV1.HTTPIngressPath{
@@ -910,13 +938,20 @@ func TestIngressGetMultipleAddresses(t *testing.T) {
 					Namespace: "default",
 				},
 			},
+			{
+				Prefix: "my_process.process",
+				Target: router.BackendTarget{
+					Service:   "test-web-v1",
+					Namespace: "default",
+				},
+			},
 		},
 	})
 	require.NoError(t, err)
 
 	addrs, err := ingressSvc.GetAddresses(ctx, idForApp("test"))
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"https://v1.version.test.apps.example.org", "https://test.apps.example.org"}, addrs)
+	assert.ElementsMatch(t, []string{"https://my-process.process.test.apps.example.org", "https://v1.version.test.apps.example.org", "https://test.apps.example.org"}, addrs)
 }
 
 func TestRemove(t *testing.T) {
