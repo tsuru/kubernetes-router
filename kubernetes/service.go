@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/tsuru/kubernetes-router/observability"
@@ -218,7 +219,8 @@ func addAllBackends(prefixes []router.BackendPrefix) map[string]router.BackendTa
 			allTargets["default"] = prefix.Target
 			continue
 		}
-		allTargets[prefix.Prefix] = prefix.Target
+		prefixSanitized := strings.ReplaceAll(prefix.Prefix, "_", "-")
+		allTargets[prefixSanitized] = prefix.Target
 	}
 	return allTargets
 }
