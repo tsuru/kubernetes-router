@@ -492,10 +492,6 @@ func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceI
 	if err != nil {
 		return err
 	}
-	ingress, err := k.get(ctx, id)
-	if err != nil {
-		return err
-	}
 	tlsSecret := v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      k.secretName(id, certCname),
@@ -517,6 +513,10 @@ func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceI
 		return err
 	}
 
+	ingress, err := k.targetIngressForCertificate(ctx, id, certCname)
+	if err != nil {
+		return err
+	}
 	ingress.Spec.TLS = append(ingress.Spec.TLS,
 		[]networkingV1.IngressTLS{
 			{
@@ -526,6 +526,27 @@ func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceI
 		}...)
 	_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
 	return err
+}
+
+func (k *IngressService) targetIngressForCertificate(ctx context.Context, id router.InstanceID, certCname string) (*networkingV1.Ingress, error) {
+	ns, err := k.getAppNamespace(ctx, id.AppName)
+	if err != nil {
+		return nil, err
+	}
+	ingressClient, err := k.ingressClient(ns)
+	if err != nil {
+		return nil, err
+	}
+	ingressCName, err := ingressClient.Get(ctx, k.ingressCName(id, certCname), metav1.GetOptions{})
+	if err != nil {
+		if !k8sErrors.IsNotFound(err) {
+			return nil, err
+		}
+	}
+	if ingressCName != nil && ingressCName.Labels[appLabel] == id.AppName {
+		return ingressCName, nil
+	}
+	return k.get(ctx, id)
 }
 
 // GetCertificate get certificates from app ingress
@@ -559,7 +580,7 @@ func (k *IngressService) RemoveCertificate(ctx context.Context, id router.Instan
 	if err != nil {
 		return err
 	}
-	ingress, err := k.get(ctx, id)
+	ingress, err := k.targetIngressForCertificate(ctx, id, certCname)
 	if err != nil {
 		return err
 	}

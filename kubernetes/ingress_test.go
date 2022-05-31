@@ -1047,6 +1047,48 @@ func TestAddCertificate(t *testing.T) {
 	assert.Equal(t, certTest.Spec.TLS, ingress.Spec.TLS)
 }
 
+func TestAddCertificateWithCName(t *testing.T) {
+	svc := createFakeService()
+	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
+	require.NoError(t, err)
+	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-blue-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+		CNames: []string{"mydomain.com"},
+	})
+	require.NoError(t, err)
+
+	expectedCert := router.CertData{Certificate: "Certz", Key: "keyz"}
+	err = svc.AddCertificate(ctx, idForApp("test-blue"), "mydomain.com", expectedCert)
+	require.NoError(t, err)
+
+	certTest := defaultIngress("test-blue", "default")
+	certTest.Spec.TLS = append(certTest.Spec.TLS,
+		[]networkingV1.IngressTLS{
+			{
+				Hosts:      []string{"mydomain.com"},
+				SecretName: svc.secretName(idForApp("test-blue"), "mydomain.com"),
+			},
+		}...)
+
+	ingress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-mydomain.com", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, certTest.Spec.TLS, ingress.Spec.TLS)
+
+	// Remove the cert
+	err = svc.RemoveCertificate(ctx, idForApp("test-blue"), "mydomain.com")
+	require.NoError(t, err)
+	ingress, err = svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-mydomain.com", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Len(t, ingress.Spec.TLS, 0)
+}
+
 func TestGetCertificate(t *testing.T) {
 	svc := createFakeService()
 	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
