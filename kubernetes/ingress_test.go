@@ -327,6 +327,10 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
 		Opts: router.Opts{
 			Route: "/admin",
+			AdditionalOpts: map[string]string{
+				"tsuru.io/some-annotation":       "true",
+				"cert-manager.io/cluster-issuer": "letsencrypt-prod",
+			},
 		},
 		CNames: []string{"test.io", "www.test.io"},
 		Prefixes: []router.BackendPrefix{
@@ -358,6 +362,8 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io,www.test.io"
+	expectedIngress.Annotations["cert-manager.io/cluster-issuer"] = "letsencrypt-prod"
+	expectedIngress.Annotations["tsuru.io/some-annotation"] = "true"
 
 	assert.Equal(t, expectedIngress, foundIngress)
 
@@ -367,6 +373,7 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 	expectedIngress.Name = "kubernetes-router-cname-test.io"
 	expectedIngress.Labels["router.tsuru.io/is-cname-ingress"] = "true"
 	delete(expectedIngress.Annotations, "router.tsuru.io/cnames")
+	delete(expectedIngress.Annotations, "cert-manager.io/cluster-issuer") // cert-manager.io/cluster-issuer is not allowed on cname ingress when acme is disabled
 
 	expectedIngress.Spec.Rules[0] = networkingV1.IngressRule{
 		Host: "test.io",
@@ -417,6 +424,7 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 			},
 		},
 	}
+	delete(expectedIngress.Annotations, "cert-manager.io/cluster-issuer") // cert-manager.io/cluster-issuer is not allowed on cname ingress
 	assert.Equal(t, expectedIngress, foundIngress)
 
 	// test removing www.test.io

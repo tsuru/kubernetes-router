@@ -40,6 +40,11 @@ var (
 	defaultOptsAsAnnotationsDocs = map[string]string{
 		defaultClassOpt: "Ingress class for the Ingress object",
 	}
+
+	unwantedAnnotationsForCNames = []string{
+		"cert-manager.io/cluster-issuer",
+		"cert-manager.io/issuer",
+	}
 )
 
 var (
@@ -324,6 +329,8 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 	if opts.routerOpts.AcmeCName {
 		log.Printf("Acme-tls is enabled on ingress, creating TLS secret for CNAME.")
 		k.fillIngressTLS(ingress, opts.id)
+	} else {
+		k.cleanupUnwantedAnnotationsForCNames(ingress)
 	}
 
 	if isNew {
@@ -342,6 +349,12 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 	}
 
 	return nil
+}
+
+func (k *IngressService) cleanupUnwantedAnnotationsForCNames(ingress *networkingV1.Ingress) {
+	for _, annotation := range unwantedAnnotationsForCNames {
+		delete(ingress.Annotations, annotation)
+	}
 }
 
 func (k *IngressService) removeCNameBackend(ctx context.Context, opts ensureCNameBackendOpts) error {
