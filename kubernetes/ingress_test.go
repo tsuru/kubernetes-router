@@ -34,6 +34,7 @@ func createFakeService() IngressService {
 	}
 
 	return IngressService{
+		DomainSuffix: "mycloud.com",
 		BaseService: &BaseService{
 			Namespace:        "default",
 			Client:           client,
@@ -790,12 +791,10 @@ func TestEnsureIngressAppNamespace(t *testing.T) {
 
 func TestIngressGetAddress(t *testing.T) {
 	svc := createFakeService()
+	svc.DomainSuffix = "apps.example.org"
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
-		Opts: router.Opts{
-			DomainSuffix: "apps.example.org",
-		},
 		Prefixes: []router.BackendPrefix{
 			{
 				Target: router.BackendTarget{
@@ -815,11 +814,10 @@ func TestIngressGetAddressWithPort(t *testing.T) {
 	svc := createFakeService()
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.HTTPPort = 8888
+	svc.DomainSuffix = "apps.example.org"
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
-		Opts: router.Opts{
-			DomainSuffix: "apps.example.org",
-		},
+
 		Prefixes: []router.BackendPrefix{
 			{
 				Target: router.BackendTarget{
@@ -837,6 +835,7 @@ func TestIngressGetAddressWithPort(t *testing.T) {
 }
 func TestIngressGetAddressWithPortTLS(t *testing.T) {
 	svc := createFakeService()
+	svc.DomainSuffix = "" // cleaning the precedence of domainSuffix
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.HTTPPort = 8888
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
@@ -862,6 +861,7 @@ func TestIngressGetAddressWithPortTLS(t *testing.T) {
 }
 func TestIngressGetAddressTLS(t *testing.T) {
 	svc := createFakeService()
+	svc.DomainSuffix = "" // cleaning the precedence of domainSuffix
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
@@ -1008,9 +1008,9 @@ func TestRemoveCertificate(t *testing.T) {
 	})
 	require.NoError(t, err)
 	expectedCert := router.CertData{Certificate: "Certz", Key: "keyz"}
-	err = svc.AddCertificate(ctx, idForApp("test-blue"), "mycert", expectedCert)
+	err = svc.AddCertificate(ctx, idForApp("test-blue"), "test-blue.mycloud.com", expectedCert)
 	require.NoError(t, err)
-	err = svc.RemoveCertificate(ctx, idForApp("test-blue"), "mycert")
+	err = svc.RemoveCertificate(ctx, idForApp("test-blue"), "test-blue.mycloud.com")
 	require.NoError(t, err)
 }
 
@@ -1030,15 +1030,15 @@ func TestAddCertificate(t *testing.T) {
 	})
 	require.NoError(t, err)
 	expectedCert := router.CertData{Certificate: "Certz", Key: "keyz"}
-	err = svc.AddCertificate(ctx, idForApp("test-blue"), "mycert", expectedCert)
+	err = svc.AddCertificate(ctx, idForApp("test-blue"), "test-blue.mycloud.com", expectedCert)
 	require.NoError(t, err)
 
-	certTest := defaultIngress("test-blue", "default")
+	certTest := defaultIngress("test-blue.mycloud.com", "default")
 	certTest.Spec.TLS = append(certTest.Spec.TLS,
 		[]networkingV1.IngressTLS{
 			{
-				Hosts:      []string{"mycert"},
-				SecretName: svc.secretName(idForApp("test-blue"), "mycert"),
+				Hosts:      []string{"test-blue.mycloud.com"},
+				SecretName: svc.secretName(idForApp("test-blue"), "test-blue.mycloud.com"),
 			},
 		}...)
 
@@ -1105,15 +1105,15 @@ func TestGetCertificate(t *testing.T) {
 	})
 	require.NoError(t, err)
 	expectedCert := router.CertData{Certificate: "Certz", Key: "keyz"}
-	err = svc.AddCertificate(ctx, idForApp("test-blue"), "mycert", expectedCert)
+	err = svc.AddCertificate(ctx, idForApp("test-blue"), "test-blue.mycloud.com", expectedCert)
 	require.NoError(t, err)
 
 	certTest := defaultIngress("test-blue", "default")
 	certTest.Spec.TLS = append(certTest.Spec.TLS,
 		[]networkingV1.IngressTLS{
 			{
-				Hosts:      []string{"mycert"},
-				SecretName: svc.secretName(idForApp("test-blue"), "mycert"),
+				Hosts:      []string{"test-blue.mycloud.com"},
+				SecretName: svc.secretName(idForApp("test-blue"), "test-blue.mycloud.com"),
 			},
 		}...)
 
@@ -1121,7 +1121,7 @@ func TestGetCertificate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, certTest.Spec.TLS, ingress.Spec.TLS)
 
-	cert, err := svc.GetCertificate(ctx, idForApp("test-blue"), "mycert")
+	cert, err := svc.GetCertificate(ctx, idForApp("test-blue"), "test-blue.mycloud.com")
 	require.NoError(t, err)
 	assert.Equal(t, &router.CertData{Certificate: "", Key: ""}, cert)
 }
@@ -1151,8 +1151,8 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
 	expectedIngress.Spec.TLS = []networkingV1.IngressTLS{
 		{
-			Hosts:      []string{"test."},
-			SecretName: "kr-test-test.",
+			Hosts:      []string{"test.mycloud.com"},
+			SecretName: "kr-test-test.mycloud.com",
 		},
 	}
 	assert.Equal(t, expectedIngress, foundIngress)
@@ -1194,8 +1194,8 @@ func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
 	expectedIngress.Spec.TLS = []networkingV1.IngressTLS{
 		{
-			Hosts:      []string{"test."},
-			SecretName: "kr-test-test.",
+			Hosts:      []string{"test.mycloud.com"},
+			SecretName: "kr-test-test.mycloud.com",
 		},
 	}
 	assert.Equal(t, expectedIngress, foundIngress)
@@ -1248,7 +1248,7 @@ func defaultIngress(name, namespace string) *networkingV1.Ingress {
 		Spec: networkingV1.IngressSpec{
 			Rules: []networkingV1.IngressRule{
 				{
-					Host: name + ".",
+					Host: name + ".mycloud.com",
 					IngressRuleValue: networkingV1.IngressRuleValue{
 						HTTP: &networkingV1.HTTPIngressRuleValue{
 							Paths: []networkingV1.HTTPIngressPath{

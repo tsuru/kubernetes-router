@@ -517,6 +517,22 @@ func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceI
 	if err != nil {
 		return err
 	}
+
+	foundCname := false
+	foundCNames := []string{}
+	for _, rules := range ingress.Spec.Rules {
+		foundCNames = append(foundCNames, rules.Host)
+
+		if rules.Host == certCname {
+			foundCname = true
+			break
+		}
+	}
+
+	if !foundCname {
+		return fmt.Errorf("cname %s is not found in ingress %s, found cnames: %s", certCname, ingress.Name, strings.Join(foundCNames, ", "))
+	}
+
 	ingress.Spec.TLS = append(ingress.Spec.TLS,
 		[]networkingV1.IngressTLS{
 			{
