@@ -1070,25 +1070,32 @@ func TestAddCertificateWithOverride(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	firstCert := router.CertData{Certificate: "FirstCert", Key: "FirstKey"}
 	expectedCert := router.CertData{Certificate: "Certz", Key: "keyz"}
-	err = svc.AddCertificate(ctx, idForApp("test-blue"), "test-blue.mycloud.com", expectedCert)
+	err = svc.AddCertificate(ctx, idForApp("test-blue"), "test-blue.mycloud.com", firstCert)
 	require.NoError(t, err)
 
 	err = svc.AddCertificate(ctx, idForApp("test-blue"), "test-blue.mycloud.com", expectedCert)
 	require.NoError(t, err)
 
+	secretName := svc.secretName(idForApp("test-blue"), "test-blue.mycloud.com")
 	certTest := defaultIngress("test-blue.mycloud.com", "default")
 	certTest.Spec.TLS = append(certTest.Spec.TLS,
 		[]networkingV1.IngressTLS{
 			{
 				Hosts:      []string{"test-blue.mycloud.com"},
-				SecretName: svc.secretName(idForApp("test-blue"), "test-blue.mycloud.com"),
+				SecretName: secretName,
 			},
 		}...)
 
 	ingress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-blue-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, certTest.Spec.TLS, ingress.Spec.TLS)
+
+	secret, err := svc.Client.CoreV1().Secrets(svc.Namespace).Get(ctx, secretName, metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, expectedCert.Certificate, secret.StringData["tls.crt"])
+	assert.Equal(t, expectedCert.Key, secret.StringData["tls.key"])
 }
 
 func TestAddCertificateWithCName(t *testing.T) {
