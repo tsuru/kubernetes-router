@@ -505,9 +505,10 @@ func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceI
 	if err != nil {
 		return err
 	}
+	secretName := k.secretName(id, certCname)
 	tlsSecret := v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      k.secretName(id, certCname),
+			Name:      secretName,
 			Namespace: ns,
 			Labels: map[string]string{
 				appLabel:    id.AppName,
@@ -521,7 +522,18 @@ func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceI
 			"tls.crt": cert.Certificate,
 		},
 	}
-	retSecret, err := secret.Create(ctx, &tlsSecret, metav1.CreateOptions{})
+	_, err = secret.Create(ctx, &tlsSecret, metav1.CreateOptions{})
+
+	if k8sErrors.IsAlreadyExists(err) {
+		var existingSecret *v1.Secret
+		existingSecret, err = secret.Get(ctx, secretName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		tlsSecret.ResourceVersion = existingSecret.ResourceVersion
+		_, err = secret.Update(ctx, &tlsSecret, metav1.UpdateOptions{})
+	}
+
 	if err != nil {
 		return err
 	}
@@ -546,13 +558,24 @@ func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceI
 		return fmt.Errorf("cname %s is not found in ingress %s, found cnames: %s", certCname, ingress.Name, strings.Join(foundCNames, ", "))
 	}
 
-	ingress.Spec.TLS = append(ingress.Spec.TLS,
-		[]networkingV1.IngressTLS{
-			{
-				Hosts:      []string{certCname},
-				SecretName: retSecret.Name,
-			},
-		}...)
+	tlsSpecExists := false
+	for index, ingressTLS := range ingress.Spec.TLS {
+		if ingressTLS.SecretName == tlsSecret.Name {
+			ingress.Spec.TLS[index].Hosts = []string{certCname}
+			tlsSpecExists = true
+			break
+		}
+	}
+
+	if !tlsSpecExists {
+		ingress.Spec.TLS = append(ingress.Spec.TLS,
+			[]networkingV1.IngressTLS{
+				{
+					Hosts:      []string{certCname},
+					SecretName: tlsSecret.Name,
+				},
+			}...)
+	}
 	_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
 	return err
 }
