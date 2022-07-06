@@ -362,7 +362,6 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io,www.test.io"
-	expectedIngress.Annotations["cert-manager.io/cluster-issuer"] = "letsencrypt-prod"
 	expectedIngress.Annotations["tsuru.io/some-annotation"] = "true"
 
 	assert.Equal(t, expectedIngress, foundIngress)
@@ -865,7 +864,7 @@ func TestIngressGetAddressWithPortTLS(t *testing.T) {
 
 	addrs, err := svc.GetAddresses(ctx, idForApp("test"))
 	require.NoError(t, err)
-	assert.Equal(t, []string{"https://test.apps.example.org:8888"}, addrs)
+	assert.Equal(t, []string{"https://test.apps.example.org"}, addrs)
 }
 func TestIngressGetAddressTLS(t *testing.T) {
 	svc := createFakeService()
@@ -1053,6 +1052,20 @@ func TestAddCertificate(t *testing.T) {
 	ingress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-blue-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, certTest.Spec.TLS, ingress.Spec.TLS)
+	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-blue-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	ingress, err = svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-blue-ingress", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, certTest.Spec.TLS, ingress.Spec.TLS)
 }
 
 func TestAddCertificateWithOverride(t *testing.T) {
@@ -1132,6 +1145,23 @@ func TestAddCertificateWithCName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, certTest.Spec.TLS, ingress.Spec.TLS)
 
+	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-blue-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+		CNames: []string{"mydomain.com"},
+	})
+	require.NoError(t, err)
+
+	ingress, err = svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-mydomain.com", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, certTest.Spec.TLS, ingress.Spec.TLS)
+
 	// Remove the cert
 	err = svc.RemoveCertificate(ctx, idForApp("test-blue"), "mydomain.com")
 	require.NoError(t, err)
@@ -1182,6 +1212,9 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
 		Opts: router.Opts{
 			Acme: true,
+			AdditionalOpts: map[string]string{
+				"cert-manager.io/cluster-issuer": "letsencrypt-prod",
+			},
 		},
 		CNames: []string{"test.io"},
 		Prefixes: []router.BackendPrefix{
@@ -1200,6 +1233,7 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io"
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
+	expectedIngress.Annotations["cert-manager.io/cluster-issuer"] = "letsencrypt-prod"
 	expectedIngress.Spec.TLS = []networkingV1.IngressTLS{
 		{
 			Hosts:      []string{"test.mycloud.com"},

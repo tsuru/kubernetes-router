@@ -163,6 +163,9 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	k.fillIngressMeta(ingress, o.Opts, id)
 	if o.Opts.Acme {
 		k.fillIngressTLS(ingress, id)
+		ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
+	} else {
+		k.cleanupACMEAnnotations(ingress)
 	}
 	if len(o.CNames) > 0 {
 		ingress.Annotations[AnnotationsCNames] = strings.Join(o.CNames, ",")
@@ -220,6 +223,9 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		ingress.ObjectMeta.ResourceVersion = existingIngress.ObjectMeta.ResourceVersion
 		if existingIngress.Spec.DefaultBackend != nil {
 			ingress.Spec.DefaultBackend = existingIngress.Spec.DefaultBackend
+		}
+		if existingIngress.Spec.TLS != nil {
+			k.fillIngressTLS(ingress, id)
 		}
 		_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
 		if err != nil {
@@ -327,10 +333,10 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 
 	k.fillIngressMeta(ingress, opts.routerOpts, opts.id)
 	if opts.routerOpts.AcmeCName {
-		log.Printf("Acme-tls is enabled on ingress, creating TLS secret for CNAME.")
 		k.fillIngressTLS(ingress, opts.id)
+		ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 	} else {
-		k.cleanupUnwantedAnnotationsForCNames(ingress)
+		k.cleanupACMEAnnotations(ingress)
 	}
 
 	if isNew {
@@ -344,6 +350,9 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 		if existingIngress.Spec.DefaultBackend != nil {
 			ingress.Spec.DefaultBackend = existingIngress.Spec.DefaultBackend
 		}
+		if existingIngress.Spec.TLS != nil {
+			k.fillIngressTLS(ingress, opts.id)
+		}
 		_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
 		return err
 	}
@@ -351,7 +360,7 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 	return nil
 }
 
-func (k *IngressService) cleanupUnwantedAnnotationsForCNames(ingress *networkingV1.Ingress) {
+func (k *IngressService) cleanupACMEAnnotations(ingress *networkingV1.Ingress) {
 	for _, annotation := range unwantedAnnotationsForCNames {
 		delete(ingress.Annotations, annotation)
 	}
@@ -403,6 +412,7 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 		return nil, err
 	}
 	hosts := []string{}
+	urls := []string{}
 	for _, rule := range ingress.Spec.Rules {
 		if k.HTTPPort == 0 {
 			hosts = append(hosts, rule.Host)
@@ -411,14 +421,14 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 			hosts = append(hosts, hostPort)
 		}
 	}
-	if ingress.Annotations[AnnotationsACMEKey] == "true" {
-		urls := []string{}
-		for _, h := range hosts {
+	for _, hostTLS := range ingress.Spec.TLS {
+		for _, h := range hostTLS.Hosts {
 			urls = append(urls, fmt.Sprintf("https://%v", h))
 		}
+	}
+	if len(urls) > 0 {
 		return urls, nil
 	}
-
 	return hosts, nil
 }
 func (k *IngressService) GetStatus(ctx context.Context, id router.InstanceID) (router.BackendStatus, string, error) {
@@ -723,9 +733,7 @@ func (s *IngressService) fillIngressTLS(i *networkingV1.Ingress, id router.Insta
 			})
 		}
 	}
-
 	i.Spec.TLS = tlsRules
-	i.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 }
 
 func ingressHasChanges(span opentracing.Span, existing *networkingV1.Ingress, ing *networkingV1.Ingress) (hasChanges bool) {
