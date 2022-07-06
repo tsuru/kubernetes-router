@@ -218,22 +218,25 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		return err
 	}
 
-	hasChanges := ingressHasChanges(span, existingIngress, ingress)
-	if hasChanges {
-		ingress.ObjectMeta.ResourceVersion = existingIngress.ObjectMeta.ResourceVersion
-		if existingIngress.Spec.DefaultBackend != nil {
-			ingress.Spec.DefaultBackend = existingIngress.Spec.DefaultBackend
-		}
-		if existingIngress.Spec.TLS != nil {
-			k.fillIngressTLS(ingress, id)
-		}
-		_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
-		if err != nil {
-			setSpanError(span, err)
-		}
+	if ingressHasChanges(span, existingIngress, ingress) {
+		return k.mergeIngresses(ctx, ingress, existingIngress, id, ingressClient, span)
+	}
+	return nil
+}
+
+func (k *IngressService) mergeIngresses(ctx context.Context, ingress *networkingV1.Ingress, existingIngress *networkingV1.Ingress, id router.InstanceID, ingressClient networkingTypedV1.IngressInterface, span opentracing.Span) error {
+	ingress.ObjectMeta.ResourceVersion = existingIngress.ObjectMeta.ResourceVersion
+	if existingIngress.Spec.DefaultBackend != nil {
+		ingress.Spec.DefaultBackend = existingIngress.Spec.DefaultBackend
+	}
+	if existingIngress.Spec.TLS != nil {
+		k.fillIngressTLS(ingress, id)
+	}
+	_, err := ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
+	if err != nil {
+		setSpanError(span, err)
 		return err
 	}
-
 	return nil
 }
 
@@ -344,19 +347,9 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 		return err
 	}
 
-	hasChanges := ingressHasChanges(span, existingIngress, ingress)
-	if hasChanges {
-		ingress.ObjectMeta.ResourceVersion = existingIngress.ObjectMeta.ResourceVersion
-		if existingIngress.Spec.DefaultBackend != nil {
-			ingress.Spec.DefaultBackend = existingIngress.Spec.DefaultBackend
-		}
-		if existingIngress.Spec.TLS != nil {
-			k.fillIngressTLS(ingress, opts.id)
-		}
-		_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
-		return err
+	if ingressHasChanges(span, existingIngress, ingress) {
+		return k.mergeIngresses(ctx, ingress, existingIngress, opts.id, ingressClient, span)
 	}
-
 	return nil
 }
 
@@ -515,6 +508,30 @@ func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceI
 	if err != nil {
 		return err
 	}
+	ingress, err := k.targetIngressForCertificate(ctx, id, certCname)
+	if err != nil {
+		return err
+	}
+
+	foundCname := false
+	foundCNames := []string{}
+	for _, rules := range ingress.Spec.Rules {
+		foundCNames = append(foundCNames, rules.Host)
+
+		if rules.Host == certCname {
+			foundCname = true
+			break
+		}
+	}
+
+	if !foundCname {
+		return fmt.Errorf("cname %s is not found in ingress %s, found cnames: %s", certCname, ingress.Name, strings.Join(foundCNames, ", "))
+	}
+
+	if ingress.Annotations[AnnotationsACMEKey] == "true" {
+		return fmt.Errorf("cannot add certificate to ingress %s, it is managed by ACME", ingress.Name)
+	}
+
 	secretName := k.secretName(id, certCname)
 	tlsSecret := v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -546,26 +563,6 @@ func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceI
 
 	if err != nil {
 		return err
-	}
-
-	ingress, err := k.targetIngressForCertificate(ctx, id, certCname)
-	if err != nil {
-		return err
-	}
-
-	foundCname := false
-	foundCNames := []string{}
-	for _, rules := range ingress.Spec.Rules {
-		foundCNames = append(foundCNames, rules.Host)
-
-		if rules.Host == certCname {
-			foundCname = true
-			break
-		}
-	}
-
-	if !foundCname {
-		return fmt.Errorf("cname %s is not found in ingress %s, found cnames: %s", certCname, ingress.Name, strings.Join(foundCNames, ", "))
 	}
 
 	tlsSpecExists := false
@@ -645,6 +642,9 @@ func (k *IngressService) RemoveCertificate(ctx context.Context, id router.Instan
 	ingress, err := k.targetIngressForCertificate(ctx, id, certCname)
 	if err != nil {
 		return err
+	}
+	if ingress.Annotations[AnnotationsACMEKey] == "true" {
+		return fmt.Errorf("cannot remove certificate from ingress %s, it is managed by ACME", ingress.Name)
 	}
 	secret, err := k.secretClient(ns)
 	if err != nil {
