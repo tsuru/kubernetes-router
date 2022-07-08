@@ -404,6 +404,20 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 		}
 		return nil, err
 	}
+	urls := k.getAddressesURLs(ingress)
+	if cnames, found := ingress.Annotations[AnnotationsCNames]; found && cnames != "" {
+		for _, cname := range strings.Split(cnames, ",") {
+			ingressCName, err := k.getCName(ctx, id, cname)
+			if err != nil {
+				return nil, err
+			}
+			urls = append(urls, k.getAddressesURLs(ingressCName)...)
+		}
+	}
+	return urls, nil
+}
+
+func (k *IngressService) getAddressesURLs(ingress *networkingV1.Ingress) []string {
 	hosts := []string{}
 	urls := []string{}
 	for _, rule := range ingress.Spec.Rules {
@@ -420,9 +434,9 @@ func (k *IngressService) GetAddresses(ctx context.Context, id router.InstanceID)
 		}
 	}
 	if len(urls) > 0 {
-		return urls, nil
+		return urls
 	}
-	return hosts, nil
+	return hosts
 }
 func (k *IngressService) GetStatus(ctx context.Context, id router.InstanceID) (router.BackendStatus, string, error) {
 	ingress, err := k.get(ctx, id)
@@ -452,11 +466,19 @@ func (k *IngressService) get(ctx context.Context, id router.InstanceID) (*networ
 	if err != nil {
 		return nil, err
 	}
-	ingress, err := client.Get(ctx, k.ingressName(id), metav1.GetOptions{})
+	return client.Get(ctx, k.ingressName(id), metav1.GetOptions{})
+}
+
+func (k *IngressService) getCName(ctx context.Context, id router.InstanceID, cname string) (*networkingV1.Ingress, error) {
+	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		return nil, err
 	}
-	return ingress, nil
+	client, err := k.ingressClient(ns)
+	if err != nil {
+		return nil, err
+	}
+	return client.Get(ctx, k.ingressCName(id, cname), metav1.GetOptions{})
 }
 
 func (k *IngressService) ingressClient(namespace string) (networkingTypedV1.IngressInterface, error) {
