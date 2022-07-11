@@ -891,28 +891,7 @@ func TestIngressGetAddressTLS(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"https://test.apps.example.org"}, addrs)
 }
-func TestIngressGetAddressAndCNames(t *testing.T) {
-	svc := createFakeService()
-	svc.DomainSuffix = "apps.example.org"
-	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
-	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
-	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
-		Prefixes: []router.BackendPrefix{
-			{
-				Target: router.BackendTarget{
-					Service:   "test-web",
-					Namespace: "default",
-				},
-			},
-		},
-		CNames: []string{"cname.test.com"},
-	})
-	require.NoError(t, err)
 
-	addrs, err := svc.GetAddresses(ctx, idForApp("test"))
-	require.NoError(t, err)
-	assert.Equal(t, []string{"test.apps.example.org", "cname.test.com"}, addrs)
-}
 func TestIngressGetMultipleAddresses(t *testing.T) {
 	client := fake.NewSimpleClientset()
 	err := createAppWebService(client, "default", "test")
