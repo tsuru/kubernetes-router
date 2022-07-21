@@ -104,6 +104,11 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	}
 
 	backendTargets, err := k.getBackendTargets(o.Prefixes, o.Opts.ExposeAllServices)
+
+	if err == ErrNoBackendTarget {
+		return nil
+	}
+
 	if err != nil {
 		setSpanError(span, err)
 		return err
