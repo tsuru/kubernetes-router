@@ -515,6 +515,7 @@ func TestIngressCreateDefaultClass(t *testing.T) {
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["kubernetes.io/ingress.class"] = "nginx"
 	expectedIngress.Annotations["my-opt"] = "v1"
+	expectedIngress.Spec.IngressClassName = &svc.IngressClass
 
 	assert.Equal(t, expectedIngress, foundIngress)
 }
@@ -547,6 +548,7 @@ func TestIngressEnsureDefaultClassOverride(t *testing.T) {
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["kubernetes.io/ingress.class"] = "xyz"
+	expectedIngress.Spec.IngressClassName = &svc.IngressClass
 
 	assert.Equal(t, expectedIngress, foundIngress)
 }
@@ -1355,6 +1357,7 @@ func defaultIngress(name, namespace string) *networkingV1.Ingress {
 	blockOwnerDeletion := true
 	controller := true
 	pathType := networkingV1.PathTypeImplementationSpecific
+	ingressClassName := ""
 
 	return &networkingV1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1400,6 +1403,7 @@ func defaultIngress(name, namespace string) *networkingV1.Ingress {
 					},
 				},
 			},
+			IngressClassName: &ingressClassName,
 		},
 	}
 }
