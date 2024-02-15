@@ -57,6 +57,9 @@ jobs:
     - lint
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
     steps:
     - uses: actions/checkout@v2
     - name: Set up Docker Buildx
@@ -74,13 +77,13 @@ jobs:
     - uses: Surgo/docker-smart-tag-action@v1
       id: smarttag
       with:
-        docker_image: tsuru/kubernetes-router
+        docker_image: ghcr.io/impaas/kubernetes-router
         default_branch: master
         tag_with_sha: "true"
     - uses: docker/login-action@v1
       with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_PASSWORD }}
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     - uses: docker/build-push-action@v2
       with:
         push: true
