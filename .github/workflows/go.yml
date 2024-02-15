@@ -49,6 +49,8 @@ jobs:
     - uses: golangci/golangci-lint-action@v2
       with:
         version: v1.45.2
+      env:
+        GOROOT: ''
 
   docker-image:
     name: "Push to dockerhub"
