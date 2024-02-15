@@ -91,8 +91,10 @@ func main() {
 				GatewaySelector: *istioGatewaySelector,
 			}
 		case "ingress-nginx":
-			*ingressClass = "nginx"
-			*ingressAnnotationsPrefix = "nginx.ingress.kubernetes.io"
+			if *ingressClass == "" {
+				*ingressClass = "nginx"
+				*ingressAnnotationsPrefix = "nginx.ingress.kubernetes.io"
+			}
 			fallthrough
 		case "ingress":
 			localBackend.Routers[mode] = &kubernetes.IngressService{

@@ -158,7 +158,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 				}),
 			},
 		},
-		Spec: buildIngressSpec(vhosts, o.Opts.Route, backendServices),
+		Spec: buildIngressSpec(vhosts, o.Opts.Route, backendServices, k.IngressClass),
 	}
 	k.fillIngressMeta(ingress, o.Opts, id)
 	if o.Opts.Acme {
@@ -240,7 +240,7 @@ func (k *IngressService) mergeIngresses(ctx context.Context, ingress *networking
 	return nil
 }
 
-func buildIngressSpec(hosts map[string]string, path string, services map[string]*v1.Service) networkingV1.IngressSpec {
+func buildIngressSpec(hosts map[string]string, path string, services map[string]*v1.Service, ingressClass string) networkingV1.IngressSpec {
 	pathType := networkingV1.PathTypeImplementationSpecific
 	rules := []networkingV1.IngressRule{}
 	for k, service := range services {
@@ -270,7 +270,8 @@ func buildIngressSpec(hosts map[string]string, path string, services map[string]
 	}
 
 	return networkingV1.IngressSpec{
-		Rules: rules,
+		Rules:            rules,
+		IngressClassName: &ingressClass,
 	}
 }
 
@@ -331,7 +332,7 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 				}),
 			},
 		},
-		Spec: buildIngressSpec(map[string]string{"ensureCnameBackend": opts.cname}, opts.routerOpts.Route, map[string]*v1.Service{"ensureCnameBackend": opts.service}),
+		Spec: buildIngressSpec(map[string]string{"ensureCnameBackend": opts.cname}, opts.routerOpts.Route, map[string]*v1.Service{"ensureCnameBackend": opts.service}, k.IngressClass),
 	}
 
 	k.fillIngressMeta(ingress, opts.routerOpts, opts.id)
