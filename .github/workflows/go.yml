@@ -84,6 +84,7 @@ jobs:
         tag_with_sha: "true"
     - uses: docker/login-action@v1
       with:
+        registry: ghcr.io
         username: ${{ github.repository_owner }}
         password: ${{ secrets.GITHUB_TOKEN }}
     - uses: docker/build-push-action@v2
