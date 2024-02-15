@@ -1,7 +1,7 @@
 BINARY=kubernetes-router
 TAG=latest
 IMAGE=tsuru/$(BINARY)
-LOCAL_REGISTRY=10.200.10.1:5000
+LOCAL_REGISTRY=100.64.100.100:5000
 NAMESPACE=tsuru
 LINTER_ARGS = \
 	-j 4 --enable-gc -s vendor -e '.*/vendor/.*' --vendor --enable=misspell --enable=gofmt --enable=goimports \
