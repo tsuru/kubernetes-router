@@ -161,12 +161,8 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		Spec: buildIngressSpec(vhosts, o.Opts.Route, backendServices, k.IngressClass),
 	}
 	k.fillIngressMeta(ingress, o.Opts, id)
-	if o.Opts.Acme {
-		k.fillIngressTLS(ingress, id)
-		ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
-	} else {
-		k.cleanupACMEAnnotations(ingress)
-	}
+	k.fillIngressTLS(ingress, id)
+	ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 	if len(o.CNames) > 0 {
 		ingress.Annotations[AnnotationsCNames] = strings.Join(o.CNames, ",")
 	}
