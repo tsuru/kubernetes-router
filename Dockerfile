@@ -1,4 +1,6 @@
-FROM --platform=$BUILDPLATFORM golang:latest as builder
+ARG alpine_version=3.19
+ARG golang_version=1.20
+FROM --platform=$BUILDPLATFORM golang:${golang_version}-alpine${alpine_version} as builder
 ARG TARGETARCH
 ENV GOARCH=$TARGETARCH
 
