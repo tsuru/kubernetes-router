@@ -7,7 +7,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -51,7 +51,7 @@ func (s *RouterAPISuite) TestHealthcheckOK() {
 	s.api.Healthcheck(w, req)
 
 	resp := w.Result()
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 
 	s.Equal(http.StatusOK, resp.StatusCode)
 	s.Equal("WORKING", string(body))

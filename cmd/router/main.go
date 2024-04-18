@@ -6,7 +6,7 @@ package main
 
 import (
 	"flag"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -125,7 +125,7 @@ func main() {
 			return
 		}
 		clustersFile := &backend.ClustersFile{}
-		data, err := ioutil.ReadAll(f)
+		data, err := io.ReadAll(f)
 		if err != nil {
 			log.Printf("failed to load clusters file: %v\n", err)
 			return
