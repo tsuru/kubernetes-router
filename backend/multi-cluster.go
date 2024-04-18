@@ -32,6 +32,7 @@ type ClusterConfig struct {
 	CA      string `json:"ca"`
 
 	AuthProvider *clientcmdapi.AuthProviderConfig `json:"authProvider"`
+	Exec         *clientcmdapi.ExecConfig         `json:"exec"`
 }
 
 type ClustersFile struct {
@@ -146,8 +147,17 @@ func (m *MultiCluster) getKubeConfig(name, address string, timeout time.Duration
 		},
 	}
 
+	if selectedCluster.Exec != nil && selectedCluster.AuthProvider != nil {
+		return nil, errors.New("both exec and authProvider mutually exclusive are set in the cluster config")
+	}
+
 	if selectedCluster.AuthProvider != nil {
 		restConfig.AuthProvider = selectedCluster.AuthProvider
+	}
+
+	if selectedCluster.Exec != nil {
+		restConfig.ExecProvider = selectedCluster.Exec
+		restConfig.ExecProvider.InteractiveMode = "Never"
 	}
 
 	if selectedCluster.CA != "" {

@@ -145,6 +145,84 @@ func TestMultiClusterAuthProvider(t *testing.T) {
 	})
 }
 
+func TestMultiClusterExecProvider(t *testing.T) {
+	backend := &MultiCluster{
+		Namespace: "tsuru-test",
+		Fallback:  &fakeBackend{},
+		Clusters: []ClusterConfig{
+			{
+				Name:    "my-cluster",
+				Address: "https://example.org",
+				Exec: &api.ExecConfig{
+					APIVersion: "client.authentication.k8s.io/v1beta1",
+					Command:    "echo",
+					Args:       []string{"arg1", "arg2"},
+				},
+			},
+		},
+	}
+	mockTracer := mocktracer.New()
+	span := mockTracer.StartSpan("test")
+	spanCtx := opentracing.ContextWithSpan(ctx, span)
+	router, err := backend.Router(spanCtx, "service", http.Header{
+		"X-Tsuru-Cluster-Name": {
+			"my-cluster",
+		},
+		"X-Tsuru-Cluster-Addresses": {
+			"https://mycluster.com",
+		},
+	})
+	assert.NoError(t, err)
+	lbService, ok := router.(*kubernetes.LBService)
+	require.True(t, ok)
+	assert.Equal(t, "tsuru-test", lbService.BaseService.Namespace)
+	assert.Equal(t, 10*time.Second, lbService.BaseService.Timeout)
+	assert.Equal(t, "https://example.org", lbService.BaseService.RestConfig.Host)
+	assert.Equal(t, "echo", lbService.BaseService.RestConfig.ExecProvider.Command)
+	assert.Equal(t, []string{"arg1", "arg2"}, lbService.BaseService.RestConfig.ExecProvider.Args)
+	assert.Equal(t, api.ExecInteractiveMode("Never"), lbService.BaseService.RestConfig.ExecProvider.InteractiveMode)
+	assert.Equal(t, span.(*mocktracer.MockSpan).Tags(), map[string]interface{}{
+		"cluster.address": "https://mycluster.com",
+		"cluster.name":    "my-cluster",
+	})
+}
+
+func TestMultiClusterSetBothAuthMechanism(t *testing.T) {
+	newDummyProvider := func(clusterAddress string, cfg map[string]string, persister restclient.AuthProviderConfigPersister) (restclient.AuthProvider, error) {
+		return &dummyAuthProvider{}, nil
+	}
+
+	err := restclient.RegisterAuthProviderPlugin("dummy-test2", newDummyProvider)
+	require.NoError(t, err)
+
+	backend := &MultiCluster{
+		Namespace: "tsuru-test",
+		Fallback:  &fakeBackend{},
+		Clusters: []ClusterConfig{
+			{
+				Name:         "my-cluster",
+				Address:      "https://example.org",
+				AuthProvider: &api.AuthProviderConfig{Name: "dummy-test2"},
+				Exec: &api.ExecConfig{
+					Command: "echo",
+				},
+			},
+		},
+	}
+	mockTracer := mocktracer.New()
+	span := mockTracer.StartSpan("test")
+	spanCtx := opentracing.ContextWithSpan(ctx, span)
+	_, err = backend.Router(spanCtx, "service", http.Header{
+		"X-Tsuru-Cluster-Name": {
+			"my-cluster",
+		},
+		"X-Tsuru-Cluster-Addresses": {
+			"https://mycluster.com",
+		},
+	})
+	assert.Error(t, err, "both exec and authProvider mutually exclusive are set in the cluster config")
+}
+
 func TestMultiClusterCA(t *testing.T) {
 	fakeCA := `-----BEGIN CERTIFICATE-----
 MIIGFDCCA/ygAwIBAgIIU+w77vuySF8wDQYJKoZIhvcNAQEFBQAwUTELMAkGA1UE
