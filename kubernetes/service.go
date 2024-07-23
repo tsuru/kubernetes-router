@@ -59,10 +59,13 @@ var (
 )
 
 // ErrNoService indicates that the app has no service running
-type ErrNoService struct{ App string }
+type ErrNoService struct {
+	App     string
+	Service string
+}
 
 func (e ErrNoService) Error() string {
-	return fmt.Sprintf("no service found for app %q", e.App)
+	return fmt.Sprintf("service %q is not found for app %q", e.Service, e.App)
 }
 
 // BaseService has the base functionality needed by router.Service implementations
@@ -154,7 +157,7 @@ func (k *BaseService) getWebService(ctx context.Context, appName string, target 
 	svc, err := client.CoreV1().Services(target.Namespace).Get(ctx, target.Service, metav1.GetOptions{})
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
-			return nil, ErrNoService{App: appName}
+			return nil, ErrNoService{App: appName, Service: target.Service}
 		}
 		return nil, err
 	}

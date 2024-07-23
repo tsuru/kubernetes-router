@@ -30,7 +30,7 @@ func TestGetWebService(t *testing.T) {
 	}
 
 	_, err := svc.getWebService(ctx, "test", router.BackendTarget{Service: "test-not-found", Namespace: svc.Namespace})
-	assert.Equal(t, ErrNoService{App: "test"}, err)
+	assert.Equal(t, ErrNoService{App: "test", Service: "test-not-found"}, err)
 
 	svc1 := v1.Service{ObjectMeta: metav1.ObjectMeta{
 		Name:      "test-single",
