@@ -33,6 +33,9 @@ var (
 	AnnotationsCNames  = "router.tsuru.io/cnames"
 	AnnotationFreeze   = "router.tsuru.io/freeze"
 
+	CertManagerIssuerKey        = "cert-manager.io/issuer"
+	CertManagerClusterIssuerKey = "cert-manager.io/cluster-issuer"
+
 	defaultClassOpt          = "class"
 	defaultOptsAsAnnotations = map[string]string{
 		defaultClassOpt: "kubernetes.io/ingress.class",
@@ -42,15 +45,16 @@ var (
 	}
 
 	unwantedAnnotationsForCNames = []string{
-		"cert-manager.io/cluster-issuer",
-		"cert-manager.io/issuer",
+		CertManagerIssuerKey,
+		CertManagerClusterIssuerKey,
 	}
 )
 
 var (
-	_ router.Router       = &IngressService{}
-	_ router.RouterTLS    = &IngressService{}
-	_ router.RouterStatus = &IngressService{}
+	_ router.Router            = &IngressService{}
+	_ router.RouterTLS         = &IngressService{}
+	_ router.RouterStatus      = &IngressService{}
+	_ router.RouterCertManager = &IngressService{}
 )
 
 // IngressService manages ingresses in a Kubernetes cluster that uses ingress-nginx
@@ -681,6 +685,107 @@ func (s *IngressService) SupportedOptions(ctx context.Context) map[string]string
 		}
 	}
 	return opts
+}
+
+func (k *IngressService) IssueCertManagerCertificate(ctx context.Context, id router.InstanceID, certName string, issuer router.CertManagerIssuerData) error {
+	ns, err := k.getAppNamespace(ctx, id.AppName)
+	if err != nil {
+		return err
+	}
+	ingressClient, err := k.ingressClient(ns)
+	if err != nil {
+		return err
+	}
+	ingress, err := k.targetIngressForCertificate(ctx, id, certName)
+	if err != nil {
+		return err
+	}
+
+	// Check if the cname is present in the ingress
+	foundCname := false
+	foundCNames := []string{}
+	for _, rules := range ingress.Spec.Rules {
+		foundCNames = append(foundCNames, rules.Host)
+
+		if rules.Host == certName {
+			foundCname = true
+			break
+		}
+	}
+
+	if !foundCname {
+		return fmt.Errorf("cname %s is not found in ingress %s, found cnames: %s", certName, ingress.Name, strings.Join(foundCNames, ", "))
+	}
+
+	// Add cert-manager annotation to the ingress
+	// TODO: make sure issuer/cluster-issuer exists
+	if len(issuer.Issuer) > 0 {
+		ingress.ObjectMeta.Annotations[CertManagerIssuerKey] = issuer.Issuer
+	} else if len(issuer.ClusterIssuer) > 0 {
+		ingress.ObjectMeta.Annotations[CertManagerClusterIssuerKey] = issuer.ClusterIssuer
+	}
+
+	// Find TLS spec for the certName
+	secretName := k.secretName(id, certName)
+	tlsSpecExists := false
+	for index, ingressTLS := range ingress.Spec.TLS {
+		if ingressTLS.SecretName == secretName {
+			ingress.Spec.TLS[index].Hosts = []string{certName}
+			tlsSpecExists = true
+			break
+		}
+	}
+
+	// Add TLS spec to the ingress
+	if !tlsSpecExists {
+		ingress.Spec.TLS = append(ingress.Spec.TLS,
+			[]networkingV1.IngressTLS{
+				{
+					Hosts:      []string{certName},
+					SecretName: secretName,
+				},
+			}...)
+	}
+
+	// Persist changes to the ingress
+	_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
+	return err
+}
+
+func (k *IngressService) RemoveCertManagerCertificate(ctx context.Context, id router.InstanceID, certName string) error {
+	ns, err := k.getAppNamespace(ctx, id.AppName)
+	if err != nil {
+		return err
+	}
+	ingressClient, err := k.ingressClient(ns)
+	if err != nil {
+		return err
+	}
+	ingress, err := k.targetIngressForCertificate(ctx, id, certName)
+	if err != nil {
+		return err
+	}
+
+	// Remove cert-manager annotation from the ingress
+	delete(ingress.ObjectMeta.Annotations, CertManagerIssuerKey)
+	delete(ingress.ObjectMeta.Annotations, CertManagerClusterIssuerKey)
+
+	// Remove TLS spec from the ingress
+	for k := range ingress.Spec.TLS {
+		for _, host := range ingress.Spec.TLS[k].Hosts {
+			if strings.Compare(certName, host) == 0 {
+				ingress.Spec.TLS = append(ingress.Spec.TLS[:k], ingress.Spec.TLS[k+1:]...)
+			}
+		}
+	}
+
+	// Persist changes to the ingress
+	_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts router.Opts, id router.InstanceID) {

@@ -82,6 +82,12 @@ type RouterTLS interface {
 	RemoveCertificate(ctx context.Context, id InstanceID, certName string) error
 }
 
+type RouterCertManager interface {
+	RouterTLS
+	IssueCertManagerCertificate(ctx context.Context, id InstanceID, certName string, issuer CertManagerIssuerData) error
+	RemoveCertManagerCertificate(ctx context.Context, id InstanceID, certName string) error
+}
+
 // Opts used when creating/updating routers
 type Opts struct {
 	Pool                  string            `json:",omitempty"`
@@ -102,6 +108,11 @@ type Opts struct {
 type CertData struct {
 	Certificate string `json:"certificate"`
 	Key         string `json:"key"`
+}
+
+type CertManagerIssuerData struct {
+	Issuer        string `json:"issuer"`
+	ClusterIssuer string `json:"clusterIssuer"`
 }
 
 type BackendPrefix struct {
