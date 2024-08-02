@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 
-	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pkg/errors"
 	"github.com/tsuru/kubernetes-router/router"
@@ -36,6 +35,8 @@ var (
 
 	CertManagerIssuerKey        = "cert-manager.io/issuer"
 	CertManagerClusterIssuerKey = "cert-manager.io/cluster-issuer"
+	CertManagerIssuerKindKey    = "cert-manager.io/issuer-kind"
+	CertManagerIssuerGroupKey   = "cert-manager.io/issuer-group"
 
 	defaultClassOpt          = "class"
 	defaultOptsAsAnnotations = map[string]string{
@@ -48,6 +49,8 @@ var (
 	unwantedAnnotationsForCNames = []string{
 		CertManagerIssuerKey,
 		CertManagerClusterIssuerKey,
+		CertManagerIssuerKindKey,
+		CertManagerIssuerGroupKey,
 	}
 )
 
@@ -70,6 +73,29 @@ type IngressService struct {
 	HTTPPort              int
 	OptsAsAnnotations     map[string]string
 	OptsAsAnnotationsDocs map[string]string
+}
+
+/* Cert-manager types */
+
+const (
+	errIssuerNotFound         = "issuer %s not found"
+	errExternalIssuerNotFound = "external issuer %s not found"
+	errExternalIssuerInvalid  = "invalid external issuer: %s (requires <resource name>.<resource kind>.<resource group>)"
+)
+
+type CertManagerIssuerType int
+
+const (
+	CertManagerIssuerTypeIssuer = iota
+	CertManagerIssuerTypeClusterIssuer
+	CertManagerIssuerTypeExternalIssuer
+)
+
+type CertManagerIssuerData struct {
+	Name  string
+	Kind  string
+	Group string
+	Type  CertManagerIssuerType
 }
 
 // Ensure creates or updates an Ingress resource to point it to either
@@ -514,8 +540,8 @@ func isCnamePresent(cname string, ingress *networkingV1.Ingress) error {
 	if !foundCname {
 		return fmt.Errorf(
 			"cname %s is not found in ingress %s, found cnames: %s",
-			cname, 
-			ingress.Name, 
+			cname,
+			ingress.Name,
 			strings.Join(foundCNames, ", "),
 		)
 	}
@@ -702,30 +728,60 @@ func (s *IngressService) SupportedOptions(ctx context.Context) map[string]string
 	return opts
 }
 
-func (s *IngressService) validateIssuer(ctx context.Context, issuerName, namespace string) error {
-	cmV1, err := s.getCertManagerClient()
-	if err != nil {
-		return err
+func (s *IngressService) getCertManagerIssuerData(ctx context.Context, issuerName, namespace string) (CertManagerIssuerData, error) {
+	if strings.Contains(issuerName, ".") {
+		// Treat as external issuer since it's more general
+		parts := strings.Split(issuerName, ".")
+		if len(parts) != 3 {
+			return CertManagerIssuerData{}, fmt.Errorf(errExternalIssuerInvalid, issuerName)
+		}
+
+		// TODO: Check if the external issuer exists
+
+		return CertManagerIssuerData{
+			Name:  parts[0],
+			Kind:  parts[1],
+			Group: parts[2],
+			Type:  CertManagerIssuerTypeExternalIssuer,
+		}, nil
 	}
 
-	_, err = cmV1.CertmanagerV1().Issuers(namespace).Get(ctx, issuerName, metav1.GetOptions{})
+	// Treat as CertManager issuer
+	cmClient, err := s.getCertManagerClient()
+	if err != nil {
+		return CertManagerIssuerData{}, err
+	}
+
+	_, err = cmClient.CertmanagerV1().Issuers(namespace).Get(ctx, issuerName, metav1.GetOptions{})
 	if err != nil && !k8sErrors.IsNotFound(err) {
-		return err
+		return CertManagerIssuerData{}, err
 	}
 
 	if err == nil {
-		return nil
+		return CertManagerIssuerData{
+			Name: issuerName,
+			Type: CertManagerIssuerTypeIssuer,
+		}, nil
 	}
 
-	_, err = cmV1.CertmanagerV1().ClusterIssuers().Get(ctx, issuerName, metav1.GetOptions{})
+	// Check if it's a cluster issuer
+	_, err = cmClient.CertmanagerV1().ClusterIssuers().Get(ctx, issuerName, metav1.GetOptions{})
 	if err != nil && !k8sErrors.IsNotFound(err) {
-		return err
+		return CertManagerIssuerData{}, err
 	}
 
-	return fmt.Errorf("issuer %s not found", issuerName)
+	if err == nil {
+		return CertManagerIssuerData{
+			Name: issuerName,
+			Type: CertManagerIssuerTypeClusterIssuer,
+		}, nil
+	}
+
+	// Issuer not found
+	return CertManagerIssuerData{}, fmt.Errorf(errIssuerNotFound, issuerName)
 }
 
-func (k *IngressService) IssueCertManagerCertificate(ctx context.Context, id router.InstanceID, certCname string, issuer router.CertManagerIssuerData) error {
+func (k *IngressService) IssueCertManagerCertificate(ctx context.Context, id router.InstanceID, certCname string, issuerName string) error {
 	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		return err
@@ -747,17 +803,25 @@ func (k *IngressService) IssueCertManagerCertificate(ctx context.Context, id rou
 		return err
 	}
 
-	issuerName := issuer.Issuer
-	err = k.validateIssuer(ctx, issuerName, ns)
+	// Parse issuer data
+	issuerData, err := k.getCertManagerIssuerData(ctx, issuerName, ns)
 	if err != nil {
 		return err
 	}
 
 	// Add cert-manager annotation to the ingress
-	if len(issuer.Issuer) > 0 {
-		ingress.ObjectMeta.Annotations[CertManagerIssuerKey] = issuer.Issuer
-	} else if len(issuer.ClusterIssuer) > 0 {
-		ingress.ObjectMeta.Annotations[CertManagerClusterIssuerKey] = issuer.ClusterIssuer
+	switch issuerData.Type {
+
+	case CertManagerIssuerTypeIssuer:
+		ingress.ObjectMeta.Annotations[CertManagerIssuerKey] = issuerData.Name
+
+	case CertManagerIssuerTypeClusterIssuer:
+		ingress.ObjectMeta.Annotations[CertManagerClusterIssuerKey] = issuerData.Name
+
+	case CertManagerIssuerTypeExternalIssuer:
+		ingress.ObjectMeta.Annotations[CertManagerIssuerKey] = issuerData.Name
+		ingress.ObjectMeta.Annotations[CertManagerIssuerKindKey] = issuerData.Kind
+		ingress.ObjectMeta.Annotations[CertManagerIssuerGroupKey] = issuerData.Group
 	}
 
 	// Find TLS spec for the certName
@@ -804,6 +868,8 @@ func (k *IngressService) RemoveCertManagerCertificate(ctx context.Context, id ro
 	// Remove cert-manager annotation from the ingress
 	delete(ingress.ObjectMeta.Annotations, CertManagerIssuerKey)
 	delete(ingress.ObjectMeta.Annotations, CertManagerClusterIssuerKey)
+	delete(ingress.ObjectMeta.Annotations, CertManagerIssuerKindKey)
+	delete(ingress.ObjectMeta.Annotations, CertManagerIssuerGroupKey)
 
 	// Remove TLS spec from the ingress
 	for k := range ingress.Spec.TLS {

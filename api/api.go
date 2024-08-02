@@ -343,7 +343,7 @@ func (a *RouterAPI) issueCertManagerCert(_ http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	return cmRouter.IssueCertManagerCertificate(ctx, instanceID(r), certName, cert)
+	return cmRouter.IssueCertManagerCertificate(ctx, instanceID(r), certName, cert.Issuer)
 }
 
 // removeCertManagerCert Removes certificate for the app

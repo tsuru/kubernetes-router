@@ -84,7 +84,7 @@ type RouterTLS interface {
 
 type RouterCertManager interface {
 	RouterTLS
-	IssueCertManagerCertificate(ctx context.Context, id InstanceID, certName string, issuer CertManagerIssuerData) error
+	IssueCertManagerCertificate(ctx context.Context, id InstanceID, certName string, issuerName string) error
 	RemoveCertManagerCertificate(ctx context.Context, id InstanceID, certName string) error
 }
 
@@ -110,9 +110,9 @@ type CertData struct {
 	Key         string `json:"key"`
 }
 
+// Issuer data for CertManager
 type CertManagerIssuerData struct {
-	Issuer        string `json:"issuer"`
-	ClusterIssuer string `json:"clusterIssuer"`
+	Issuer string `json:"issuer"`
 }
 
 type BackendPrefix struct {
