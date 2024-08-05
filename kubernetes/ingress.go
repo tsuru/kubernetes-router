@@ -33,6 +33,11 @@ var (
 	AnnotationsCNames  = "router.tsuru.io/cnames"
 	AnnotationFreeze   = "router.tsuru.io/freeze"
 
+	CertManagerIssuerKey        = "cert-manager.io/issuer"
+	CertManagerClusterIssuerKey = "cert-manager.io/cluster-issuer"
+	CertManagerIssuerKindKey    = "cert-manager.io/issuer-kind"
+	CertManagerIssuerGroupKey   = "cert-manager.io/issuer-group"
+
 	defaultClassOpt          = "class"
 	defaultOptsAsAnnotations = map[string]string{
 		defaultClassOpt: "kubernetes.io/ingress.class",
@@ -42,15 +47,18 @@ var (
 	}
 
 	unwantedAnnotationsForCNames = []string{
-		"cert-manager.io/cluster-issuer",
-		"cert-manager.io/issuer",
+		CertManagerIssuerKey,
+		CertManagerClusterIssuerKey,
+		CertManagerIssuerKindKey,
+		CertManagerIssuerGroupKey,
 	}
 )
 
 var (
-	_ router.Router       = &IngressService{}
-	_ router.RouterTLS    = &IngressService{}
-	_ router.RouterStatus = &IngressService{}
+	_ router.Router            = &IngressService{}
+	_ router.RouterTLS         = &IngressService{}
+	_ router.RouterStatus      = &IngressService{}
+	_ router.RouterCertManager = &IngressService{}
 )
 
 // IngressService manages ingresses in a Kubernetes cluster that uses ingress-nginx
@@ -65,6 +73,29 @@ type IngressService struct {
 	HTTPPort              int
 	OptsAsAnnotations     map[string]string
 	OptsAsAnnotationsDocs map[string]string
+}
+
+/* Cert-manager types */
+
+const (
+	errIssuerNotFound         = "issuer %s not found"
+	errExternalIssuerNotFound = "external issuer %s not found"
+	errExternalIssuerInvalid  = "invalid external issuer: %s (requires <resource name>.<resource kind>.<resource group>)"
+)
+
+type CertManagerIssuerType int
+
+const (
+	CertManagerIssuerTypeIssuer = iota
+	CertManagerIssuerTypeClusterIssuer
+	CertManagerIssuerTypeExternalIssuer
+)
+
+type CertManagerIssuerData struct {
+	Name  string
+	Kind  string
+	Group string
+	Type  CertManagerIssuerType
 }
 
 // Ensure creates or updates an Ingress resource to point it to either
@@ -494,6 +525,30 @@ func (s *IngressService) annotationWithPrefix(suffix string) string {
 	return fmt.Sprintf("%v/%v", s.AnnotationsPrefix, suffix)
 }
 
+func isCnamePresent(cname string, ingress *networkingV1.Ingress) error {
+	foundCname := false
+	foundCNames := []string{}
+	for _, rules := range ingress.Spec.Rules {
+		foundCNames = append(foundCNames, rules.Host)
+
+		if rules.Host == cname {
+			foundCname = true
+			break
+		}
+	}
+
+	if !foundCname {
+		return fmt.Errorf(
+			"cname %s is not found in ingress %s, found cnames: %s",
+			cname,
+			ingress.Name,
+			strings.Join(foundCNames, ", "),
+		)
+	}
+
+	return nil
+}
+
 // AddCertificate adds certificates to app ingress
 func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceID, certCname string, cert router.CertData) error {
 	ns, err := k.getAppNamespace(ctx, id.AppName)
@@ -513,19 +568,9 @@ func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceI
 		return err
 	}
 
-	foundCname := false
-	foundCNames := []string{}
-	for _, rules := range ingress.Spec.Rules {
-		foundCNames = append(foundCNames, rules.Host)
-
-		if rules.Host == certCname {
-			foundCname = true
-			break
-		}
-	}
-
-	if !foundCname {
-		return fmt.Errorf("cname %s is not found in ingress %s, found cnames: %s", certCname, ingress.Name, strings.Join(foundCNames, ", "))
+	err = isCnamePresent(certCname, ingress)
+	if err != nil {
+		return err
 	}
 
 	if ingress.Annotations[AnnotationsACMEKey] == "true" {
@@ -624,6 +669,10 @@ func (k *IngressService) GetCertificate(ctx context.Context, id router.InstanceI
 		return nil, err
 	}
 
+	if retSecret.Annotations {
+
+	}
+
 	certificate := string(retSecret.Data["tls.crt"])
 	key := string(retSecret.Data["tls.key"])
 	return &router.CertData{Certificate: certificate, Key: key}, err
@@ -683,7 +732,171 @@ func (s *IngressService) SupportedOptions(ctx context.Context) map[string]string
 	return opts
 }
 
+func (s *IngressService) getCertManagerIssuerData(ctx context.Context, issuerName, namespace string) (CertManagerIssuerData, error) {
+	if strings.Contains(issuerName, ".") {
+		// Treat as external issuer since it's more general
+		parts := strings.Split(issuerName, ".")
+		if len(parts) != 3 {
+			return CertManagerIssuerData{}, fmt.Errorf(errExternalIssuerInvalid, issuerName)
+		}
+
+		// TODO: Check if the external issuer exists
+	
+		// FIX: ASDF
+		// NOTE: MY NOTE
+		return CertManagerIssuerData{
+			Name:  parts[0],
+			Kind:  parts[1],
+			Group: parts[2],
+			Type:  CertManagerIssuerTypeExternalIssuer,
+		}, nil
+	}
+
+	// Treat as CertManager issuer
+	cmClient, err := s.getCertManagerClient()
+	if err != nil {
+		return CertManagerIssuerData{}, err
+	}
+
+	_, err = cmClient.CertmanagerV1().Issuers(namespace).Get(ctx, issuerName, metav1.GetOptions{})
+	if err != nil && !k8sErrors.IsNotFound(err) {
+		return CertManagerIssuerData{}, err
+	}
+
+	if err == nil {
+		return CertManagerIssuerData{
+			Name: issuerName,
+			Type: CertManagerIssuerTypeIssuer,
+		}, nil
+	}
+
+	// Check if it's a cluster issuer
+	_, err = cmClient.CertmanagerV1().ClusterIssuers().Get(ctx, issuerName, metav1.GetOptions{})
+	if err != nil && !k8sErrors.IsNotFound(err) {
+		return CertManagerIssuerData{}, err
+	}
+
+	if err == nil {
+		return CertManagerIssuerData{
+			Name: issuerName,
+			Type: CertManagerIssuerTypeClusterIssuer,
+		}, nil
+	}
+
+	// Issuer not found
+	return CertManagerIssuerData{}, fmt.Errorf(errIssuerNotFound, issuerName)
+}
+
+func (k *IngressService) IssueCertManagerCertificate(ctx context.Context, id router.InstanceID, certCname string, issuerName string) error {
+	ns, err := k.getAppNamespace(ctx, id.AppName)
+	if err != nil {
+		return err
+	}
+
+	ingressClient, err := k.ingressClient(ns)
+	if err != nil {
+		return err
+	}
+
+	ingress, err := k.targetIngressForCertificate(ctx, id, certCname)
+	if err != nil {
+		return err
+	}
+
+	// Cname needs to be present in the ingress
+	err = isCnamePresent(certCname, ingress)
+	if err != nil {
+		return err
+	}
+
+	// Parse issuer data
+	issuerData, err := k.getCertManagerIssuerData(ctx, issuerName, ns)
+	if err != nil {
+		return err
+	}
+
+	// Add cert-manager annotation to the ingress
+	switch issuerData.Type {
+
+	case CertManagerIssuerTypeIssuer:
+		ingress.ObjectMeta.Annotations[CertManagerIssuerKey] = issuerData.Name
+
+	case CertManagerIssuerTypeClusterIssuer:
+		ingress.ObjectMeta.Annotations[CertManagerClusterIssuerKey] = issuerData.Name
+
+	case CertManagerIssuerTypeExternalIssuer:
+		ingress.ObjectMeta.Annotations[CertManagerIssuerKey] = issuerData.Name
+		ingress.ObjectMeta.Annotations[CertManagerIssuerKindKey] = issuerData.Kind
+		ingress.ObjectMeta.Annotations[CertManagerIssuerGroupKey] = issuerData.Group
+	}
+
+	// Find TLS spec for the certName
+	secretName := k.secretName(id, certCname)
+	tlsSpecExists := false
+	for index, ingressTLS := range ingress.Spec.TLS {
+		if ingressTLS.SecretName == secretName {
+			ingress.Spec.TLS[index].Hosts = []string{certCname}
+			tlsSpecExists = true
+			break
+		}
+	}
+
+	// Add TLS spec to the ingress
+	if !tlsSpecExists {
+		ingress.Spec.TLS = append(ingress.Spec.TLS,
+			[]networkingV1.IngressTLS{
+				{
+					Hosts:      []string{certCname},
+					SecretName: secretName,
+				},
+			}...)
+	}
+
+	// Persist changes to the ingress
+	_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
+	return err
+}
+
+func (k *IngressService) RemoveCertManagerCertificate(ctx context.Context, id router.InstanceID, certName string) error {
+	ns, err := k.getAppNamespace(ctx, id.AppName)
+	if err != nil {
+		return err
+	}
+	ingressClient, err := k.ingressClient(ns)
+	if err != nil {
+		return err
+	}
+	ingress, err := k.targetIngressForCertificate(ctx, id, certName)
+	if err != nil {
+		return err
+	}
+
+	// Remove cert-manager annotation from the ingress
+	delete(ingress.ObjectMeta.Annotations, CertManagerIssuerKey)
+	delete(ingress.ObjectMeta.Annotations, CertManagerClusterIssuerKey)
+	delete(ingress.ObjectMeta.Annotations, CertManagerIssuerKindKey)
+	delete(ingress.ObjectMeta.Annotations, CertManagerIssuerGroupKey)
+
+	// Remove TLS spec from the ingress
+	for k := range ingress.Spec.TLS {
+		for _, host := range ingress.Spec.TLS[k].Hosts {
+			if strings.Compare(certName, host) == 0 {
+				ingress.Spec.TLS = append(ingress.Spec.TLS[:k], ingress.Spec.TLS[k+1:]...)
+			}
+		}
+	}
+
+	// Persist changes to the ingress
+	_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts router.Opts, id router.InstanceID) {
+	// TODO: receive team name and add as an annotation
 	if i.ObjectMeta.Labels == nil {
 		i.ObjectMeta.Labels = map[string]string{}
 	}

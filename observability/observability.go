@@ -5,10 +5,11 @@
 package observability
 
 import (
+	"log"
+
 	opentracing "github.com/opentracing/opentracing-go"
 	jaegerConfig "github.com/uber/jaeger-client-go/config"
 	"github.com/uber/jaeger-client-go/zipkin"
-	"istio.io/pkg/log"
 )
 
 func init() {
@@ -33,7 +34,7 @@ func init() {
 		opentracing.SetGlobalTracer(tracer)
 	} else {
 		// FIXME: we need to mark that traces are disabled
-		log.Debugf("Could not initialize jaeger tracer: %s", err.Error())
+		log.Printf("Could not initialize jaeger tracer: %s", err.Error())
 	}
 
 }
