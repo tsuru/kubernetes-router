@@ -669,6 +669,10 @@ func (k *IngressService) GetCertificate(ctx context.Context, id router.InstanceI
 		return nil, err
 	}
 
+	if retSecret.Annotations {
+
+	}
+
 	certificate := string(retSecret.Data["tls.crt"])
 	key := string(retSecret.Data["tls.key"])
 	return &router.CertData{Certificate: certificate, Key: key}, err
@@ -737,7 +741,9 @@ func (s *IngressService) getCertManagerIssuerData(ctx context.Context, issuerNam
 		}
 
 		// TODO: Check if the external issuer exists
-
+	
+		// FIX: ASDF
+		// NOTE: MY NOTE
 		return CertManagerIssuerData{
 			Name:  parts[0],
 			Kind:  parts[1],
@@ -890,6 +896,7 @@ func (k *IngressService) RemoveCertManagerCertificate(ctx context.Context, id ro
 }
 
 func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts router.Opts, id router.InstanceID) {
+	// TODO: receive team name and add as an annotation
 	if i.ObjectMeta.Labels == nil {
 		i.ObjectMeta.Labels = map[string]string{}
 	}

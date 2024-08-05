@@ -106,8 +106,9 @@ type Opts struct {
 
 // CertData user when adding certificates
 type CertData struct {
-	Certificate string `json:"certificate"`
-	Key         string `json:"key"`
+	Certificate            string `json:"certificate"`
+	Key                    string `json:"key"`
+	IsManagedByCertManager bool   `json:"isManagedByCertManager"`
 }
 
 // Issuer data for CertManager
@@ -124,7 +125,9 @@ type EnsureBackendOpts struct {
 	Opts     Opts            `json:"opts"`
 	CNames   []string        `json:"cnames"`
 	Prefixes []BackendPrefix `json:"prefixes"`
+	Team	 string          `json:"team,omitempty"`
 
+	// TODO: check if can be removed
 	PreserveOldCNames bool `json:"preserveOldCNames,omitempty"`
 }
 
