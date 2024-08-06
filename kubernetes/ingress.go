@@ -669,13 +669,16 @@ func (k *IngressService) GetCertificate(ctx context.Context, id router.InstanceI
 		return nil, err
 	}
 
-	if retSecret.Annotations {
-
+	certData := & router.CertData{
+		Certificate: string(retSecret.Data["tls.crt"]),
+		Key:         string(retSecret.Data["tls.key"]),
 	}
 
-	certificate := string(retSecret.Data["tls.crt"])
-	key := string(retSecret.Data["tls.key"])
-	return &router.CertData{Certificate: certificate, Key: key}, err
+	if _, ok := retSecret.Annotations[CertManagerIssuerKey]; ok {
+		certData.IsManagedByCertManager = true
+	}
+
+	return certData, err
 }
 
 // RemoveCertificate delete certificates from app ingress
@@ -741,9 +744,6 @@ func (s *IngressService) getCertManagerIssuerData(ctx context.Context, issuerNam
 		}
 
 		// TODO: Check if the external issuer exists
-	
-		// FIX: ASDF
-		// NOTE: MY NOTE
 		return CertManagerIssuerData{
 			Name:  parts[0],
 			Kind:  parts[1],
