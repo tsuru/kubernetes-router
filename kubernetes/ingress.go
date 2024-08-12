@@ -21,7 +21,9 @@ import (
 
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	typedV1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	networkingTypedV1 "k8s.io/client-go/kubernetes/typed/networking/v1"
 )
@@ -79,7 +81,7 @@ type IngressService struct {
 
 const (
 	errIssuerNotFound         = "issuer %s not found"
-	errExternalIssuerNotFound = "external issuer %s not found"
+	errExternalIssuerNotFound = "external issuer %s not found, err: %s"
 	errExternalIssuerInvalid  = "invalid external issuer: %s (requires <resource name>.<resource kind>.<resource group>)"
 )
 
@@ -314,7 +316,7 @@ func setSpanError(span opentracing.Span, err error) {
 type ensureCNameBackendOpts struct {
 	namespace  string
 	id         router.InstanceID
-	team	   string
+	team       string
 	cname      string
 	service    *v1.Service
 	routerOpts router.Opts
@@ -737,14 +739,18 @@ func (s *IngressService) SupportedOptions(ctx context.Context) map[string]string
 	return opts
 }
 
-func (s *IngressService) resourceExists(ctx context.Context) {
-	restMapper := m.cli.RESTMapper()
-	if restMapper == nil {
-		return map[string]string{}, nil
-	}
-	mapping, err := restMapper.RESTMapping(schema.GroupKind{Group: group, Kind: kind})
+func (s *IngressService) validateCustomIssuer(ctx context.Context, resource CertManagerIssuerData, ns string) error {
+	sigsClient, err := s.getSigsClient()
 	if err != nil {
-		return nil, err
+		return err
+	}
+
+	mapping, err := sigsClient.RESTMapper().RESTMapping(schema.GroupKind{
+		Group: resource.Group,
+		Kind:  resource.Kind,
+	})
+	if err != nil {
+		return err
 	}
 
 	u := &unstructured.Unstructured{}
@@ -755,10 +761,15 @@ func (s *IngressService) resourceExists(ctx context.Context) {
 		Version: mapping.GroupVersionKind.Version,
 	})
 
-	err = m.cli.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, u)
+	err = sigsClient.Get(ctx, types.NamespacedName{
+		Name:      resource.Name,
+		Namespace: ns,
+	}, u)
 	if err != nil {
-		return nil, err
+		return err
 	}
+
+	return nil
 }
 
 func (s *IngressService) getCertManagerIssuerData(ctx context.Context, issuerName, namespace string) (CertManagerIssuerData, error) {
@@ -768,14 +779,18 @@ func (s *IngressService) getCertManagerIssuerData(ctx context.Context, issuerNam
 		if len(parts) != 3 {
 			return CertManagerIssuerData{}, fmt.Errorf(errExternalIssuerInvalid, issuerName)
 		}
-
-		// TODO: Check if the external issuer exists
-		return CertManagerIssuerData{
+		cmIssuerData := CertManagerIssuerData{
 			Name:  parts[0],
 			Kind:  parts[1],
 			Group: parts[2],
 			Type:  CertManagerIssuerTypeExternalIssuer,
-		}, nil
+		}
+
+		if err := s.validateCustomIssuer(ctx, cmIssuerData, namespace); err != nil {
+			return CertManagerIssuerData{}, fmt.Errorf(errExternalIssuerNotFound, issuerName, err.Error())
+		}
+
+		return cmIssuerData, nil
 	}
 
 	// Treat as CertManager issuer

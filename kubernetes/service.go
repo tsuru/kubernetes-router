@@ -31,6 +31,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/transport"
+
+	sigsk8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -75,6 +77,7 @@ type BaseService struct {
 	RestConfig        *rest.Config
 	Client            kubernetes.Interface
 	TsuruClient       tsuruv1clientset.Interface
+	SigsClient        sigsk8sclient.Client
 	CertManagerClient certmanagerv1clientset.Interface
 	ExtensionsClient  apiextensionsclientset.Interface
 	Labels            map[string]string
@@ -131,7 +134,16 @@ func (k BaseService) getCertManagerClient() (certmanagerv1clientset.Interface, e
 	return certmanagerv1clientset.NewForConfig(config)
 }
 
-func (k BaseService) getRestClient() {
+func (k *BaseService) getSigsClient() (sigsk8sclient.Client, error) {
+	if k.SigsClient != nil {
+		return k.SigsClient, nil
+	}
+	config, err := k.getConfig()
+	if err != nil {
+		return nil, err
+	}
+	k.SigsClient, err = sigsk8sclient.New(config, sigsk8sclient.Options{})
+	return k.SigsClient, err
 }
 
 func (k *BaseService) getExtensionsClient() (apiextensionsclientset.Interface, error) {
