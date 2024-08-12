@@ -48,6 +48,7 @@ const (
 
 	defaultServicePort = 8888
 	appLabel           = "tsuru.io/app-name"
+	teamLabel          = "tsuru.io/team-name"
 	domainLabel        = "tsuru.io/domain-name"
 	processLabel       = "tsuru.io/app-process"
 	appPoolLabel       = "tsuru.io/app-pool"
@@ -128,6 +129,9 @@ func (k BaseService) getCertManagerClient() (certmanagerv1clientset.Interface, e
 		return nil, err
 	}
 	return certmanagerv1clientset.NewForConfig(config)
+}
+
+func (k BaseService) getRestClient() {
 }
 
 func (k *BaseService) getExtensionsClient() (apiextensionsclientset.Interface, error) {

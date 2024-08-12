@@ -127,7 +127,6 @@ type EnsureBackendOpts struct {
 	Prefixes []BackendPrefix `json:"prefixes"`
 	Team	 string          `json:"team,omitempty"`
 
-	// TODO: check if can be removed
 	PreserveOldCNames bool `json:"preserveOldCNames,omitempty"`
 }
 

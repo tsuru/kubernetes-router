@@ -191,7 +191,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		},
 		Spec: buildIngressSpec(vhosts, o.Opts.Route, backendServices),
 	}
-	k.fillIngressMeta(ingress, o.Opts, id)
+	k.fillIngressMeta(ingress, o.Opts, id, o.Team)
 	if o.Opts.Acme {
 		k.fillIngressTLS(ingress, id)
 		ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
@@ -212,6 +212,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		err = k.ensureCNameBackend(ctx, ensureCNameBackendOpts{
 			namespace:  ns,
 			id:         id,
+			team:       o.Team,
 			cname:      cname,
 			service:    backendServices["default"],
 			routerOpts: o.Opts,
@@ -313,6 +314,7 @@ func setSpanError(span opentracing.Span, err error) {
 type ensureCNameBackendOpts struct {
 	namespace  string
 	id         router.InstanceID
+	team	   string
 	cname      string
 	service    *v1.Service
 	routerOpts router.Opts
@@ -365,7 +367,7 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 		Spec: buildIngressSpec(map[string]string{"ensureCnameBackend": opts.cname}, opts.routerOpts.Route, map[string]*v1.Service{"ensureCnameBackend": opts.service}),
 	}
 
-	k.fillIngressMeta(ingress, opts.routerOpts, opts.id)
+	k.fillIngressMeta(ingress, opts.routerOpts, opts.id, opts.team)
 	if opts.routerOpts.AcmeCName {
 		k.fillIngressTLS(ingress, opts.id)
 		ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
@@ -669,7 +671,7 @@ func (k *IngressService) GetCertificate(ctx context.Context, id router.InstanceI
 		return nil, err
 	}
 
-	certData := & router.CertData{
+	certData := &router.CertData{
 		Certificate: string(retSecret.Data["tls.crt"]),
 		Key:         string(retSecret.Data["tls.key"]),
 	}
@@ -733,6 +735,30 @@ func (s *IngressService) SupportedOptions(ctx context.Context) map[string]string
 		}
 	}
 	return opts
+}
+
+func (s *IngressService) resourceExists(ctx context.Context) {
+	restMapper := m.cli.RESTMapper()
+	if restMapper == nil {
+		return map[string]string{}, nil
+	}
+	mapping, err := restMapper.RESTMapping(schema.GroupKind{Group: group, Kind: kind})
+	if err != nil {
+		return nil, err
+	}
+
+	u := &unstructured.Unstructured{}
+	u.Object = map[string]interface{}{}
+	u.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   mapping.GroupVersionKind.Group,
+		Kind:    mapping.GroupVersionKind.Kind,
+		Version: mapping.GroupVersionKind.Version,
+	})
+
+	err = m.cli.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, u)
+	if err != nil {
+		return nil, err
+	}
 }
 
 func (s *IngressService) getCertManagerIssuerData(ctx context.Context, issuerName, namespace string) (CertManagerIssuerData, error) {
@@ -815,7 +841,7 @@ func (k *IngressService) IssueCertManagerCertificate(ctx context.Context, id rou
 		return err
 	}
 
-	// Add cert-manager annotation to the ingress
+	// Add cert-manager annotations to the ingress
 	switch issuerData.Type {
 
 	case CertManagerIssuerTypeIssuer:
@@ -895,7 +921,7 @@ func (k *IngressService) RemoveCertManagerCertificate(ctx context.Context, id ro
 	return nil
 }
 
-func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts router.Opts, id router.InstanceID) {
+func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts router.Opts, id router.InstanceID, team string) {
 	// TODO: receive team name and add as an annotation
 	if i.ObjectMeta.Labels == nil {
 		i.ObjectMeta.Labels = map[string]string{}
@@ -910,6 +936,7 @@ func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts rou
 		i.ObjectMeta.Annotations[k] = v
 	}
 	i.ObjectMeta.Labels[appLabel] = id.AppName
+	i.ObjectMeta.Labels[teamLabel] = team
 
 	additionalOpts := routerOpts.AdditionalOpts
 	if s.IngressClass != "" {
