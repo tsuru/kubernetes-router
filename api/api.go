@@ -314,7 +314,6 @@ func (a *RouterAPI) removeCertificate(w http.ResponseWriter, r *http.Request) er
 	return err
 }
 
-
 // issueCertManagerCert Issues certificate for the app
 func (a *RouterAPI) issueCertManagerCert(_ http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
@@ -339,7 +338,7 @@ func (a *RouterAPI) issueCertManagerCert(_ http.ResponseWriter, r *http.Request)
 	if !ok {
 		return httpError{
 			Status: http.StatusNotFound,
-			Body: fmt.Sprintf("Router %s doesn't have cert-manager support", vars["mode"]),
+			Body:   fmt.Sprintf("Router %s doesn't have cert-manager support", vars["mode"]),
 		}
 	}
 
@@ -364,7 +363,7 @@ func (a *RouterAPI) removeCertManagerCert(_ http.ResponseWriter, r *http.Request
 	if !ok {
 		return httpError{
 			Status: http.StatusNotFound,
-			Body: fmt.Sprintf("Router %s doesn't have cert-manager support", vars["mode"]),
+			Body:   fmt.Sprintf("Router %s doesn't have cert-manager support", vars["mode"]),
 		}
 	}
 

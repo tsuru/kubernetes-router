@@ -125,7 +125,7 @@ type EnsureBackendOpts struct {
 	Opts     Opts            `json:"opts"`
 	CNames   []string        `json:"cnames"`
 	Prefixes []BackendPrefix `json:"prefixes"`
-	Team	 string          `json:"team,omitempty"`
+	Team     string          `json:"team,omitempty"`
 
 	PreserveOldCNames bool `json:"preserveOldCNames,omitempty"`
 }
