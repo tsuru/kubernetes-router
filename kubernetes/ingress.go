@@ -937,7 +937,6 @@ func (k *IngressService) RemoveCertManagerCertificate(ctx context.Context, id ro
 }
 
 func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts router.Opts, id router.InstanceID, team string) {
-	// TODO: receive team name and add as an annotation
 	if i.ObjectMeta.Labels == nil {
 		i.ObjectMeta.Labels = map[string]string{}
 	}
