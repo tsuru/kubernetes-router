@@ -1272,7 +1272,7 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 				"cert-manager.io/cluster-issuer": "letsencrypt-prod",
 			},
 		},
-		Team: "test-team",
+		Team:   "test-team",
 		CNames: []string{"test.io"},
 		Prefixes: []router.BackendPrefix{
 			{
@@ -1287,7 +1287,7 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
-	expectedIngress := defaultIngress("test", "test-team","default")
+	expectedIngress := defaultIngress("test", "test-team", "default")
 	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io"
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
 	expectedIngress.Annotations["cert-manager.io/cluster-issuer"] = "letsencrypt-prod"
@@ -1317,7 +1317,7 @@ func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
 			Acme:      true,
 			AcmeCName: true,
 		},
-		Team: "test-team",
+		Team:   "test-team",
 		CNames: []string{"test.io"},
 		Prefixes: []router.BackendPrefix{
 			{
