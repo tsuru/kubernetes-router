@@ -37,6 +37,7 @@ var (
 
 	CertManagerIssuerKey        = "cert-manager.io/issuer"
 	CertManagerClusterIssuerKey = "cert-manager.io/cluster-issuer"
+	CertManagerIssuerNameKey    = "cert-manager.io/issuer-name"
 	CertManagerIssuerKindKey    = "cert-manager.io/issuer-kind"
 	CertManagerIssuerGroupKey   = "cert-manager.io/issuer-group"
 
@@ -51,8 +52,6 @@ var (
 	unwantedAnnotationsForCNames = []string{
 		CertManagerIssuerKey,
 		CertManagerClusterIssuerKey,
-		CertManagerIssuerKindKey,
-		CertManagerIssuerGroupKey,
 	}
 )
 
@@ -678,7 +677,7 @@ func (k *IngressService) GetCertificate(ctx context.Context, id router.InstanceI
 		Key:         string(retSecret.Data["tls.key"]),
 	}
 
-	if _, ok := retSecret.Annotations[CertManagerIssuerKey]; ok {
+	if _, ok := retSecret.Annotations[CertManagerIssuerNameKey]; ok {
 		certData.IsManagedByCertManager = true
 	}
 
@@ -702,10 +701,25 @@ func (k *IngressService) RemoveCertificate(ctx context.Context, id router.Instan
 	if ingress.Annotations[AnnotationsACMEKey] == "true" {
 		return fmt.Errorf("cannot remove certificate from ingress %s, it is managed by ACME", ingress.Name)
 	}
-	secret, err := k.secretClient(ns)
-	if err != nil {
-		return err
+
+	isManagedByCertManager := false
+
+	_, hasIssuer := ingress.Annotations[CertManagerIssuerKey]
+	_, hasClusterIssuer := ingress.Annotations[CertManagerClusterIssuerKey]
+
+	if hasIssuer || hasClusterIssuer {
+		isManagedByCertManager = true
 	}
+
+	if isManagedByCertManager {
+		// Remove cert-manager annotation from the ingress
+		delete(ingress.ObjectMeta.Annotations, CertManagerIssuerKey)
+		delete(ingress.ObjectMeta.Annotations, CertManagerClusterIssuerKey)
+		delete(ingress.ObjectMeta.Annotations, CertManagerIssuerKindKey)
+		delete(ingress.ObjectMeta.Annotations, CertManagerIssuerGroupKey)
+	}
+
+	// Remove TLS spec from the ingress
 	for k := range ingress.Spec.TLS {
 		for _, host := range ingress.Spec.TLS[k].Hosts {
 			if strings.Compare(certCname, host) == 0 {
@@ -717,7 +731,16 @@ func (k *IngressService) RemoveCertificate(ctx context.Context, id router.Instan
 	if err != nil {
 		return err
 	}
-	err = secret.Delete(ctx, k.secretName(id, certCname), metav1.DeleteOptions{})
+
+	// Delete secret if it's not automatically managed
+	if !isManagedByCertManager {
+		secret, err := k.secretClient(ns)
+		if err != nil {
+			return err
+		}
+		err = secret.Delete(ctx, k.secretName(id, certCname), metav1.DeleteOptions{})
+	}
+
 	return err
 }
 

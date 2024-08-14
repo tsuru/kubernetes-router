@@ -54,7 +54,6 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 
 	// cert-manager
 	r.Handle("/backend/{name}/cert-manager/{certname}", handler(a.issueCertManagerCert)).Methods(http.MethodPut)
-	r.Handle("/backend/{name}/cert-manager/{certname}", handler(a.removeCertManagerCert)).Methods(http.MethodDelete)
 
 	// Supports
 	r.Handle("/support/tls", handler(a.supportTLS)).Methods(http.MethodGet)
@@ -343,31 +342,6 @@ func (a *RouterAPI) issueCertManagerCert(_ http.ResponseWriter, r *http.Request)
 	}
 
 	return cmRouter.IssueCertManagerCertificate(ctx, instanceID(r), certName, cert.Issuer)
-}
-
-// removeCertManagerCert Removes certificate for the app
-func (a *RouterAPI) removeCertManagerCert(_ http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	vars := mux.Vars(r)
-	name := vars["name"]
-	certName := vars["certname"]
-
-	log.Printf("Removing certificate %s from %s", certName, name)
-
-	svc, err := a.router(ctx, vars["mode"], r.Header)
-	if err != nil {
-		return err
-	}
-
-	cmRouter, ok := svc.(router.RouterCertManager)
-	if !ok {
-		return httpError{
-			Status: http.StatusNotFound,
-			Body:   fmt.Sprintf("Router %s doesn't have cert-manager support", vars["mode"]),
-		}
-	}
-
-	return cmRouter.RemoveCertManagerCertificate(ctx, instanceID(r), certName)
 }
 
 // Check for TLS Support

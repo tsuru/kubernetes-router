@@ -85,7 +85,6 @@ type RouterTLS interface {
 type RouterCertManager interface {
 	RouterTLS
 	IssueCertManagerCertificate(ctx context.Context, id InstanceID, certName string, issuerName string) error
-	RemoveCertManagerCertificate(ctx context.Context, id InstanceID, certName string) error
 }
 
 // Opts used when creating/updating routers
