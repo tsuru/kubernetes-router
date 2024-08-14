@@ -738,10 +738,10 @@ func (k *IngressService) RemoveCertificate(ctx context.Context, id router.Instan
 		if err != nil {
 			return err
 		}
-		err = secret.Delete(ctx, k.secretName(id, certCname), metav1.DeleteOptions{})
+		return secret.Delete(ctx, k.secretName(id, certCname), metav1.DeleteOptions{})
 	}
 
-	return err
+	return nil
 }
 
 // SupportedOptions returns the supported options
