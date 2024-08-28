@@ -21,6 +21,7 @@ rules:
   resources:
   - "services"
   - "secrets"
+  - "events"
   verbs:
   - "*"
 - apiGroups:
@@ -42,7 +43,7 @@ rules:
   verbs:
   - "get"
 - apiGroups:
-  - "extensions/v1beta1"
+  - "networking.k8s.io"
   resources:
   - "ingresses"
   verbs:
