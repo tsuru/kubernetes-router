@@ -110,11 +110,11 @@ type BackendPrefix struct {
 }
 
 type EnsureBackendOpts struct {
-	Opts     Opts            `json:"opts"`
-	CNames   []string        `json:"cnames"`
-	Prefixes []BackendPrefix `json:"prefixes"`
-
-	PreserveOldCNames bool `json:"preserveOldCNames,omitempty"`
+	Opts        Opts              `json:"opts"`
+	CNames      []string          `json:"cnames"`
+	Team        string            `json:"team"`
+	CertIssuers map[string]string `json:"certIssuers"`
+	Prefixes    []BackendPrefix   `json:"prefixes"`
 }
 
 type BackendTarget struct {

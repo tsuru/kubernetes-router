@@ -18,11 +18,12 @@ build:
 
 .PHONY: build-docker
 build-docker:
-	docker build --rm -t $(IMAGE):$(TAG) .
+	docker build -t localhost:5000/kubernetes-router:latest .
 
 .PHONY: push
 push: build-docker
-	docker push $(IMAGE):$(TAG)
+	docker push localhost:5000/kubernetes-router:latest
+	kubectl get po -l app=kubernetes-router --no-headers | awk '{ print $$1 }' | xargs -I{} kubectl delete po {}
 
 .PHONY: test
 test:

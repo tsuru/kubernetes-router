@@ -41,9 +41,15 @@ var (
 		defaultClassOpt: "Ingress class for the Ingress object",
 	}
 
+	certManagerIssuerKey        = "cert-manager.io/issuer"
+	certManagerClusterIssuerKey = "cert-manager.io/cluster-issuer"
+	certManagerIssuerNameKey    = "cert-manager.io/issuer-name"
+	certManagerIssuerKindKey    = "cert-manager.io/issuer-kind"
+	certManagerIssuerGroupKey   = "cert-manager.io/issuer-group"
+
 	unwantedAnnotationsForCNames = []string{
-		"cert-manager.io/cluster-issuer",
-		"cert-manager.io/issuer",
+		certManagerIssuerKey,
+		certManagerClusterIssuerKey,
 	}
 )
 
@@ -52,6 +58,21 @@ var (
 	_ router.RouterTLS    = &IngressService{}
 	_ router.RouterStatus = &IngressService{}
 )
+
+type CertManagerIssuerType int
+
+const (
+	certManagerIssuerTypeIssuer = iota
+	certManagerIssuerTypeClusterIssuer
+	certManagerIssuerTypeExternalIssuer
+)
+
+type CertManagerIssuerData struct {
+	name       string
+	kind       string
+	group      string
+	issuerType CertManagerIssuerType
+}
 
 // IngressService manages ingresses in a Kubernetes cluster that uses ingress-nginx
 type IngressService struct {
@@ -74,7 +95,11 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	defer span.Finish()
 
 	span.SetTag("cnames", o.CNames)
-	span.SetTag("preserveOldCNames", o.PreserveOldCNames)
+
+	// TODO: debug - remove later
+	fmt.Println("Team", o.Team)
+	fmt.Println("CNames", o.CNames)
+	fmt.Println("CertIssuers", o.CertIssuers)
 
 	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
@@ -160,7 +185,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		},
 		Spec: buildIngressSpec(vhosts, o.Opts.Route, backendServices),
 	}
-	k.fillIngressMeta(ingress, o.Opts, id)
+	k.fillIngressMeta(ingress, o.Opts, id, o.Team)
 	if o.Opts.Acme {
 		k.fillIngressTLS(ingress, id)
 		ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
@@ -182,6 +207,8 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			namespace:  ns,
 			id:         id,
 			cname:      cname,
+			team:       o.Team,
+			certIssuer: o.CertIssuers[cname],
 			service:    backendServices["default"],
 			routerOpts: o.Opts,
 		})
@@ -192,15 +219,14 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		}
 	}
 
-	if o.PreserveOldCNames {
-		cnamesToRemove = []string{}
-	}
 	span.LogKV("cnamesToRemove", cnamesToRemove)
 	for _, cname := range cnamesToRemove {
 		err = k.removeCNameBackend(ctx, ensureCNameBackendOpts{
 			namespace:  ns,
 			id:         id,
 			cname:      cname,
+			team:       o.Team,
+			certIssuer: o.CertIssuers[cname],
 			service:    backendServices["default"],
 			routerOpts: o.Opts,
 		})
@@ -229,7 +255,8 @@ func (k *IngressService) mergeIngresses(ctx context.Context, ingress *networking
 	if existingIngress.Spec.DefaultBackend != nil {
 		ingress.Spec.DefaultBackend = existingIngress.Spec.DefaultBackend
 	}
-	if existingIngress.Spec.TLS != nil {
+	if existingIngress.Spec.TLS != nil && len(existingIngress.Spec.TLS) > 0 {
+		fmt.Println("from merge -> existingIngress.Spec.TLS", existingIngress.Spec.TLS)
 		k.fillIngressTLS(ingress, id)
 	}
 	_, err := ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
@@ -283,6 +310,8 @@ type ensureCNameBackendOpts struct {
 	namespace  string
 	id         router.InstanceID
 	cname      string
+	team       string
+	certIssuer string
 	service    *v1.Service
 	routerOpts router.Opts
 }
@@ -334,12 +363,26 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 		Spec: buildIngressSpec(map[string]string{"ensureCnameBackend": opts.cname}, opts.routerOpts.Route, map[string]*v1.Service{"ensureCnameBackend": opts.service}),
 	}
 
-	k.fillIngressMeta(ingress, opts.routerOpts, opts.id)
+	k.fillIngressMeta(ingress, opts.routerOpts, opts.id, opts.team)
 	if opts.routerOpts.AcmeCName {
 		k.fillIngressTLS(ingress, opts.id)
 		ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 	} else {
 		k.cleanupACMEAnnotations(ingress)
+	}
+
+	if opts.certIssuer == "" {
+		// if no cert issuer is provided, we should remove any existing cert issuer annotation
+		delete(ingress.ObjectMeta.Annotations, certManagerClusterIssuerKey)
+
+		// NOTE: maybe this is too destructive, we could just loose the cert manager annotation?
+		// if so, we should also prevent the remove cert route from removing the TLS on the ingress
+		// since it could also have been added by the cert manager issuer
+		k.cleanupIngressTLS(existingIngress, opts.id, opts.cname)
+	} else {
+		// if a cert issuer is provided, we should add it to the ingress
+		k.fillIngressTLS(ingress, opts.id)
+		ingress.ObjectMeta.Annotations[certManagerClusterIssuerKey] = opts.certIssuer
 	}
 
 	if isNew {
@@ -348,6 +391,7 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 	}
 
 	if ingressHasChanges(span, existingIngress, ingress) {
+		fmt.Println("ingressHasChanges")
 		return k.mergeIngresses(ctx, ingress, existingIngress, opts.id, ingressClient, span)
 	}
 	return nil
@@ -357,6 +401,23 @@ func (k *IngressService) cleanupACMEAnnotations(ingress *networkingV1.Ingress) {
 	for _, annotation := range unwantedAnnotationsForCNames {
 		delete(ingress.Annotations, annotation)
 	}
+}
+
+func (k *IngressService) cleanupIngressTLS(ingress *networkingV1.Ingress, id router.InstanceID, host string) {
+	if len(ingress.Spec.TLS) == 0 {
+		return
+	}
+
+	secretName := k.secretName(id, host)
+
+	newTLS := []networkingV1.IngressTLS{}
+	for _, tls := range ingress.Spec.TLS {
+		if tls.SecretName != secretName {
+			newTLS = append(newTLS, tls)
+		}
+	}
+
+	ingress.Spec.TLS = newTLS
 }
 
 func (k *IngressService) removeCNameBackend(ctx context.Context, opts ensureCNameBackendOpts) error {
@@ -683,7 +744,7 @@ func (s *IngressService) SupportedOptions(ctx context.Context) map[string]string
 	return opts
 }
 
-func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts router.Opts, id router.InstanceID) {
+func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts router.Opts, id router.InstanceID, team string) {
 	if i.ObjectMeta.Labels == nil {
 		i.ObjectMeta.Labels = map[string]string{}
 	}
@@ -697,6 +758,7 @@ func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts rou
 		i.ObjectMeta.Annotations[k] = v
 	}
 	i.ObjectMeta.Labels[appLabel] = id.AppName
+	i.ObjectMeta.Labels[teamLabel] = team
 
 	additionalOpts := routerOpts.AdditionalOpts
 	if s.IngressClass != "" {
