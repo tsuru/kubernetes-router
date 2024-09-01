@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	certmanagerv1clientset "github.com/cert-manager/cert-manager/pkg/client/clientset/versioned"
 	"github.com/tsuru/kubernetes-router/observability"
 	"github.com/tsuru/kubernetes-router/router"
 	tsuruv1 "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/transport"
+	sigsk8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -69,14 +71,16 @@ func (e ErrNoService) Error() string {
 // BaseService has the base functionality needed by router.Service implementations
 // targeting kubernetes
 type BaseService struct {
-	Namespace        string
-	Timeout          time.Duration
-	RestConfig       *rest.Config
-	Client           kubernetes.Interface
-	TsuruClient      tsuruv1clientset.Interface
-	ExtensionsClient apiextensionsclientset.Interface
-	Labels           map[string]string
-	Annotations      map[string]string
+	Namespace         string
+	Timeout           time.Duration
+	RestConfig        *rest.Config
+	Client            kubernetes.Interface
+	TsuruClient       tsuruv1clientset.Interface
+	CertManagerClient certmanagerv1clientset.Interface
+	SigsClient        sigsk8sclient.Client
+	ExtensionsClient  apiextensionsclientset.Interface
+	Labels            map[string]string
+	Annotations       map[string]string
 }
 
 // SupportedOptions returns the options supported by all services
@@ -128,6 +132,29 @@ func (k *BaseService) getExtensionsClient() (apiextensionsclientset.Interface, e
 	}
 	k.ExtensionsClient, err = apiextensionsclientset.NewForConfig(config)
 	return k.ExtensionsClient, err
+}
+
+func (k BaseService) getCertManagerClient() (certmanagerv1clientset.Interface, error) {
+	if k.CertManagerClient != nil {
+		return k.CertManagerClient, nil
+	}
+	config, err := k.getConfig()
+	if err != nil {
+		return nil, err
+	}
+	return certmanagerv1clientset.NewForConfig(config)
+}
+
+func (k *BaseService) getSigsClient() (sigsk8sclient.Client, error) {
+	if k.SigsClient != nil {
+		return k.SigsClient, nil
+	}
+	config, err := k.getConfig()
+	if err != nil {
+		return nil, err
+	}
+	k.SigsClient, err = sigsk8sclient.New(config, sigsk8sclient.Options{})
+	return k.SigsClient, err
 }
 
 func (k *BaseService) getConfig() (*rest.Config, error) {

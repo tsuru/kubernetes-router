@@ -21,7 +21,9 @@ import (
 
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	typedV1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	networkingTypedV1 "k8s.io/client-go/kubernetes/typed/networking/v1"
 )
@@ -59,6 +61,7 @@ var (
 	_ router.RouterStatus = &IngressService{}
 )
 
+// Cert-manager types
 type CertManagerIssuerType int
 
 const (
@@ -73,6 +76,12 @@ type CertManagerIssuerData struct {
 	group      string
 	issuerType CertManagerIssuerType
 }
+
+const (
+	errIssuerNotFound         = "issuer %s not found"
+	errExternalIssuerNotFound = "external issuer %s not found, err: %s"
+	errExternalIssuerInvalid  = "invalid external issuer: %s (requires <resource name>.<resource kind>.<resource group>)"
+)
 
 // IngressService manages ingresses in a Kubernetes cluster that uses ingress-nginx
 type IngressService struct {
@@ -783,6 +792,95 @@ func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts rou
 			i.ObjectMeta.Annotations[labelName] = optValue
 		}
 	}
+}
+
+func (s *IngressService) validateCustomIssuer(ctx context.Context, resource CertManagerIssuerData, ns string) error {
+	sigsClient, err := s.getSigsClient()
+	if err != nil {
+		return err
+	}
+
+	mapping, err := sigsClient.RESTMapper().RESTMapping(schema.GroupKind{
+		Group: resource.group,
+		Kind:  resource.kind,
+	})
+	if err != nil {
+		return err
+	}
+
+	u := &unstructured.Unstructured{}
+	u.Object = map[string]interface{}{}
+	u.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   mapping.GroupVersionKind.Group,
+		Kind:    mapping.GroupVersionKind.Kind,
+		Version: mapping.GroupVersionKind.Version,
+	})
+
+	err = sigsClient.Get(ctx, types.NamespacedName{
+		Name:      resource.name,
+		Namespace: ns,
+	}, u)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *IngressService) getCertManagerIssuerData(ctx context.Context, issuerName, namespace string) (CertManagerIssuerData, error) {
+	if strings.Contains(issuerName, ".") {
+		// Treat as external issuer since it's more general
+		parts := strings.Split(issuerName, ".")
+		if len(parts) != 3 {
+			return CertManagerIssuerData{}, fmt.Errorf(errExternalIssuerInvalid, issuerName)
+		}
+		cmIssuerData := CertManagerIssuerData{
+			name:       parts[0],
+			kind:       parts[1],
+			group:      parts[2],
+			issuerType: certManagerIssuerTypeExternalIssuer,
+		}
+
+		if err := s.validateCustomIssuer(ctx, cmIssuerData, namespace); err != nil {
+			return CertManagerIssuerData{}, fmt.Errorf(errExternalIssuerNotFound, issuerName, err.Error())
+		}
+
+		return cmIssuerData, nil
+	}
+
+	// Treat as CertManager issuer
+	cmClient, err := s.getCertManagerClient()
+	if err != nil {
+		return CertManagerIssuerData{}, err
+	}
+
+	_, err = cmClient.CertmanagerV1().Issuers(namespace).Get(ctx, issuerName, metav1.GetOptions{})
+	if err != nil && !k8sErrors.IsNotFound(err) {
+		return CertManagerIssuerData{}, err
+	}
+
+	if err == nil {
+		return CertManagerIssuerData{
+			name:       issuerName,
+			issuerType: certManagerIssuerTypeIssuer,
+		}, nil
+	}
+
+	// Check if it's a cluster issuer
+	_, err = cmClient.CertmanagerV1().ClusterIssuers().Get(ctx, issuerName, metav1.GetOptions{})
+	if err != nil && !k8sErrors.IsNotFound(err) {
+		return CertManagerIssuerData{}, err
+	}
+
+	if err == nil {
+		return CertManagerIssuerData{
+			name:       issuerName,
+			issuerType: certManagerIssuerTypeClusterIssuer,
+		}, nil
+	}
+
+	// Issuer not found
+	return CertManagerIssuerData{}, fmt.Errorf(errIssuerNotFound, issuerName)
 }
 
 func (s *IngressService) fillIngressTLS(i *networkingV1.Ingress, id router.InstanceID) {
