@@ -42,11 +42,19 @@ rules:
   verbs:
   - "get"
 - apiGroups:
-  - "extensions/v1beta1"
+  - "networking.k8s.io"
   resources:
   - "ingresses"
   verbs:
   - "*"
+- apiGroups:
+  - "cert-manager.io"
+  resources:
+    - "issuers"
+    - "clusterissuers"
+  verbs:
+    - "get"
+    - "list"
 ---
 apiVersion: v1
 kind: ServiceAccount

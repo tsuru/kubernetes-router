@@ -380,18 +380,9 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 		k.cleanupACMEAnnotations(ingress)
 	}
 
-	if opts.certIssuer == "" {
-		// if no cert issuer is provided, we should remove any existing cert issuer annotation
-		delete(ingress.ObjectMeta.Annotations, certManagerClusterIssuerKey)
-
-		// NOTE: maybe this is too destructive, we could just loose the cert manager annotation?
-		// if so, we should also prevent the remove cert route from removing the TLS on the ingress
-		// since it could also have been added by the cert manager issuer
-		k.cleanupIngressTLS(existingIngress, opts.id, opts.cname)
-	} else {
-		// if a cert issuer is provided, we should add it to the ingress
-		k.fillIngressTLS(ingress, opts.id)
-		ingress.ObjectMeta.Annotations[certManagerClusterIssuerKey] = opts.certIssuer
+	err = k.ensureCertManagerIssuer(ctx, opts, ingress, existingIngress)
+	if err != nil {
+		return err
 	}
 
 	if isNew {
@@ -404,6 +395,58 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 		return k.mergeIngresses(ctx, ingress, existingIngress, opts.id, ingressClient, span)
 	}
 	return nil
+}
+
+func (k *IngressService) ensureCertManagerIssuer(ctx context.Context, opts ensureCNameBackendOpts, ingress, existingIngress *networkingV1.Ingress) error {
+	if opts.certIssuer == "" {
+		// If no cert issuer is provided, we should remove any existing cert issuer annotation
+		k.cleanupCertManagerAnnotations(ingress)
+
+		// NOTE: maybe this is too destructive, we could just loose the cert manager annotation?
+		// if so, we should also prevent the remove cert route from removing the TLS on the ingress
+		// since it could also have been added by the cert manager issuer
+		k.cleanupIngressTLS(existingIngress, opts.id, opts.cname)
+	} else {
+		// If a cert issuer is provided, we should add it to the ingress
+		k.fillIngressTLS(ingress, opts.id)
+		ingress.ObjectMeta.Annotations[certManagerClusterIssuerKey] = opts.certIssuer
+
+		certIssuerData, err := k.getCertManagerIssuerData(ctx, opts.certIssuer, opts.namespace)
+		if err != nil {
+			log.Printf("Error getting cert manager issuer data: %v", err)
+			return err
+		}
+
+		log.Printf("Cert manager issuer data: %v", certIssuerData)
+
+		// Remove previous cermanager annotations if needed and
+		// add cert-manager annotations to the ingress.
+		k.cleanupCertManagerAnnotations(ingress)
+		switch certIssuerData.issuerType {
+
+		case certManagerIssuerTypeIssuer:
+			log.Printf("Adding cert manager issuer annotation to ingress: %v", certIssuerData.name)
+			ingress.ObjectMeta.Annotations[certManagerIssuerKey] = certIssuerData.name
+
+		case certManagerIssuerTypeClusterIssuer:
+			log.Printf("Adding cert manager cluster issuer annotation to ingress: %v", certIssuerData.name)
+			ingress.ObjectMeta.Annotations[certManagerClusterIssuerKey] = certIssuerData.name
+
+		case certManagerIssuerTypeExternalIssuer:
+			ingress.ObjectMeta.Annotations[certManagerIssuerKey] = certIssuerData.name
+			ingress.ObjectMeta.Annotations[certManagerIssuerKindKey] = certIssuerData.kind
+			ingress.ObjectMeta.Annotations[certManagerIssuerGroupKey] = certIssuerData.group
+		}
+	}
+
+	return nil
+}
+
+func (k *IngressService) cleanupCertManagerAnnotations(ingress *networkingV1.Ingress) {
+	delete(ingress.Annotations, certManagerIssuerKey)
+	delete(ingress.Annotations, certManagerClusterIssuerKey)
+	delete(ingress.Annotations, certManagerIssuerKindKey)
+	delete(ingress.Annotations, certManagerIssuerGroupKey)
 }
 
 func (k *IngressService) cleanupACMEAnnotations(ingress *networkingV1.Ingress) {

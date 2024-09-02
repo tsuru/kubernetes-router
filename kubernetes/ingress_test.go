@@ -486,6 +486,9 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 	assert.Equal(t, foundIngress.Annotations[AnnotationsCNames], "")
 }
 
+func TestEnsureCertManagerIssuer(t *testing.T) {
+}
+
 func TestIngressCreateDefaultClass(t *testing.T) {
 	svc := createFakeService()
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
