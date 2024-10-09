@@ -425,11 +425,9 @@ func (k *IngressService) ensureCertManagerIssuer(ctx context.Context, opts ensur
 		switch certIssuerData.issuerType {
 
 		case certManagerIssuerTypeIssuer:
-			log.Printf("Adding cert manager issuer annotation to ingress: %v", certIssuerData.name)
 			ingress.ObjectMeta.Annotations[certManagerIssuerKey] = certIssuerData.name
 
 		case certManagerIssuerTypeClusterIssuer:
-			log.Printf("Adding cert manager cluster issuer annotation to ingress: %v", certIssuerData.name)
 			ingress.ObjectMeta.Annotations[certManagerClusterIssuerKey] = certIssuerData.name
 
 		case certManagerIssuerTypeExternalIssuer:
