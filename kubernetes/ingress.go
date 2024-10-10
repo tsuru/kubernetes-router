@@ -105,11 +105,6 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 
 	span.SetTag("cnames", o.CNames)
 
-	// TODO: debug - remove later
-	fmt.Println("Team", o.Team)
-	fmt.Println("CNames", o.CNames)
-	fmt.Println("CertIssuers", o.CertIssuers)
-
 	ns, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
 		setSpanError(span, err)
@@ -391,7 +386,6 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 	}
 
 	if ingressHasChanges(span, existingIngress, ingress) {
-		fmt.Println("ingressHasChanges")
 		return k.mergeIngresses(ctx, ingress, existingIngress, opts.id, ingressClient, span)
 	}
 	return nil
@@ -401,11 +395,6 @@ func (k *IngressService) ensureCertManagerIssuer(ctx context.Context, opts ensur
 	if opts.certIssuer == "" {
 		// If no cert issuer is provided, we should remove any existing cert issuer annotation
 		k.cleanupCertManagerAnnotations(ingress)
-
-		// NOTE: maybe this is too destructive, we could just loose the cert manager annotation?
-		// if so, we should also prevent the remove cert route from removing the TLS on the ingress
-		// since it could also have been added by the cert manager issuer
-		k.cleanupIngressTLS(existingIngress, opts.id, opts.cname)
 	} else {
 		// If a cert issuer is provided, we should add it to the ingress
 		k.fillIngressTLS(ingress, opts.id)

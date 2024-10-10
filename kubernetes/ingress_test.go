@@ -7,6 +7,7 @@ package kubernetes
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,6 +17,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	networkingV1 "k8s.io/api/networking/v1"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	certmanagerv1clientset "github.com/cert-manager/cert-manager/pkg/client/clientset/versioned"
+	fakecertmanager "github.com/cert-manager/cert-manager/pkg/client/clientset/versioned/fake"
 	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,10 +40,11 @@ func createFakeService() IngressService {
 	return IngressService{
 		DomainSuffix: "mycloud.com",
 		BaseService: &BaseService{
-			Namespace:        "default",
-			Client:           client,
-			TsuruClient:      faketsuru.NewSimpleClientset(),
-			ExtensionsClient: fakeapiextensions.NewSimpleClientset(),
+			Namespace:         "default",
+			Client:            client,
+			TsuruClient:       faketsuru.NewSimpleClientset(),
+			ExtensionsClient:  fakeapiextensions.NewSimpleClientset(),
+			CertManagerClient: fakecertmanager.NewSimpleClientset(),
 		},
 	}
 }
@@ -67,6 +72,34 @@ func createAppWebService(client kubernetes.Interface, namespace, appName string)
 	return err
 }
 
+func createCertManagerIssuer(client certmanagerv1clientset.Interface, namespace, name string) error {
+	_, err := client.CertmanagerV1().Issuers(namespace).Create(
+		context.TODO(),
+		&certmanagerv1.Issuer{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+		metav1.CreateOptions{},
+	)
+
+	return err
+}
+
+func createCertManagerClusterIssuer(client certmanagerv1clientset.Interface, name string) error {
+	_, err := client.CertmanagerV1().ClusterIssuers().Create(
+		context.TODO(),
+		&certmanagerv1.ClusterIssuer{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+		metav1.CreateOptions{},
+	)
+
+	return err
+}
+
 func TestSecretName(t *testing.T) {
 	svc := createFakeService()
 	appName := "tsuru-dashboard"
@@ -90,6 +123,7 @@ func TestIngressEnsure(t *testing.T) {
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
 		Opts: router.Opts{},
+		Team: "default",
 		Prefixes: []router.BackendPrefix{
 			{
 				Target: router.BackendTarget{
@@ -106,6 +140,8 @@ func TestIngressEnsure(t *testing.T) {
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Labels["tsuru.io/app-name"] = "test"
+	expectedIngress.Labels["tsuru.io/team-name"] = "default"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 
@@ -333,6 +369,7 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 			},
 		},
 		CNames: []string{"test.io", "www.test.io"},
+		Team:   "default",
 		Prefixes: []router.BackendPrefix{
 			{
 				Target: router.BackendTarget{
@@ -359,6 +396,8 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 	expectedIngress.Spec.Rules[0].HTTP.Paths[0].Path = "/admin"
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Labels["tsuru.io/app-name"] = "test"
+	expectedIngress.Labels["tsuru.io/team-name"] = "default"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io,www.test.io"
@@ -487,6 +526,65 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 }
 
 func TestEnsureCertManagerIssuer(t *testing.T) {
+	svc := createFakeService()
+
+	createCertManagerIssuer(svc.CertManagerClient, svc.Namespace, "letsencrypt")
+	createCertManagerClusterIssuer(svc.CertManagerClient, "letsencrypt-cluster")
+
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		CNames: []string{"test.io", "www.test.io"},
+		CertIssuers: map[string]string{
+			"test.io":     "letsencrypt",
+			"www.test.io": "letsencrypt-cluster",
+		},
+		Team: "default",
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-test.io", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	foundIngress2, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-www.test.io", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, foundIngress.Annotations[certManagerIssuerKey], "letsencrypt")
+	assert.Equal(t, foundIngress2.Annotations[certManagerClusterIssuerKey], "letsencrypt-cluster")
+}
+
+func TestEnsureCertManagerIssuerNotFound(t *testing.T) {
+	svc := createFakeService()
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		CNames: []string{"test.io", "www.test.io"},
+		CertIssuers: map[string]string{
+			"test.io":     "letsencrypt",
+			"www.test.io": "letsencrypt",
+		},
+		Team: "default",
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+
+	// cert-manager issuer not found
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, fmt.Sprintf(errIssuerNotFound, "letsencrypt"))
 }
 
 func TestIngressCreateDefaultClass(t *testing.T) {
@@ -498,6 +596,7 @@ func TestIngressCreateDefaultClass(t *testing.T) {
 		Opts: router.Opts{
 			AdditionalOpts: map[string]string{"my-opt": "v1"},
 		},
+		Team: "default",
 		Prefixes: []router.BackendPrefix{
 			{
 				Target: router.BackendTarget{
@@ -514,6 +613,8 @@ func TestIngressCreateDefaultClass(t *testing.T) {
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Labels["tsuru.io/app-name"] = "test"
+	expectedIngress.Labels["tsuru.io/team-name"] = "default"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["kubernetes.io/ingress.class"] = "nginx"
@@ -531,6 +632,7 @@ func TestIngressEnsureDefaultClassOverride(t *testing.T) {
 		Opts: router.Opts{
 			AdditionalOpts: map[string]string{"class": "xyz"},
 		},
+		Team: "default",
 		Prefixes: []router.BackendPrefix{
 			{
 				Target: router.BackendTarget{
@@ -547,6 +649,8 @@ func TestIngressEnsureDefaultClassOverride(t *testing.T) {
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Labels["tsuru.io/app-name"] = "test"
+	expectedIngress.Labels["tsuru.io/team-name"] = "default"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["kubernetes.io/ingress.class"] = "xyz"
@@ -566,6 +670,7 @@ func TestIngressEnsureDefaultPrefix(t *testing.T) {
 				"prefixed/foo2": "abc",
 			},
 		},
+		Team: "default",
 		Prefixes: []router.BackendPrefix{
 			{
 				Target: router.BackendTarget{
@@ -583,6 +688,8 @@ func TestIngressEnsureDefaultPrefix(t *testing.T) {
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Labels["tsuru.io/app-name"] = "test"
+	expectedIngress.Labels["tsuru.io/team-name"] = "default"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["my.prefix.com/foo1"] = "xyz"
@@ -601,6 +708,7 @@ func TestIngressEnsureRemoveAnnotation(t *testing.T) {
 				"ann1-": "",
 			},
 		},
+		Team: "default",
 		Prefixes: []router.BackendPrefix{
 			{
 				Target: router.BackendTarget{
@@ -618,6 +726,8 @@ func TestIngressEnsureRemoveAnnotation(t *testing.T) {
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Labels["tsuru.io/app-name"] = "test"
+	expectedIngress.Labels["tsuru.io/team-name"] = "default"
 	expectedIngress.Annotations["ann2"] = "val2"
 
 	assert.Equal(t, expectedIngress, foundIngress)
@@ -1165,6 +1275,7 @@ func TestAddCertificateWithCName(t *testing.T) {
 	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
 	require.NoError(t, err)
 	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
+		Team: "default",
 		Prefixes: []router.BackendPrefix{
 			{
 				Target: router.BackendTarget{
@@ -1195,6 +1306,7 @@ func TestAddCertificateWithCName(t *testing.T) {
 	assert.Equal(t, certTest.Spec.TLS, ingress.Spec.TLS)
 
 	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
+		Team: "default",
 		Prefixes: []router.BackendPrefix{
 			{
 				Target: router.BackendTarget{
@@ -1265,6 +1377,7 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 				"cert-manager.io/cluster-issuer": "letsencrypt-prod",
 			},
 		},
+		Team:   "default",
 		CNames: []string{"test.io"},
 		Prefixes: []router.BackendPrefix{
 			{
@@ -1280,6 +1393,8 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedIngress := defaultIngress("test", "default")
+	expectedIngress.Labels["tsuru.io/app-name"] = "test"
+	expectedIngress.Labels["tsuru.io/team-name"] = "default"
 	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io"
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
 	expectedIngress.Annotations["cert-manager.io/cluster-issuer"] = "letsencrypt-prod"
@@ -1298,6 +1413,8 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 	expectedIngress.Spec.Rules[0].Host = "test.io"
 	expectedIngress.Name = "kubernetes-router-cname-test.io"
 	expectedIngress.Labels["router.tsuru.io/is-cname-ingress"] = "true"
+	expectedIngress.Labels["tsuru.io/app-name"] = "test"
+	expectedIngress.Labels["tsuru.io/team-name"] = "default"
 
 	assert.Equal(t, expectedIngress, foundIngress)
 }
@@ -1309,6 +1426,7 @@ func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
 			Acme:      true,
 			AcmeCName: true,
 		},
+		Team:   "default",
 		CNames: []string{"test.io"},
 		Prefixes: []router.BackendPrefix{
 			{
@@ -1324,6 +1442,8 @@ func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedIngress := defaultIngress("test", "default")
+	expectedIngress.Labels["tsuru.io/app-name"] = "test"
+	expectedIngress.Labels["tsuru.io/team-name"] = "default"
 	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io"
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
 	expectedIngress.Spec.TLS = []networkingV1.IngressTLS{
@@ -1340,6 +1460,8 @@ func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
 	expectedIngress = defaultIngress("test", "default")
 	expectedIngress.Spec.Rules[0].Host = "test.io"
 	expectedIngress.Name = "kubernetes-router-cname-test.io"
+	expectedIngress.Labels["tsuru.io/app-name"] = "test"
+	expectedIngress.Labels["tsuru.io/team-name"] = "default"
 	expectedIngress.Labels["router.tsuru.io/is-cname-ingress"] = "true"
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
 
