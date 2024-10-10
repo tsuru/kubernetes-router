@@ -46,9 +46,10 @@ jobs:
         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-
-    - uses: golangci/golangci-lint-action@v3
+    - uses: golangci/golangci-lint-action@v6
       with:
-        version: v1.52.2
+        version: v1.59
+        args: --timeout=10m
 
   docker-image:
     name: "Push to dockerhub"
