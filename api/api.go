@@ -74,9 +74,14 @@ func (a *RouterAPI) registerRoutes(r *mux.Router) {
 
 func (a *RouterAPI) router(ctx context.Context, mode string, header http.Header) (router.Router, error) {
 	router, err := a.Backend.Router(ctx, mode, header)
-	if err == backend.ErrBackendNotFound {
-		return nil, httpError{Status: http.StatusNotFound}
+	if err != nil {
+		if err == backend.ErrBackendNotFound {
+			return nil, httpError{Status: http.StatusNotFound}
+		}
+
+		return nil, err
 	}
+
 	return router, nil
 }
 
