@@ -45,7 +45,6 @@ var (
 
 	certManagerIssuerKey        = "cert-manager.io/issuer"
 	certManagerClusterIssuerKey = "cert-manager.io/cluster-issuer"
-	certManagerIssuerNameKey    = "cert-manager.io/issuer-name"
 	certManagerIssuerKindKey    = "cert-manager.io/issuer-kind"
 	certManagerIssuerGroupKey   = "cert-manager.io/issuer-group"
 
@@ -440,23 +439,6 @@ func (k *IngressService) cleanupACMEAnnotations(ingress *networkingV1.Ingress) {
 	for _, annotation := range unwantedAnnotationsForCNames {
 		delete(ingress.Annotations, annotation)
 	}
-}
-
-func (k *IngressService) cleanupIngressTLS(ingress *networkingV1.Ingress, id router.InstanceID, host string) {
-	if len(ingress.Spec.TLS) == 0 {
-		return
-	}
-
-	secretName := k.secretName(id, host)
-
-	newTLS := []networkingV1.IngressTLS{}
-	for _, tls := range ingress.Spec.TLS {
-		if tls.SecretName != secretName {
-			newTLS = append(newTLS, tls)
-		}
-	}
-
-	ingress.Spec.TLS = newTLS
 }
 
 func (k *IngressService) removeCNameBackend(ctx context.Context, opts ensureCNameBackendOpts) error {
