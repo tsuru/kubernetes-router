@@ -48,9 +48,11 @@ var (
 	certManagerIssuerKindKey    = "cert-manager.io/issuer-kind"
 	certManagerIssuerGroupKey   = "cert-manager.io/issuer-group"
 
-	unwantedAnnotationsForCNames = []string{
+	certManagerAnnotations = []string{
 		certManagerIssuerKey,
 		certManagerClusterIssuerKey,
+		certManagerIssuerKindKey,
+		certManagerIssuerGroupKey,
 	}
 )
 
@@ -193,7 +195,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		k.fillIngressTLS(ingress, id)
 		ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 	} else {
-		k.cleanupACMEAnnotations(ingress)
+		k.cleanupCertManagerAnnotations(ingress)
 	}
 	if len(o.CNames) > 0 {
 		ingress.Annotations[AnnotationsCNames] = strings.Join(o.CNames, ",")
@@ -259,7 +261,6 @@ func (k *IngressService) mergeIngresses(ctx context.Context, ingress *networking
 		ingress.Spec.DefaultBackend = existingIngress.Spec.DefaultBackend
 	}
 	if existingIngress.Spec.TLS != nil && len(existingIngress.Spec.TLS) > 0 {
-		fmt.Println("from merge -> existingIngress.Spec.TLS", existingIngress.Spec.TLS)
 		k.fillIngressTLS(ingress, id)
 	}
 	_, err := ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
@@ -371,7 +372,7 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 		k.fillIngressTLS(ingress, opts.id)
 		ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
 	} else {
-		k.cleanupACMEAnnotations(ingress)
+		k.cleanupCertManagerAnnotations(ingress)
 	}
 
 	err = k.ensureCertManagerIssuer(ctx, opts, ingress, existingIngress)
@@ -429,14 +430,7 @@ func (k *IngressService) ensureCertManagerIssuer(ctx context.Context, opts ensur
 }
 
 func (k *IngressService) cleanupCertManagerAnnotations(ingress *networkingV1.Ingress) {
-	delete(ingress.Annotations, certManagerIssuerKey)
-	delete(ingress.Annotations, certManagerClusterIssuerKey)
-	delete(ingress.Annotations, certManagerIssuerKindKey)
-	delete(ingress.Annotations, certManagerIssuerGroupKey)
-}
-
-func (k *IngressService) cleanupACMEAnnotations(ingress *networkingV1.Ingress) {
-	for _, annotation := range unwantedAnnotationsForCNames {
+	for _, annotation := range certManagerAnnotations {
 		delete(ingress.Annotations, annotation)
 	}
 }
