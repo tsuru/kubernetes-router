@@ -141,7 +141,7 @@ func TestIngressEnsure(t *testing.T) {
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
-	expectedIngress.Labels["tsuru.io/team-name"] = "default"
+	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 
@@ -397,7 +397,7 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
-	expectedIngress.Labels["tsuru.io/team-name"] = "default"
+	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io,www.test.io"
@@ -614,7 +614,7 @@ func TestIngressCreateDefaultClass(t *testing.T) {
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
-	expectedIngress.Labels["tsuru.io/team-name"] = "default"
+	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["kubernetes.io/ingress.class"] = "nginx"
@@ -650,7 +650,7 @@ func TestIngressEnsureDefaultClassOverride(t *testing.T) {
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
-	expectedIngress.Labels["tsuru.io/team-name"] = "default"
+	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["kubernetes.io/ingress.class"] = "xyz"
@@ -689,7 +689,7 @@ func TestIngressEnsureDefaultPrefix(t *testing.T) {
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
-	expectedIngress.Labels["tsuru.io/team-name"] = "default"
+	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["my.prefix.com/foo1"] = "xyz"
@@ -727,7 +727,7 @@ func TestIngressEnsureRemoveAnnotation(t *testing.T) {
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
-	expectedIngress.Labels["tsuru.io/team-name"] = "default"
+	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 	expectedIngress.Annotations["ann2"] = "val2"
 
 	assert.Equal(t, expectedIngress, foundIngress)
@@ -1394,7 +1394,7 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
-	expectedIngress.Labels["tsuru.io/team-name"] = "default"
+	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io"
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
 	expectedIngress.Annotations["cert-manager.io/cluster-issuer"] = "letsencrypt-prod"
@@ -1414,7 +1414,7 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 	expectedIngress.Name = "kubernetes-router-cname-test.io"
 	expectedIngress.Labels["router.tsuru.io/is-cname-ingress"] = "true"
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
-	expectedIngress.Labels["tsuru.io/team-name"] = "default"
+	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 
 	assert.Equal(t, expectedIngress, foundIngress)
 }
@@ -1443,7 +1443,7 @@ func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
 
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
-	expectedIngress.Labels["tsuru.io/team-name"] = "default"
+	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 	expectedIngress.Annotations["router.tsuru.io/cnames"] = "test.io"
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
 	expectedIngress.Spec.TLS = []networkingV1.IngressTLS{
@@ -1461,7 +1461,7 @@ func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
 	expectedIngress.Spec.Rules[0].Host = "test.io"
 	expectedIngress.Name = "kubernetes-router-cname-test.io"
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
-	expectedIngress.Labels["tsuru.io/team-name"] = "default"
+	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 	expectedIngress.Labels["router.tsuru.io/is-cname-ingress"] = "true"
 	expectedIngress.Annotations["kubernetes.io/tls-acme"] = "true"
 
