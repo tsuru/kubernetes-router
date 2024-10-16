@@ -21,8 +21,7 @@ import (
 	"github.com/tsuru/kubernetes-router/router"
 	tsuruv1 "github.com/tsuru/tsuru/provision/kubernetes/pkg/apis/tsuru/v1"
 	tsuruv1clientset "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned"
-	apiv1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -176,7 +175,7 @@ func (k *BaseService) getConfig() (*rest.Config, error) {
 	return k.RestConfig, nil
 }
 
-func (k *BaseService) getWebService(ctx context.Context, appName string, target router.BackendTarget) (*apiv1.Service, error) {
+func (k *BaseService) getWebService(ctx context.Context, appName string, target router.BackendTarget) (*corev1.Service, error) {
 	client, err := k.getClient()
 	if err != nil {
 		return nil, err
@@ -326,7 +325,7 @@ func (s *BaseService) getStatusForRuntimeObject(ctx context.Context, ns string, 
 	return buf.String(), nil
 }
 
-func isFrozenSvc(svc *v1.Service) bool {
+func isFrozenSvc(svc *corev1.Service) bool {
 	if svc == nil || svc.Labels == nil {
 		return false
 	}

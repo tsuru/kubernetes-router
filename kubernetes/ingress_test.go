@@ -534,6 +534,9 @@ func TestEnsureCertManagerIssuer(t *testing.T) {
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			Acme: true,
+		},
 		CNames: []string{"test.io", "www.test.io"},
 		CertIssuers: map[string]string{
 			"test.io":     "letsencrypt",
@@ -557,7 +560,10 @@ func TestEnsureCertManagerIssuer(t *testing.T) {
 	foundIngress2, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-cname-www.test.io", metav1.GetOptions{})
 	require.NoError(t, err)
 
+	assert.Equal(t, foundIngress.Annotations[certManagerCommonName], "test.io")
 	assert.Equal(t, foundIngress.Annotations[certManagerIssuerKey], "letsencrypt")
+
+	assert.Equal(t, foundIngress2.Annotations[certManagerCommonName], "www.test.io")
 	assert.Equal(t, foundIngress2.Annotations[certManagerClusterIssuerKey], "letsencrypt-cluster")
 }
 
@@ -566,6 +572,9 @@ func TestEnsureCertManagerIssuerNotFound(t *testing.T) {
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			Acme: true,
+		},
 		CNames: []string{"test.io", "www.test.io"},
 		CertIssuers: map[string]string{
 			"test.io":     "letsencrypt",
