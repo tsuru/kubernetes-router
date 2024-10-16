@@ -836,7 +836,7 @@ func (s *IngressService) validateCustomIssuer(ctx context.Context, resource Cert
 func (s *IngressService) getCertManagerIssuerData(ctx context.Context, issuerName, namespace string) (CertManagerIssuerData, error) {
 	if strings.Contains(issuerName, ".") {
 		// Treat as external issuer since it's more general
-		parts := strings.Split(issuerName, ".")
+		parts := strings.SplitN(issuerName, ".", 3)
 		if len(parts) != 3 {
 			return CertManagerIssuerData{}, fmt.Errorf(errExternalIssuerInvalid, issuerName)
 		}
