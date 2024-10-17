@@ -619,6 +619,8 @@ func TestIngressCreateDefaultClass(t *testing.T) {
 	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
+	ingressClassName := "nginx"
+
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
@@ -626,8 +628,10 @@ func TestIngressCreateDefaultClass(t *testing.T) {
 	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
-	expectedIngress.Annotations["kubernetes.io/ingress.class"] = "nginx"
+	expectedIngress.Annotations["kubernetes.io/ingress.class"] = ingressClassName
 	expectedIngress.Annotations["my-opt"] = "v1"
+
+	expectedIngress.Spec.IngressClassName = &ingressClassName
 
 	assert.Equal(t, expectedIngress, foundIngress)
 }
@@ -663,6 +667,8 @@ func TestIngressEnsureDefaultClassOverride(t *testing.T) {
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["kubernetes.io/ingress.class"] = "xyz"
+
+	expectedIngress.Spec.IngressClassName = &svc.IngressClass
 
 	assert.Equal(t, expectedIngress, foundIngress)
 }
