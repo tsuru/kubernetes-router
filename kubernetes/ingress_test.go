@@ -527,7 +527,7 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 }
 
 func TestIngressEnsureWithTags(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
