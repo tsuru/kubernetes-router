@@ -526,6 +526,55 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 	assert.Equal(t, foundIngress.Annotations[AnnotationsCNames], "")
 }
 
+func TestIngressEnsureWithTags(t *testing.T) {
+	svc := createFakeService()
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			Route: "/admin",
+			AdditionalOpts: map[string]string{
+				"tsuru.io/some-annotation":       "true",
+				"cert-manager.io/cluster-issuer": "letsencrypt-prod",
+			},
+		},
+		Tags: []string{"test.io", "product=myproduct"},
+		Team: "default",
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+			{
+				Prefix: "subscriber",
+				Target: router.BackendTarget{
+					Service:   "test-subscriber",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	expectedIngress := defaultIngress("test", "default")
+
+	expectedIngress.Spec.Rules[0].HTTP.Paths[0].Path = "/admin"
+	expectedIngress.Labels["controller"] = "my-controller"
+	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Labels["tsuru.io/app-name"] = "test"
+	expectedIngress.Labels["tsuru.io/app-team"] = "default"
+	expectedIngress.Labels["tsuru.io/custom-tag-product"] = "myproduct"
+	expectedIngress.Annotations["ann1"] = "val1"
+	expectedIngress.Annotations["ann2"] = "val2"
+	expectedIngress.Annotations["tsuru.io/some-annotation"] = "true"
+
+	assert.Equal(t, expectedIngress, foundIngress)
+}
+
 func TestEnsureCertManagerIssuer(t *testing.T) {
 	svc := createFakeService(false)
 

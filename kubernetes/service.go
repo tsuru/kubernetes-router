@@ -53,6 +53,8 @@ const (
 	processLabel       = "tsuru.io/app-process"
 	appPoolLabel       = "tsuru.io/app-pool"
 
+	customTagPrefixLabel = "tsuru.io/custom-tag-"
+
 	appCRDName = "apps.tsuru.io"
 )
 

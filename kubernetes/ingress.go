@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	typedV1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	networkingTypedV1 "k8s.io/client-go/kubernetes/typed/networking/v1"
 )
@@ -192,7 +193,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		},
 		Spec: buildIngressSpec(vhosts, o.Opts.Route, backendServices, k),
 	}
-	k.fillIngressMeta(ingress, o.Opts, id, o.Team)
+	k.fillIngressMeta(ingress, o.Opts, id, o.Team, o.Tags)
 	if o.Opts.Acme {
 		k.fillIngressTLS(ingress, id)
 		ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
@@ -218,6 +219,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			certIssuer: o.CertIssuers[cname],
 			service:    backendServices["default"],
 			routerOpts: o.Opts,
+			tags:       o.Tags,
 		})
 		if err != nil {
 			err = errors.Wrapf(err, "could not ensure CName: %q", cname)
@@ -328,6 +330,7 @@ type ensureCNameBackendOpts struct {
 	certIssuer string
 	service    *v1.Service
 	routerOpts router.Opts
+	tags       []string
 }
 
 func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNameBackendOpts) error {
@@ -377,7 +380,7 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 		Spec: buildIngressSpec(map[string]string{"ensureCnameBackend": opts.cname}, opts.routerOpts.Route, map[string]*v1.Service{"ensureCnameBackend": opts.service}, k),
 	}
 
-	k.fillIngressMeta(ingress, opts.routerOpts, opts.id, opts.team)
+	k.fillIngressMeta(ingress, opts.routerOpts, opts.id, opts.team, opts.tags)
 	if opts.routerOpts.AcmeCName {
 		k.fillIngressTLS(ingress, opts.id)
 		ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
@@ -775,7 +778,7 @@ func (s *IngressService) SupportedOptions(ctx context.Context) map[string]string
 	return opts
 }
 
-func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts router.Opts, id router.InstanceID, team string) {
+func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts router.Opts, id router.InstanceID, team string, tags []string) {
 	if i.ObjectMeta.Labels == nil {
 		i.ObjectMeta.Labels = map[string]string{}
 	}
@@ -813,6 +816,27 @@ func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts rou
 		} else {
 			i.ObjectMeta.Annotations[labelName] = optValue
 		}
+	}
+
+	for _, tag := range tags {
+		parts := strings.SplitN(tag, "=", 2)
+		var key, value string
+		if len(parts) != 2 {
+			continue
+		}
+
+		key = parts[0]
+		value = parts[1]
+
+		if key == "" {
+			continue
+		}
+		labelName := customTagPrefixLabel + key
+		if len(validation.IsQualifiedName(labelName)) > 0 {
+			// Ignoring tags that are not valid identifiers for labels or annotations
+			continue
+		}
+		i.ObjectMeta.Labels[labelName] = value
 	}
 }
 

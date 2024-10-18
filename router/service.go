@@ -113,6 +113,7 @@ type EnsureBackendOpts struct {
 	Opts        Opts              `json:"opts"`
 	CNames      []string          `json:"cnames"`
 	Team        string            `json:"team"`
+	Tags        []string          `json:"tags,omitempty"`
 	CertIssuers map[string]string `json:"certIssuers"`
 	Prefixes    []BackendPrefix   `json:"prefixes"`
 }
