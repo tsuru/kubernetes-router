@@ -53,6 +53,8 @@ func main() {
 
 	ingressClass := flag.String("ingress-class", "", "Default class used for ingress objects")
 
+	useIngressClassName := flag.Bool("use-ingress-class-name", false, "If true, the ingress.spec.ingressClassName will be used instead of the ingress.class annotation")
+
 	ingressAnnotationsPrefix := flag.String("ingress-annotations-prefix", "", "Default prefix for annotations based on options")
 
 	poolLabels := &cmd.MultiMapFlag{}
@@ -103,6 +105,7 @@ func main() {
 				IngressClass:          *ingressClass,
 				AnnotationsPrefix:     *ingressAnnotationsPrefix,
 				HTTPPort:              *ingressPort,
+				UseIngressClassName:   *useIngressClassName,
 			}
 		case "service", "loadbalancer":
 			localBackend.Routers[mode] = &kubernetes.LBService{

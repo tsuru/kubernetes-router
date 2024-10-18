@@ -94,6 +94,7 @@ type IngressService struct {
 	AnnotationsPrefix string
 	// IngressClass defines the default ingress class used by the controller
 	IngressClass          string
+	UseIngressClassName   bool
 	HTTPPort              int
 	OptsAsAnnotations     map[string]string
 	OptsAsAnnotationsDocs map[string]string
@@ -189,7 +190,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 				}),
 			},
 		},
-		Spec: buildIngressSpec(vhosts, o.Opts.Route, backendServices, k.IngressClass),
+		Spec: buildIngressSpec(vhosts, o.Opts.Route, backendServices, k),
 	}
 	k.fillIngressMeta(ingress, o.Opts, id, o.Team)
 	if o.Opts.Acme {
@@ -272,7 +273,7 @@ func (k *IngressService) mergeIngresses(ctx context.Context, ingress *networking
 	return nil
 }
 
-func buildIngressSpec(hosts map[string]string, path string, services map[string]*v1.Service, ingressClassName string) networkingV1.IngressSpec {
+func buildIngressSpec(hosts map[string]string, path string, services map[string]*v1.Service, k *IngressService) networkingV1.IngressSpec {
 	pathType := networkingV1.PathTypeImplementationSpecific
 	rules := []networkingV1.IngressRule{}
 	for k, service := range services {
@@ -301,9 +302,10 @@ func buildIngressSpec(hosts map[string]string, path string, services map[string]
 		rules = append(rules, r)
 	}
 
-	if ingressClassName != "" {
+	if k.IngressClass != "" && k.UseIngressClassName {
+		className := k.IngressClass
 		return networkingV1.IngressSpec{
-			IngressClassName: &ingressClassName,
+			IngressClassName: &className,
 			Rules:            rules,
 		}
 	}
@@ -372,7 +374,7 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 				}),
 			},
 		},
-		Spec: buildIngressSpec(map[string]string{"ensureCnameBackend": opts.cname}, opts.routerOpts.Route, map[string]*v1.Service{"ensureCnameBackend": opts.service}, k.IngressClass),
+		Spec: buildIngressSpec(map[string]string{"ensureCnameBackend": opts.cname}, opts.routerOpts.Route, map[string]*v1.Service{"ensureCnameBackend": opts.service}, k),
 	}
 
 	k.fillIngressMeta(ingress, opts.routerOpts, opts.id, opts.team)
@@ -790,7 +792,7 @@ func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts rou
 	i.ObjectMeta.Labels[teamLabel] = team
 
 	additionalOpts := routerOpts.AdditionalOpts
-	if s.IngressClass != "" {
+	if s.IngressClass != "" && !s.UseIngressClassName {
 		additionalOpts = mergeMaps(routerOpts.AdditionalOpts, map[string]string{
 			defaultClassOpt: s.IngressClass,
 		})

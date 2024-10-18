@@ -30,7 +30,7 @@ import (
 	ktesting "k8s.io/client-go/testing"
 )
 
-func createFakeService() IngressService {
+func createFakeService(useIngressClassName bool) IngressService {
 	client := fake.NewSimpleClientset()
 	err := createAppWebService(client, "default", "test")
 	if err != nil {
@@ -38,7 +38,8 @@ func createFakeService() IngressService {
 	}
 
 	return IngressService{
-		DomainSuffix: "mycloud.com",
+		UseIngressClassName: useIngressClassName,
+		DomainSuffix:        "mycloud.com",
 		BaseService: &BaseService{
 			Namespace:         "default",
 			Client:            client,
@@ -101,7 +102,7 @@ func createCertManagerClusterIssuer(client certmanagerv1clientset.Interface, nam
 }
 
 func TestSecretName(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	appName := "tsuru-dashboard"
 	certName := "bigerdomain1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901.cloud.evenbiiiiiiiiigerrrrr.com"
 	sName := svc.secretName(idForApp(appName), certName)
@@ -110,7 +111,7 @@ func TestSecretName(t *testing.T) {
 	certName = "domain.com"
 	sName = svc.secretName(idForApp(appName), certName)
 	assert.Equal(t, "kr-tsuru-dashboard-domain.com", sName)
-	svc2 := createFakeService()
+	svc2 := createFakeService(false)
 	appName = "tsuru-dashboard"
 	certName = "domain.com"
 	sName = svc2.secretName(router.InstanceID{AppName: appName, InstanceName: "custom1"}, certName)
@@ -118,7 +119,7 @@ func TestSecretName(t *testing.T) {
 }
 
 func TestIngressEnsure(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
@@ -357,7 +358,7 @@ func TestIngressEnsureWithMultipleBackendsWithTLS(t *testing.T) {
 }
 
 func TestIngressEnsureWithCNames(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
@@ -526,7 +527,7 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 }
 
 func TestEnsureCertManagerIssuer(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 
 	createCertManagerIssuer(svc.CertManagerClient, svc.Namespace, "letsencrypt")
 	createCertManagerClusterIssuer(svc.CertManagerClient, "letsencrypt-cluster")
@@ -568,7 +569,7 @@ func TestEnsureCertManagerIssuer(t *testing.T) {
 }
 
 func TestEnsureCertManagerIssuerNotFound(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
@@ -597,7 +598,7 @@ func TestEnsureCertManagerIssuerNotFound(t *testing.T) {
 }
 
 func TestIngressCreateDefaultClass(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	svc.IngressClass = "nginx"
@@ -619,8 +620,6 @@ func TestIngressCreateDefaultClass(t *testing.T) {
 	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
 	require.NoError(t, err)
 
-	ingressClassName := "nginx"
-
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
@@ -628,16 +627,14 @@ func TestIngressCreateDefaultClass(t *testing.T) {
 	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 	expectedIngress.Annotations["ann1"] = "val1"
 	expectedIngress.Annotations["ann2"] = "val2"
-	expectedIngress.Annotations["kubernetes.io/ingress.class"] = ingressClassName
+	expectedIngress.Annotations["kubernetes.io/ingress.class"] = "nginx"
 	expectedIngress.Annotations["my-opt"] = "v1"
-
-	expectedIngress.Spec.IngressClassName = &ingressClassName
 
 	assert.Equal(t, expectedIngress, foundIngress)
 }
 
 func TestIngressEnsureDefaultClassOverride(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	svc.IngressClass = "nginx"
@@ -668,13 +665,44 @@ func TestIngressEnsureDefaultClassOverride(t *testing.T) {
 	expectedIngress.Annotations["ann2"] = "val2"
 	expectedIngress.Annotations["kubernetes.io/ingress.class"] = "xyz"
 
+	assert.Equal(t, expectedIngress, foundIngress)
+}
+
+func TestIngressEnsureIngressClassName(t *testing.T) {
+	svc := createFakeService(true)
+	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
+	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
+	svc.IngressClass = "nginx"
+	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Team: "default",
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: "default",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	foundIngress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-ingress", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	expectedIngress := defaultIngress("test", "default")
+	expectedIngress.Labels["controller"] = "my-controller"
+	expectedIngress.Labels["XPTO"] = "true"
+	expectedIngress.Labels["tsuru.io/app-name"] = "test"
+	expectedIngress.Labels["tsuru.io/app-team"] = "default"
+	expectedIngress.Annotations["ann1"] = "val1"
+	expectedIngress.Annotations["ann2"] = "val2"
+
 	expectedIngress.Spec.IngressClassName = &svc.IngressClass
 
 	assert.Equal(t, expectedIngress, foundIngress)
 }
 
 func TestIngressEnsureDefaultPrefix(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	svc.AnnotationsPrefix = "my.prefix.com"
@@ -714,7 +742,7 @@ func TestIngressEnsureDefaultPrefix(t *testing.T) {
 }
 
 func TestIngressEnsureRemoveAnnotation(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
@@ -749,7 +777,7 @@ func TestIngressEnsureRemoveAnnotation(t *testing.T) {
 }
 
 func TestIngressCreateDefaultPort(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	err := createCRD(svc.BaseService, "myapp", "custom-namespace", nil)
 	require.NoError(t, err)
 	err = createAppWebService(svc.Client, svc.Namespace, "myapp")
@@ -784,7 +812,7 @@ func TestIngressCreateDefaultPort(t *testing.T) {
 }
 
 func TestEnsureExistingIngress(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svcName := "test"
 	svcPort := 8000
 	resourceVersion := "123"
@@ -842,7 +870,7 @@ func TestEnsureExistingIngress(t *testing.T) {
 }
 
 func TestEnsureExistingIngressWithFreeze(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svcName := "test"
 	svcPort := 8000
 	resourceVersion := "123"
@@ -899,7 +927,7 @@ func TestEnsureExistingIngressWithFreeze(t *testing.T) {
 }
 
 func TestEnsureIngressAppNamespace(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	err := createCRD(svc.BaseService, "app", "custom-namespace", nil)
 	require.NoError(t, err)
 	err = createAppWebService(svc.Client, svc.Namespace, "app")
@@ -925,7 +953,7 @@ func TestEnsureIngressAppNamespace(t *testing.T) {
 }
 
 func TestIngressGetAddress(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svc.DomainSuffix = "apps.example.org"
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
@@ -946,7 +974,7 @@ func TestIngressGetAddress(t *testing.T) {
 	assert.Equal(t, []string{"test.apps.example.org"}, addrs)
 }
 func TestIngressGetAddressWithPort(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.HTTPPort = 8888
 	svc.DomainSuffix = "apps.example.org"
@@ -969,7 +997,7 @@ func TestIngressGetAddressWithPort(t *testing.T) {
 	assert.Equal(t, []string{"test.apps.example.org:8888"}, addrs)
 }
 func TestIngressGetAddressWithPortTLS(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svc.DomainSuffix = "" // cleaning the precedence of domainSuffix
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.HTTPPort = 8888
@@ -995,7 +1023,7 @@ func TestIngressGetAddressWithPortTLS(t *testing.T) {
 	assert.Equal(t, []string{"https://test.apps.example.org"}, addrs)
 }
 func TestIngressGetAddressTLS(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	svc.DomainSuffix = "" // cleaning the precedence of domainSuffix
 	svc.Labels = map[string]string{"controller": "my-controller", "XPTO": "true"}
 	svc.Annotations = map[string]string{"ann1": "val1", "ann2": "val2"}
@@ -1102,7 +1130,7 @@ func TestRemove(t *testing.T) {
 	for _, tc := range tt {
 		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
-			svc := createFakeService()
+			svc := createFakeService(false)
 
 			err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
 				Prefixes: []router.BackendPrefix{
@@ -1128,7 +1156,7 @@ func TestRemove(t *testing.T) {
 }
 
 func TestRemoveCertificate(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
 	require.NoError(t, err)
 	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
@@ -1150,7 +1178,7 @@ func TestRemoveCertificate(t *testing.T) {
 }
 
 func TestRemoveCertificateACMEHandled(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
 	require.NoError(t, err)
 	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
@@ -1172,7 +1200,7 @@ func TestRemoveCertificateACMEHandled(t *testing.T) {
 }
 
 func TestAddCertificate(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
 	require.NoError(t, err)
 	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
@@ -1219,7 +1247,7 @@ func TestAddCertificate(t *testing.T) {
 }
 
 func TestAddCertificateACMEHandled(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
 	require.NoError(t, err)
 	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
@@ -1243,7 +1271,7 @@ func TestAddCertificateACMEHandled(t *testing.T) {
 }
 
 func TestAddCertificateWithOverride(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
 	require.NoError(t, err)
 	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
@@ -1286,7 +1314,7 @@ func TestAddCertificateWithOverride(t *testing.T) {
 }
 
 func TestAddCertificateWithCName(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
 	require.NoError(t, err)
 	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
@@ -1347,7 +1375,7 @@ func TestAddCertificateWithCName(t *testing.T) {
 }
 
 func TestGetCertificate(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
 	require.NoError(t, err)
 	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
@@ -1384,7 +1412,7 @@ func TestGetCertificate(t *testing.T) {
 }
 
 func TestEnsureWithTLSAndCName(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
 		Opts: router.Opts{
 			Acme: true,
@@ -1435,7 +1463,7 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 }
 
 func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
-	svc := createFakeService()
+	svc := createFakeService(false)
 	err := svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
 		Opts: router.Opts{
 			Acme:      true,
