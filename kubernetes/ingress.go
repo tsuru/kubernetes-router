@@ -205,7 +205,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	}
 
 	if isNew {
-		_, err = ingressClient.Create(ctx, ingress, metav1.CreateOptions{})
+		ingress, err = ingressClient.Create(ctx, ingress, metav1.CreateOptions{})
 		if err != nil {
 			setSpanError(span, err)
 			return err
