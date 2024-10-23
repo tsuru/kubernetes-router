@@ -16,6 +16,7 @@ import (
 	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
 	v1 "k8s.io/api/core/v1"
 	networkingV1 "k8s.io/api/networking/v1"
+	"k8s.io/utils/ptr"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	certmanagerv1clientset "github.com/cert-manager/cert-manager/pkg/client/clientset/versioned"
@@ -411,6 +412,15 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 
 	expectedIngress.Name = "kubernetes-router-cname-test.io"
 	expectedIngress.Labels["router.tsuru.io/is-cname-ingress"] = "true"
+	expectedIngress.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion:         "networking.k8s.io/v1",
+			Kind:               "Ingress",
+			Name:               "kubernetes-router-test-ingress",
+			Controller:         ptr.To(true),
+			BlockOwnerDeletion: ptr.To(true),
+		},
+	}
 	delete(expectedIngress.Annotations, "router.tsuru.io/cnames")
 	delete(expectedIngress.Annotations, "cert-manager.io/cluster-issuer") // cert-manager.io/cluster-issuer is not allowed on cname ingress when acme is disabled
 
@@ -442,6 +452,15 @@ func TestIngressEnsureWithCNames(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedIngress.Name = "kubernetes-router-cname-www.test.io"
+	expectedIngress.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion:         "networking.k8s.io/v1",
+			Kind:               "Ingress",
+			Name:               "kubernetes-router-test-ingress",
+			Controller:         ptr.To(true),
+			BlockOwnerDeletion: ptr.To(true),
+		},
+	}
 	expectedIngress.Spec.Rules[0] = networkingV1.IngressRule{
 		Host: "www.test.io",
 		IngressRuleValue: networkingV1.IngressRuleValue{
@@ -613,6 +632,15 @@ func TestIngressEnsureRemoveCertAnnotations(t *testing.T) {
 
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.ObjectMeta.Name = "kubernetes-router-cname-test.io"
+	expectedIngress.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion:         "networking.k8s.io/v1",
+			Kind:               "Ingress",
+			Name:               "kubernetes-router-test-ingress",
+			Controller:         ptr.To(true),
+			BlockOwnerDeletion: ptr.To(true),
+		},
+	}
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
@@ -657,6 +685,15 @@ func TestIngressEnsureRemoveCertAnnotations(t *testing.T) {
 
 	expectedIngress = defaultIngress("test", "default")
 	expectedIngress.ObjectMeta.Name = "kubernetes-router-cname-test.io"
+	expectedIngress.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion:         "networking.k8s.io/v1",
+			Kind:               "Ingress",
+			Name:               "kubernetes-router-test-ingress",
+			Controller:         ptr.To(true),
+			BlockOwnerDeletion: ptr.To(true),
+		},
+	}
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
@@ -706,6 +743,15 @@ func TestIngressEnsureHTTPOnly(t *testing.T) {
 
 	expectedIngress := defaultIngress("test", "default")
 	expectedIngress.ObjectMeta.Name = "kubernetes-router-cname-test.io"
+	expectedIngress.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion:         "networking.k8s.io/v1",
+			Kind:               "Ingress",
+			Name:               "kubernetes-router-test-ingress",
+			Controller:         ptr.To(true),
+			BlockOwnerDeletion: ptr.To(true),
+		},
+	}
 	expectedIngress.Labels["controller"] = "my-controller"
 	expectedIngress.Labels["XPTO"] = "true"
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
@@ -1652,6 +1698,15 @@ func TestEnsureWithTLSAndCName(t *testing.T) {
 	expectedIngress = defaultIngress("test", "default")
 	expectedIngress.Spec.Rules[0].Host = "test.io"
 	expectedIngress.Name = "kubernetes-router-cname-test.io"
+	expectedIngress.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion:         "networking.k8s.io/v1",
+			Kind:               "Ingress",
+			Name:               "kubernetes-router-test-ingress",
+			Controller:         ptr.To(true),
+			BlockOwnerDeletion: ptr.To(true),
+		},
+	}
 	expectedIngress.Labels["router.tsuru.io/is-cname-ingress"] = "true"
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
 	expectedIngress.Labels["tsuru.io/app-team"] = "default"
@@ -1700,6 +1755,15 @@ func TestEnsureWithTLSAndCNameAndAcmeCName(t *testing.T) {
 	expectedIngress = defaultIngress("test", "default")
 	expectedIngress.Spec.Rules[0].Host = "test.io"
 	expectedIngress.Name = "kubernetes-router-cname-test.io"
+	expectedIngress.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion:         "networking.k8s.io/v1",
+			Kind:               "Ingress",
+			Name:               "kubernetes-router-test-ingress",
+			Controller:         ptr.To(true),
+			BlockOwnerDeletion: ptr.To(true),
+		},
+	}
 	expectedIngress.Labels["tsuru.io/app-name"] = "test"
 	expectedIngress.Labels["tsuru.io/app-team"] = "default"
 	expectedIngress.Labels["router.tsuru.io/is-cname-ingress"] = "true"

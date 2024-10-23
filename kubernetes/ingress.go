@@ -204,6 +204,20 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		ingress.Annotations[AnnotationsCNames] = strings.Join(o.CNames, ",")
 	}
 
+	if isNew {
+		_, err = ingressClient.Create(ctx, ingress, metav1.CreateOptions{})
+		if err != nil {
+			setSpanError(span, err)
+			return err
+		}
+	} else if ingressHasChanges(span, existingIngress, ingress) {
+		err = k.mergeIngresses(ctx, ingress, existingIngress, id, ingressClient, span)
+		if err != nil {
+			setSpanError(span, err)
+			return err
+		}
+	}
+
 	var existingCNames []string
 	if existingIngress != nil {
 		existingCNames = strings.Split(existingIngress.Annotations[AnnotationsCNames], ",")
@@ -214,6 +228,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 		err = k.ensureCNameBackend(ctx, ensureCNameBackendOpts{
 			namespace:  ns,
 			id:         id,
+			parent:     ingress,
 			cname:      cname,
 			team:       o.Team,
 			certIssuer: o.CertIssuers[cname],
@@ -245,17 +260,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			return err
 		}
 	}
-	if isNew {
-		_, err = ingressClient.Create(ctx, ingress, metav1.CreateOptions{})
-		if err != nil {
-			setSpanError(span, err)
-		}
-		return err
-	}
 
-	if ingressHasChanges(span, existingIngress, ingress) {
-		return k.mergeIngresses(ctx, ingress, existingIngress, id, ingressClient, span)
-	}
 	return nil
 }
 
@@ -329,6 +334,7 @@ type ensureCNameBackendOpts struct {
 	cname      string
 	team       string
 	certIssuer string
+	parent     *networkingV1.Ingress
 	service    *v1.Service
 	routerOpts router.Opts
 	tags       []string
@@ -360,7 +366,6 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 			return nil
 		}
 	}
-
 	ingress := &networkingV1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      k.ingressCName(opts.id, opts.cname),
@@ -370,11 +375,12 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 				appBaseServiceNameLabel:      opts.service.Name,
 				labelCNameIngress:            "true",
 			},
+
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(opts.service, schema.GroupVersionKind{
-					Group:   v1.SchemeGroupVersion.Group,
-					Version: v1.SchemeGroupVersion.Version,
-					Kind:    "Service",
+				*metav1.NewControllerRef(opts.parent, schema.GroupVersionKind{
+					Group:   networkingV1.SchemeGroupVersion.Group,
+					Version: networkingV1.SchemeGroupVersion.Version,
+					Kind:    "Ingress",
 				}),
 			},
 		},
