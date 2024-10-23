@@ -264,7 +264,8 @@ func (k *IngressService) mergeIngresses(ctx context.Context, ingress *networking
 	if existingIngress.Spec.DefaultBackend != nil {
 		ingress.Spec.DefaultBackend = existingIngress.Spec.DefaultBackend
 	}
-	if existingIngress.Spec.TLS != nil && len(existingIngress.Spec.TLS) > 0 {
+
+	if existingIngress.Spec.TLS != nil && len(existingIngress.Spec.TLS) > 0 && !isManagedByCertManager(existingIngress.Annotations) {
 		k.fillIngressTLS(ingress, id)
 	}
 	_, err := ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
@@ -381,16 +382,14 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 	}
 
 	k.fillIngressMeta(ingress, opts.routerOpts, opts.id, opts.team, opts.tags)
-	if opts.routerOpts.AcmeCName {
+
+	if opts.routerOpts.HTTPOnly {
+		k.cleanupCertManagerAnnotations(ingress)
+	} else if opts.routerOpts.AcmeCName {
 		k.fillIngressTLS(ingress, opts.id)
 		ingress.ObjectMeta.Annotations[AnnotationsACMEKey] = "true"
-
 	} else {
-		k.cleanupCertManagerAnnotations(ingress)
-	}
-
-	if opts.routerOpts.Acme {
-		err = k.ensureCertManagerIssuer(ctx, opts, ingress)
+		err = k.ensureCNAMECertManagerIssuer(ctx, opts, ingress)
 		if err != nil {
 			return err
 		}
@@ -402,12 +401,35 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 	}
 
 	if ingressHasChanges(span, existingIngress, ingress) {
-		return k.mergeIngresses(ctx, ingress, existingIngress, opts.id, ingressClient, span)
+		err = k.mergeIngresses(ctx, ingress, existingIngress, opts.id, ingressClient, span)
+		if err != nil {
+			return err
+		}
 	}
+
+	if len(ingress.Spec.TLS) == 0 {
+		certificateName := k.secretName(opts.id, opts.cname)
+		return k.ensureCertmanagerCertificateDeleted(ctx, opts.namespace, certificateName)
+	}
+
 	return nil
 }
 
-func (k *IngressService) ensureCertManagerIssuer(ctx context.Context, opts ensureCNameBackendOpts, ingress *networkingV1.Ingress) error {
+func (k *IngressService) ensureCertmanagerCertificateDeleted(ctx context.Context, namespace, certificateName string) error {
+	certManagerClient, err := k.getCertManagerClient()
+	if err != nil {
+		return err
+	}
+
+	err = certManagerClient.CertmanagerV1().Certificates(namespace).Delete(ctx, certificateName, metav1.DeleteOptions{})
+	if err != nil && !k8sErrors.IsNotFound(err) {
+		return err
+	}
+
+	return nil
+}
+
+func (k *IngressService) ensureCNAMECertManagerIssuer(ctx context.Context, opts ensureCNameBackendOpts, ingress *networkingV1.Ingress) error {
 	if opts.certIssuer == "" {
 		// If no cert issuer is provided, we should remove any existing cert issuer annotation
 		k.cleanupCertManagerAnnotations(ingress)
@@ -608,6 +630,10 @@ func (k *IngressService) AddCertificate(ctx context.Context, id router.InstanceI
 		return err
 	}
 
+	if isManagedByCertManager(ingress.Annotations) {
+		return fmt.Errorf("cannot add certificate to ingress %s, it is managed by cert-manager", ingress.Name)
+	}
+
 	foundCname := false
 	foundCNames := []string{}
 	for _, rules := range ingress.Spec.Rules {
@@ -741,6 +767,11 @@ func (k *IngressService) RemoveCertificate(ctx context.Context, id router.Instan
 	if ingress.Annotations[AnnotationsACMEKey] == "true" {
 		return fmt.Errorf("cannot remove certificate from ingress %s, it is managed by ACME", ingress.Name)
 	}
+
+	if isManagedByCertManager(ingress.Annotations) {
+		return fmt.Errorf("cannot remove certificate to ingress %s, it is managed by cert-manager", ingress.Name)
+	}
+
 	secret, err := k.secretClient(ns)
 	if err != nil {
 		return err
@@ -992,4 +1023,13 @@ func isIngressReady(ingress *networkingV1.Ingress) bool {
 		return false
 	}
 	return ingress.Status.LoadBalancer.Ingress[0].IP != "" || ingress.Status.LoadBalancer.Ingress[0].Hostname != ""
+}
+
+func isManagedByCertManager(annotations map[string]string) bool {
+	for _, annotation := range certManagerAnnotations {
+		if _, ok := annotations[annotation]; ok {
+			return true
+		}
+	}
+	return false
 }

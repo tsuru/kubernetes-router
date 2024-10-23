@@ -32,6 +32,8 @@ const (
 	// Acme is the acme option name
 	Acme = "tls-acme"
 
+	HTTPOnly = "http-only"
+
 	// AcmeCName is the acme option for cnames
 	AcmeCName = "tls-acme-cname"
 
@@ -94,6 +96,7 @@ type Opts struct {
 	AdditionalOpts        map[string]string `json:",omitempty"`
 	HeaderOpts            []string          `json:",omitempty"`
 	Acme                  bool              `json:",omitempty"`
+	HTTPOnly              bool              `json:",omitempty"`
 	AcmeCName             bool              `json:",omitempty"`
 	ExposeAllServices     bool              `json:",omitempty"`
 }
@@ -192,6 +195,11 @@ func (o *Opts) UnmarshalJSON(bs []byte) (err error) {
 			o.Route = strV
 		case ExternalTrafficPolicy:
 			o.ExternalTrafficPolicy = strV
+		case HTTPOnly:
+			o.HTTPOnly, err = strconv.ParseBool(strV)
+			if err != nil {
+				o.HTTPOnly = false
+			}
 		case Acme:
 			o.Acme, err = strconv.ParseBool(strV)
 			if err != nil {
