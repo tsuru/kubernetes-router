@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/opentracing/opentracing-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tsuru/kubernetes-router/router"
@@ -1831,4 +1832,36 @@ func defaultIngress(name, namespace string) *networkingV1.Ingress {
 			},
 		},
 	}
+}
+
+func TestIngressHasChanges(t *testing.T) {
+	span := opentracing.NoopTracer{}.StartSpan("test")
+	existing := &networkingV1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion:         "v1",
+					Kind:               "Service",
+					Name:               "test-web",
+					BlockOwnerDeletion: ptr.To(true),
+					Controller:         ptr.To(true),
+				},
+			},
+		},
+	}
+	ing := &networkingV1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion:         "networking.k8s.io/v1",
+					Kind:               "Ingress",
+					Name:               "test-web",
+					BlockOwnerDeletion: ptr.To(true),
+					Controller:         ptr.To(true),
+				},
+			},
+		},
+	}
+
+	assert.True(t, ingressHasChanges(span, existing, ing))
 }

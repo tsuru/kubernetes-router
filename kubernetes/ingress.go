@@ -211,7 +211,7 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			return err
 		}
 	} else if ingressHasChanges(span, existingIngress, ingress) {
-		err = k.mergeIngresses(ctx, ingress, existingIngress, id, ingressClient, span)
+		err = k.mergeIngressAndUpdate(ctx, ingress, existingIngress, id, ingressClient, span)
 		if err != nil {
 			setSpanError(span, err)
 			return err
@@ -266,8 +266,9 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 	return nil
 }
 
-func (k *IngressService) mergeIngresses(ctx context.Context, ingress *networkingV1.Ingress, existingIngress *networkingV1.Ingress, id router.InstanceID, ingressClient networkingTypedV1.IngressInterface, span opentracing.Span) error {
+func (k *IngressService) mergeIngressAndUpdate(ctx context.Context, ingress *networkingV1.Ingress, existingIngress *networkingV1.Ingress, id router.InstanceID, ingressClient networkingTypedV1.IngressInterface, span opentracing.Span) error {
 	ingress.ObjectMeta.ResourceVersion = existingIngress.ObjectMeta.ResourceVersion
+	ingress.ObjectMeta.UID = existingIngress.ObjectMeta.UID
 	if existingIngress.Spec.DefaultBackend != nil {
 		ingress.Spec.DefaultBackend = existingIngress.Spec.DefaultBackend
 	}
@@ -409,7 +410,7 @@ func (k *IngressService) ensureCNameBackend(ctx context.Context, opts ensureCNam
 	}
 
 	if ingressHasChanges(span, existingIngress, ingress) {
-		err = k.mergeIngresses(ctx, ingress, existingIngress, opts.id, ingressClient, span)
+		err = k.mergeIngressAndUpdate(ctx, ingress, existingIngress, opts.id, ingressClient, span)
 		if err != nil {
 			return err
 		}
@@ -985,6 +986,14 @@ func ingressHasChanges(span opentracing.Span, existing *networkingV1.Ingress, in
 	if !reflect.DeepEqual(existing.Spec, ing.Spec) {
 		span.LogKV(
 			"message", "ingress has changed the spec",
+			"ingress", existing.Name,
+		)
+		return true
+	}
+
+	if !reflect.DeepEqual(existing.OwnerReferences, ing.OwnerReferences) {
+		span.LogKV(
+			"message", "ingress has changed the ownerReferences",
 			"ingress", existing.Name,
 		)
 		return true
