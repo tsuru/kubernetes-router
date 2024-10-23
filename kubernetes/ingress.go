@@ -216,6 +216,8 @@ func (k *IngressService) Ensure(ctx context.Context, id router.InstanceID, o rou
 			setSpanError(span, err)
 			return err
 		}
+	} else {
+		ingress = existingIngress
 	}
 
 	var existingCNames []string
