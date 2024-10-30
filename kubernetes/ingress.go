@@ -749,8 +749,13 @@ func (k *IngressService) GetCertificate(ctx context.Context, id router.InstanceI
 		return nil, err
 	}
 
-	retSecret, err := secret.Get(ctx, k.secretName(id, certCname), metav1.GetOptions{})
+	secretName := k.secretName(id, certCname)
+	retSecret, err := secret.Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			log.Printf("Secret %s/%s is not found\n", ns, secretName)
+			return nil, router.ErrCertificateNotFound
+		}
 		return nil, err
 	}
 

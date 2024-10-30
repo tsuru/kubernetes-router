@@ -47,7 +47,10 @@ const (
 
 // ErrIngressAlreadyExists is the error returned by the service when
 // trying to create a service that already exists
-var ErrIngressAlreadyExists = errors.New("ingress already exists")
+var (
+	ErrIngressAlreadyExists = errors.New("ingress already exists")
+	ErrCertificateNotFound  = errors.New("certificate not found")
+)
 
 type InstanceID struct {
 	InstanceName string

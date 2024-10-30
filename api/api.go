@@ -284,8 +284,13 @@ func (a *RouterAPI) getCertificate(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	cert, err := svc.(router.RouterTLS).GetCertificate(ctx, instanceID(r), certName)
-	if err != nil {
+
+	if err == router.ErrCertificateNotFound {
 		w.WriteHeader(http.StatusNotFound)
+		return nil
+	}
+
+	if err != nil {
 		return err
 	}
 	b, err := json.Marshal(&cert)
@@ -309,8 +314,9 @@ func (a *RouterAPI) removeCertificate(w http.ResponseWriter, r *http.Request) er
 		return err
 	}
 	err = svc.(router.RouterTLS).RemoveCertificate(ctx, instanceID(r), certName)
-	if err != nil {
+	if err == router.ErrCertificateNotFound {
 		w.WriteHeader(http.StatusNotFound)
+		return nil
 	}
 	return err
 }
@@ -326,11 +332,11 @@ func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 	_, ok := svc.(router.RouterTLS)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
-		_, err = w.Write([]byte("No TLS Capabilities"))
-		return err
+		fmt.Fprintf(w, "No TLS Capabilities")
+		return nil
 	}
-	_, err = w.Write([]byte("OK"))
-	return err
+	fmt.Fprintf(w, "OK")
+	return nil
 }
 
 func checkPath(ctx context.Context, path string, svc router.Router, instance router.InstanceID) ([]urlCheck, error) {
