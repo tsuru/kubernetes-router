@@ -329,6 +329,16 @@ func (a *RouterAPI) supportTLS(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+
+	headerOpts := r.Header.Values("X-Router-Opt")
+	for _, opt := range headerOpts {
+		if opt == "http-only=true" {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprintf(w, "No TLS Capabilities, disabled via header")
+			return nil
+		}
+	}
+
 	_, ok := svc.(router.RouterTLS)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
