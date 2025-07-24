@@ -1,19 +1,32 @@
 run:
-  deadline: 30m
-  tests: true
-
-linters-settings:
-  govet:
-    shadow: true
-  gofmt:
-    simplify: true
-  maligned:
-    suggest-new: true
+  modules-download-mode: readonly
+  timeout: 5m
 
 linters:
   enable:
-    - goimports
-    - gofmt
-    - misspell
-  disable:
+    - govet
     - errcheck
+    - staticcheck
+    - gosimple
+    - unused
+    - structcheck
+    - deadcode
+    - typecheck
+    - ineffassign
+    - varcheck
+    - revive
+    - gofmt
+
+linters-settings:
+  revive:
+    severity: warning
+    config: 
+      ignoreGeneratedHeader: true
+
+issues:
+  exclude-use-default: false
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
