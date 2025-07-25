@@ -84,7 +84,8 @@ func TestLBEnsureWithExternalTrafficPolicy(t *testing.T) {
 	svc.Annotations = map[string]string{"annotation": "annval"}
 	svc.PoolLabels = map[string]map[string]string{"mypool": {"pool-env": "dev"}, "otherpool": {"pool-env": "prod"}}
 	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
-		Opts: router.Opts{Pool: "mypool", ExternalTrafficPolicy: "Local", AdditionalOpts: map[string]string{}, DomainSuffix: "myapps.io"},
+		Opts: router.Opts{Pool: "mypool", ExternalTrafficPolicy: "Local", AdditionalOpts: map[string]string{"tsuru.io/app-team": "team2"}, DomainSuffix: "myapps.io"},
+		Team: "team2",
 		Prefixes: []router.BackendPrefix{
 			{
 				Target: router.BackendTarget{
@@ -101,10 +102,12 @@ func TestLBEnsureWithExternalTrafficPolicy(t *testing.T) {
 
 	svc.Labels[appPoolLabel] = "mypool"
 	svc.Labels["pool-env"] = "dev"
+	svc.Labels["tsuru.io/app-team"] = "team2"
 	expectedAnnotations := map[string]string{
 		"annotation": "annval",
 		"external-dns.alpha.kubernetes.io/hostname": "test.myapps.io",
-		"router.tsuru.io/opts":                      `{"Pool":"mypool","DomainSuffix":"myapps.io","ExternalTrafficPolicy":"Local"}`,
+		"router.tsuru.io/opts":                      `{"Pool":"mypool","DomainSuffix":"myapps.io","ExternalTrafficPolicy":"Local","AdditionalOpts":{"tsuru.io/app-team":"team2"}}`,
+		"tsuru.io/app-team":                         "team2",
 	}
 	expectedService := defaultService("test", "default", svc.Labels, expectedAnnotations, nil)
 	expectedService.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeLocal

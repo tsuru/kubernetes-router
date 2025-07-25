@@ -220,7 +220,7 @@ func (s *LBService) Ensure(ctx context.Context, id router.InstanceID, o router.E
 
 	lbService.Spec.Selector = webService.Spec.Selector
 
-	err = s.fillLabelsAndAnnotations(ctx, lbService, id, webService, o.Opts, *defaultTarget)
+	err = s.fillLabelsAndAnnotations(ctx, lbService, id, webService, o.Opts, *defaultTarget, o.Team)
 	if err != nil {
 		return err
 	}
@@ -250,7 +250,7 @@ func (s *LBService) Ensure(ctx context.Context, id router.InstanceID, o router.E
 	return nil
 }
 
-func (s *LBService) fillLabelsAndAnnotations(ctx context.Context, svc *v1.Service, id router.InstanceID, webService *v1.Service, opts router.Opts, backendTarget router.BackendTarget) error {
+func (s *LBService) fillLabelsAndAnnotations(ctx context.Context, svc *v1.Service, id router.InstanceID, webService *v1.Service, opts router.Opts, backendTarget router.BackendTarget, team string) error {
 	optsLabels := make(map[string]string)
 	registeredOpts := s.SupportedOptions(ctx)
 
@@ -298,17 +298,22 @@ func (s *LBService) fillLabelsAndAnnotations(ctx context.Context, svc *v1.Servic
 		annotations[externalDNSHostnameLabel] = vhost
 	}
 
+	standardLabels := map[string]string{
+		appLabel:             id.AppName,
+		managedServiceLabel:  "true",
+		externalServiceLabel: "true",
+		appPoolLabel:         opts.Pool,
+	}
+	if team != "" {
+		standardLabels[teamLabel] = team
+	}
+
 	labels := []map[string]string{
 		svc.Labels,
 		s.PoolLabels[opts.Pool],
 		optsLabels,
 		s.Labels,
-		{
-			appLabel:             id.AppName,
-			managedServiceLabel:  "true",
-			externalServiceLabel: "true",
-			appPoolLabel:         opts.Pool,
-		},
+		standardLabels,
 	}
 
 	if webService != nil {

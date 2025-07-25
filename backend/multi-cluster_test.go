@@ -72,10 +72,10 @@ func TestMultiClusterService(t *testing.T) {
 	span := mockTracer.StartSpan("test")
 	spanCtx := opentracing.ContextWithSpan(ctx, span)
 	router, err := backend.Router(spanCtx, "service", http.Header{
-		"X-Tsuru-Cluster-Name": {
+		"X-Tsuru-Cluster-Name": []string{
 			"my-cluster",
 		},
-		"X-Tsuru-Cluster-Addresses": {
+		"X-Tsuru-Cluster-Addresses": []string{
 			"https://mycluster.com",
 		},
 	})
@@ -125,10 +125,10 @@ func TestMultiClusterAuthProvider(t *testing.T) {
 	span := mockTracer.StartSpan("test")
 	spanCtx := opentracing.ContextWithSpan(ctx, span)
 	router, err := backend.Router(spanCtx, "service", http.Header{
-		"X-Tsuru-Cluster-Name": {
+		"X-Tsuru-Cluster-Name": []string{
 			"my-cluster",
 		},
-		"X-Tsuru-Cluster-Addresses": {
+		"X-Tsuru-Cluster-Addresses": []string{
 			"https://mycluster.com",
 		},
 	})
@@ -165,10 +165,10 @@ func TestMultiClusterExecProvider(t *testing.T) {
 	span := mockTracer.StartSpan("test")
 	spanCtx := opentracing.ContextWithSpan(ctx, span)
 	router, err := backend.Router(spanCtx, "service", http.Header{
-		"X-Tsuru-Cluster-Name": {
+		"X-Tsuru-Cluster-Name": []string{
 			"my-cluster",
 		},
-		"X-Tsuru-Cluster-Addresses": {
+		"X-Tsuru-Cluster-Addresses": []string{
 			"https://mycluster.com",
 		},
 	})
@@ -213,10 +213,10 @@ func TestMultiClusterSetBothAuthMechanism(t *testing.T) {
 	span := mockTracer.StartSpan("test")
 	spanCtx := opentracing.ContextWithSpan(ctx, span)
 	_, err = backend.Router(spanCtx, "service", http.Header{
-		"X-Tsuru-Cluster-Name": {
+		"X-Tsuru-Cluster-Name": []string{
 			"my-cluster",
 		},
-		"X-Tsuru-Cluster-Addresses": {
+		"X-Tsuru-Cluster-Addresses": []string{
 			"https://mycluster.com",
 		},
 	})
@@ -277,10 +277,10 @@ jLMi6Et8Vcad+qMUu2WFbm5PEn4KPJ2V
 	span := mockTracer.StartSpan("test")
 	spanCtx := opentracing.ContextWithSpan(ctx, span)
 	router, err := backend.Router(spanCtx, "service", http.Header{
-		"X-Tsuru-Cluster-Name": {
+		"X-Tsuru-Cluster-Name": []string{
 			"my-cluster",
 		},
-		"X-Tsuru-Cluster-Addresses": {
+		"X-Tsuru-Cluster-Addresses": []string{
 			"https://mycluster.com",
 		},
 	})
@@ -310,10 +310,10 @@ func TestMultiClusterIngress(t *testing.T) {
 		},
 	}
 	router, err := backend.Router(ctx, "ingress", http.Header{
-		"X-Tsuru-Cluster-Name": {
+		"X-Tsuru-Cluster-Name": []string{
 			"my-cluster",
 		},
-		"X-Tsuru-Cluster-Addresses": {
+		"X-Tsuru-Cluster-Addresses": []string{
 			"https://mycluster.com",
 		},
 	})
@@ -340,10 +340,10 @@ func TestMultiClusterNginxIngress(t *testing.T) {
 		},
 	}
 	router, err := backend.Router(ctx, "nginx-ingress", http.Header{
-		"X-Tsuru-Cluster-Name": {
+		"X-Tsuru-Cluster-Name": []string{
 			"my-cluster",
 		},
-		"X-Tsuru-Cluster-Addresses": {
+		"X-Tsuru-Cluster-Addresses": []string{
 			"https://mycluster.com",
 		},
 	})
@@ -371,10 +371,10 @@ func TestMultiClusterIstioGateway(t *testing.T) {
 		},
 	}
 	router, err := backend.Router(ctx, "istio-gateway", http.Header{
-		"X-Tsuru-Cluster-Name": {
+		"X-Tsuru-Cluster-Name": []string{
 			"my-cluster",
 		},
-		"X-Tsuru-Cluster-Addresses": {
+		"X-Tsuru-Cluster-Addresses": []string{
 			"https://mycluster.com",
 		},
 	})

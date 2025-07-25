@@ -273,7 +273,7 @@ func (k *IngressService) mergeIngressAndUpdate(ctx context.Context, ingress *net
 		ingress.Spec.DefaultBackend = existingIngress.Spec.DefaultBackend
 	}
 
-	if existingIngress.Spec.TLS != nil && len(existingIngress.Spec.TLS) > 0 && !isManagedByCertManager(existingIngress.Annotations) {
+	if len(existingIngress.Spec.TLS) > 0 && !isManagedByCertManager(existingIngress.Annotations) {
 		k.fillIngressTLS(ingress, id)
 	}
 	_, err := ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
