@@ -1072,6 +1072,116 @@ func defaultService(app, namespace string, labels, annotations, selector map[str
 	return &svc
 }
 
+func TestLBTeamUpdate(t *testing.T) {
+	svc := createFakeLBService()
+	err := createAppWebService(svc.Client, svc.Namespace, "test")
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Team: "admin",
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	foundService, err := svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, "test-router-lb", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "admin", foundService.Labels[teamLabel])
+
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Team: "tsuru",
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	foundService, err = svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, "test-router-lb", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "tsuru", foundService.Labels[teamLabel])
+}
+
+func TestLBCustomAnnotationAddAndRemove(t *testing.T) {
+	svc := createFakeLBService()
+	err := createAppWebService(svc.Client, svc.Namespace, "test")
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			AdditionalOpts: map[string]string{
+				"custom.example.com/environment": "production",
+			},
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	foundService, err := svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, "test-router-lb", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "production", foundService.Annotations["custom.example.com/environment"])
+
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			AdditionalOpts: map[string]string{
+				"custom.example.com/environment": "staging",
+			},
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	foundService, err = svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, "test-router-lb", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "staging", foundService.Annotations["custom.example.com/environment"])
+
+	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			AdditionalOpts: map[string]string{
+				"custom.example.com/environment": "",
+			},
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	foundService, err = svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, "test-router-lb", metav1.GetOptions{})
+	require.NoError(t, err)
+	_, exists := foundService.Annotations["custom.example.com/environment"]
+	assert.False(t, exists, "Custom annotation should have been removed")
+}
+
 func setIP(t *testing.T, svc LBService, appName string) {
 	service, err := svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, svc.serviceName(idForApp(appName)), metav1.GetOptions{})
 	if err != nil {
