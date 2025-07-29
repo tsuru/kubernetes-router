@@ -1230,7 +1230,7 @@ func TestLBOverrideLabel(t *testing.T) {
 	foundService, err = svc.Client.CoreV1().Services(svc.Namespace).Get(ctx, "test-router-lb", metav1.GetOptions{})
 	require.NoError(t, err)
 	_, exists := foundService.Labels["my-label-key"]
-	assert.True(t, exists, "Label should have been keep intact even with empty value")
+	assert.True(t, exists, "Label should have been kept intact even with empty value")
 
 	err = svc.Ensure(ctx, idForApp("test"), router.EnsureBackendOpts{
 		Opts: router.Opts{
