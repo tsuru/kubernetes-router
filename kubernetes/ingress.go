@@ -841,9 +841,9 @@ func (s *IngressService) fillIngressMeta(i *networkingV1.Ingress, routerOpts rou
 
 	additionalOpts := routerOpts.AdditionalOpts
 	if s.IngressClass != "" && !s.UseIngressClassName {
-		additionalOpts = mergeMaps(routerOpts.AdditionalOpts, map[string]string{
+		additionalOpts = mergeMaps(map[string]string{
 			defaultClassOpt: s.IngressClass,
-		})
+		}, routerOpts.AdditionalOpts)
 	}
 
 	optsAsAnnotations := mergeMaps(defaultOptsAsAnnotations, s.OptsAsAnnotations)

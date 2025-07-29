@@ -279,6 +279,8 @@ func (s *LBService) fillLabelsAndAnnotations(ctx context.Context, svc *v1.Servic
 
 		if strings.HasSuffix(optName, "-") {
 			delete(annotations, strings.TrimSuffix(optName, "-"))
+		} else if optValue == "" {
+			delete(annotations, optName)
 		} else {
 			annotations[optName] = optValue
 		}
@@ -438,9 +440,7 @@ func mergeMaps(entries ...map[string]string) map[string]string {
 	result := make(map[string]string)
 	for _, entry := range entries {
 		for k, v := range entry {
-			if _, isSet := result[k]; !isSet {
-				result[k] = v
-			}
+			result[k] = v
 		}
 	}
 	return result
