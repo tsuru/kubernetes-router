@@ -174,6 +174,9 @@ func (m *MultiCluster) getKubeConfigFromHeader(name, base64KubeConfig string, ti
 		return nil, err
 	}
 	restConfig.Timeout = timeout
+	restConfig.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
+		return transport.DebugWrappers(observability.WrapTransport(rt))
+	}
 	return restConfig, nil
 }
 
