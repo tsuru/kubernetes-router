@@ -7,6 +7,7 @@ package backend
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
@@ -89,6 +90,53 @@ func TestMultiClusterService(t *testing.T) {
 	assert.Equal(t, span.(*mocktracer.MockSpan).Tags(), map[string]interface{}{
 		"cluster.address": "https://mycluster.com",
 		"cluster.name":    "my-cluster",
+	})
+}
+
+func TestMultiClusterServiceWithKubeConfig(t *testing.T) {
+	kubeConfig := &TsuruKubeConfig{
+		Cluster: api.Cluster{
+			Server: "https://mycluster-from-kubeconfig.com",
+		},
+		AuthInfo: api.AuthInfo{
+			Token: "my-token-from-kubeconfig",
+		},
+	}
+	kubeConfigData, err := json.Marshal(kubeConfig)
+	require.NoError(t, err)
+
+	base64KubeConfig := base64.StdEncoding.EncodeToString(kubeConfigData)
+
+	backend := &MultiCluster{
+		Namespace: "tsuru-test",
+		Fallback:  &fakeBackend{},
+		Clusters: []ClusterConfig{
+			{
+				Name:  "my-cluster",
+				Token: "my-token",
+			},
+		},
+	}
+	mockTracer := mocktracer.New()
+	span := mockTracer.StartSpan("test")
+	spanCtx := opentracing.ContextWithSpan(ctx, span)
+	router, err := backend.Router(spanCtx, "service", http.Header{
+		"X-Tsuru-Cluster-Name": []string{
+			"my-cluster-from-kubeconfig",
+		},
+		"X-Tsuru-Cluster-Kube-Config": []string{
+			base64KubeConfig,
+		},
+	})
+	assert.NoError(t, err)
+	lbService, ok := router.(*kubernetes.LBService)
+	require.True(t, ok)
+	assert.Equal(t, "tsuru-test", lbService.BaseService.Namespace)
+	assert.Equal(t, 10*time.Second, lbService.BaseService.Timeout)
+	assert.Equal(t, "https://mycluster-from-kubeconfig.com", lbService.BaseService.RestConfig.Host)
+	assert.Equal(t, "my-token-from-kubeconfig", lbService.BaseService.RestConfig.BearerToken)
+	assert.Equal(t, span.(*mocktracer.MockSpan).Tags(), map[string]interface{}{
+		"cluster.name": "my-cluster-from-kubeconfig",
 	})
 }
 
