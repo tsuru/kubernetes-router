@@ -169,7 +169,12 @@ func (m *MultiCluster) getKubeConfigFromHeader(name, base64KubeConfig string, ti
 		},
 	}
 
-	return clientcmd.NewNonInteractiveClientConfig(cliCfg, name, &clientcmd.ConfigOverrides{}, nil).ClientConfig()
+	restConfig, err := clientcmd.NewNonInteractiveClientConfig(cliCfg, name, &clientcmd.ConfigOverrides{}, nil).ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+	restConfig.Timeout = timeout
+	return restConfig, nil
 }
 
 func (m *MultiCluster) getKubeConfigFromSettings(name, address string, timeout time.Duration) (*rest.Config, error) {
