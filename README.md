@@ -36,7 +36,7 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 
 ## Running locally with Tsuru and Minikube
 
-1. Setup tsuru + minikube (https://docs.tsuru.io/master/contributing/compose.html)
+1. Setup tsuru + minikube - follow tsuru's Makefile (make local.setup/make local.run)
 
 2. Run the ingress-router in your minikube cluster
 
@@ -46,22 +46,20 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 
         $ minikube service list
 
-4. Add the ingress router to tsuru.conf
+4. Add the ingress router to tsurud.conf
 
-        $ vim ../tsuru/etc/tsuru-compose.conf
+        $ vim ../tsuru/etc/tsurud.conf
 
     Add:
 
         routers:
             ingress-router:
                 type: api
-                api-url: http://192.168.99.100:31647
+                api-url: {URL}/api
 
-    Replace http://192.168.99.100:31647 with the URL shown by `minikube service list`.
+    Replace {URL} with the URL shown by `minikube service list`.
 
-5. Reload tsuru
-
-        $ $GOPATH/src/github.com/tsuru/tsuru/build-compose.sh
+5. Run `make local.run` from Tsuru's project (to load the new config with routers)
 
 6. Create an app using the ingress-router
 
