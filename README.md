@@ -7,7 +7,7 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 
 - `-alsologtostderr`: log to standard error as well as files;
 - `-cert-file`: Path to certificate used to serve https requests;
-- `-controller-modes`: Defines enabled controller running modes: service, ingress, ingress-nginx or istio-gateway;
+- `-controller-modes`: Defins enabled controller running modes: service, ingress, ingress-nginx or istio-gateway;
 - `-ingress-domain`: Default domain to be used on created vhosts, local is the default. (eg: serviceName.local) (default "local");
 - `-istio-gateway.gateway-selector`: Gateway selector used in gateways created for apps;
 - `-k8s-annotations`: Annotations to be added to each resource created. Expects KEY=VALUE format;

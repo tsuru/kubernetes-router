@@ -195,7 +195,9 @@ func (a *RouterAPI) ensureBackend(w http.ResponseWriter, r *http.Request) error 
 
 	opts := &router.EnsureBackendOpts{
 		Opts: router.Opts{
-			HeaderOpts: r.Header.Values("X-Router-Opt"),
+			GatewayName:      r.Header.Get("X-Gateway-Name"),
+			GatewayNamespace: r.Header.Get("X-Gateway-Namespace"),
+			HeaderOpts:       r.Header.Values("X-Router-Opt"),
 		},
 	}
 	err := json.NewDecoder(r.Body).Decode(opts)
