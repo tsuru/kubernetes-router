@@ -21,6 +21,14 @@ rules:
   resources:
   - "services"
   - "secrets"
+  - "events"
+  verbs:
+  - "*"
+- apiGroups:
+  - "gateway.networking.k8s.io"
+  resources:
+  - "httproutes"
+  - "gateways"
   verbs:
   - "*"
 - apiGroups:
