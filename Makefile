@@ -25,6 +25,10 @@ push: build-docker
 	docker push localhost:5000/kubernetes-router:latest
 	kubectl get po -l app=kubernetes-router --no-headers | awk '{ print $$1 }' | xargs -I{} kubectl delete po {}
 
+.PHONY: image
+image:
+	make IMAGE=$(LOCAL_REGISTRY)/$(BINARY) push
+
 .PHONY: test
 test:
 	go test ./... -race -cover
