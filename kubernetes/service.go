@@ -52,6 +52,7 @@ const (
 	domainLabel        = "tsuru.io/domain-name"
 	processLabel       = "tsuru.io/app-process"
 	appPoolLabel       = "tsuru.io/app-pool"
+	routerInstanceLabel = "router.tsuru.io/instance"
 
 	customTagPrefixLabel = "tsuru.io/custom-tag-"
 

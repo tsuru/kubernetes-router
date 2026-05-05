@@ -29,6 +29,7 @@ rules:
   resources:
   - "httproutes"
   - "gateways"
+  - "listenersets"
   verbs:
   - "*"
 - apiGroups:
