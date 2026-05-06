@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	labelCNameHTTPRoute   = "router.tsuru.io/is-cname-httproute"
+	labelCNameHTTPRoute   = "router.tsuru.io/is-cname"
 	labelCertIssuer       = "router.tsuru.io/cert-issuer"
 	annotationCNames      = "router.tsuru.io/cnames"
 	annotationCertIssuers = "router.tsuru.io/cert-issuers"
@@ -494,6 +494,7 @@ func (g *GatewayAPIService) GetAddresses(ctx context.Context, id router.Instance
 		for _, hostname := range httpRoute.Spec.Hostnames {
 			addresses = append(addresses, string(hostname))
 		}
+		//TODO: handle https addresses
 	}
 
 	return addresses, nil
@@ -592,6 +593,8 @@ func listenerEntryName(cname string) gatewayv1.SectionName {
 
 // ensureCNames handles CName creation/removal for the GatewayAPI workflow.
 // It creates ListenerSets (one per app+issuer) and CName HTTPRoutes.
+// When HTTP-only mode is enabled, CName HTTPRoutes connect directly to the Gateway
+// without creating ListenerSets or TLS configuration.
 func (g *GatewayAPIService) ensureCNames(
 	ctx context.Context,
 	span opentracing.Span,
@@ -604,6 +607,36 @@ func (g *GatewayAPIService) ensureCNames(
 	// Determine existing CNames from annotation on the main HTTPRoute
 	existingCNames := g.getExistingCNames(ctx, client, id, ns)
 	_, cnamesToRemove := diffCNames(existingCNames, o.CNames)
+
+	gwNamespace := gatewayv1.Namespace(gatewayNamespace)
+
+	if o.Opts.HTTPOnly {
+		// HTTP-only: CName HTTPRoutes connect directly to the Gateway (no TLS/ListenerSets).
+		for _, cname := range o.CNames {
+			err := g.ensureCNameHTTPRoute(ctx, span, client, ensureCNameHTTPRouteOpts{
+				id:            id,
+				ns:            ns,
+				cname:         cname,
+				team:          o.Team,
+				defaultTarget: defaultTarget,
+				routerOpts:    o.Opts,
+				gatewayName:   gatewayName,
+				gwNamespace:   gwNamespace,
+			})
+			if err != nil {
+				return err
+			}
+		}
+
+		for _, cname := range cnamesToRemove {
+			if err := g.removeCNameHTTPRoute(ctx, client, id, ns, cname); err != nil {
+				return err
+			}
+		}
+
+		// Clean up any ListenerSets that may exist from a previous non-HTTP-only run
+		return g.cleanupOrphanedListenerSets(ctx, client, id, ns, nil, nil)
+	}
 
 	// Group CNames by issuer
 	cnamesByIssuer := map[string][]string{}
@@ -626,7 +659,17 @@ func (g *GatewayAPIService) ensureCNames(
 		}
 
 		for _, cname := range cnames {
-			err := g.ensureCNameHTTPRoute(ctx, span, client, id, o, ns, gatewayNamespace, issuer, cname, defaultTarget)
+			err := g.ensureCNameHTTPRoute(ctx, span, client, ensureCNameHTTPRouteOpts{
+				id:            id,
+				ns:            ns,
+				cname:         cname,
+				team:          o.Team,
+				defaultTarget: defaultTarget,
+				routerOpts:    o.Opts,
+				gatewayName:   gatewayName,
+				gwNamespace:   gwNamespace,
+				issuer:        issuer,
+			})
 			if err != nil {
 				return err
 			}
@@ -733,24 +776,55 @@ func (g *GatewayAPIService) ensureListenerSet(
 	return nil
 }
 
+// ensureCNameHTTPRouteOpts encapsulates options for creating/updating a CName HTTPRoute.
+type ensureCNameHTTPRouteOpts struct {
+	id            router.InstanceID
+	ns            string
+	cname         string
+	team          string
+	defaultTarget router.BackendTarget
+	routerOpts    router.Opts
+	gatewayName   string
+	gwNamespace   gatewayv1.Namespace
+	issuer        string // empty when HTTP-only
+}
+
 // ensureCNameHTTPRoute creates or updates an HTTPRoute for a specific CName.
-// The parentRef points to the ListenerSet (not the Gateway directly).
+// When HTTPOnly is set, the route connects directly to the Gateway.
+// Otherwise, it connects to the ListenerSet for the given issuer.
 func (g *GatewayAPIService) ensureCNameHTTPRoute(
 	ctx context.Context,
 	span opentracing.Span,
 	client gatewayclient.Interface,
-	id router.InstanceID,
-	o router.EnsureBackendOpts,
-	ns, gatewayNamespace, issuer, cname string,
-	defaultTarget router.BackendTarget,
+	opts ensureCNameHTTPRouteOpts,
 ) error {
-	routeName := g.httpRouteCNameName(id, cname)
-	lsName := g.listenerSetName(id, issuer)
-	lsNamespace := gatewayv1.Namespace(ns)
-	sectionName := listenerEntryName(cname)
+	routeName := g.httpRouteCNameName(opts.id, opts.cname)
 
-	// Get the default backend service for the app
-	svc, err := g.getWebService(ctx, id.AppName, defaultTarget)
+	var parentRefs []gatewayv1.ParentReference
+	if opts.routerOpts.HTTPOnly {
+		parentRefs = []gatewayv1.ParentReference{
+			{
+				Name:      gatewayv1.ObjectName(opts.gatewayName),
+				Namespace: &opts.gwNamespace,
+			},
+		}
+	} else {
+		lsNamespace := gatewayv1.Namespace(opts.ns)
+		lsGroup := gatewayv1.Group("gateway.networking.k8s.io")
+		lsKind := gatewayv1.Kind("ListenerSet")
+		sectionName := listenerEntryName(opts.cname)
+		parentRefs = []gatewayv1.ParentReference{
+			{
+				Group:       &lsGroup,
+				Kind:        &lsKind,
+				Name:        gatewayv1.ObjectName(g.listenerSetName(opts.id, opts.issuer)),
+				Namespace:   &lsNamespace,
+				SectionName: &sectionName,
+			},
+		}
+	}
+
+	svc, err := g.getWebService(ctx, opts.id.AppName, opts.defaultTarget)
 	if err != nil {
 		setSpanError(span, err)
 		return err
@@ -761,33 +835,22 @@ func (g *GatewayAPIService) ensureCNameHTTPRoute(
 		port = gatewayv1.PortNumber(svc.Spec.Ports[0].Port)
 	}
 
-	lsGroup := gatewayv1.Group("gateway.networking.k8s.io")
-	lsKind := gatewayv1.Kind("ListenerSet")
-
 	httpRoute := &gatewayv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      routeName,
-			Namespace: ns,
+			Namespace: opts.ns,
 			Labels: map[string]string{
-				appLabel:            id.AppName,
-				teamLabel:           o.Team,
-				routerInstanceLabel: id.InstanceName,
+				appLabel:            opts.id.AppName,
+				teamLabel:           opts.team,
+				routerInstanceLabel: opts.id.InstanceName,
 				labelCNameHTTPRoute: "true",
 			},
 		},
 		Spec: gatewayv1.HTTPRouteSpec{
 			CommonRouteSpec: gatewayv1.CommonRouteSpec{
-				ParentRefs: []gatewayv1.ParentReference{
-					{
-						Group:       &lsGroup,
-						Kind:        &lsKind,
-						Name:        gatewayv1.ObjectName(lsName),
-						Namespace:   &lsNamespace,
-						SectionName: &sectionName,
-					},
-				},
+				ParentRefs: parentRefs,
 			},
-			Hostnames: []gatewayv1.Hostname{gatewayv1.Hostname(cname)},
+			Hostnames: []gatewayv1.Hostname{gatewayv1.Hostname(opts.cname)},
 			Rules: []gatewayv1.HTTPRouteRule{
 				{
 					BackendRefs: []gatewayv1.HTTPBackendRef{
@@ -805,13 +868,13 @@ func (g *GatewayAPIService) ensureCNameHTTPRoute(
 		},
 	}
 
-	existing, err := client.GatewayV1().HTTPRoutes(ns).Get(ctx, routeName, metav1.GetOptions{})
+	existing, err := client.GatewayV1().HTTPRoutes(opts.ns).Get(ctx, routeName, metav1.GetOptions{})
 	if err != nil {
 		if !k8sErrors.IsNotFound(err) {
 			setSpanError(span, err)
 			return err
 		}
-		_, err = client.GatewayV1().HTTPRoutes(ns).Create(ctx, httpRoute, metav1.CreateOptions{})
+		_, err = client.GatewayV1().HTTPRoutes(opts.ns).Create(ctx, httpRoute, metav1.CreateOptions{})
 		if err != nil {
 			setSpanError(span, err)
 			return err
@@ -825,7 +888,7 @@ func (g *GatewayAPIService) ensureCNameHTTPRoute(
 	}
 
 	httpRoute.ResourceVersion = existing.ResourceVersion
-	_, err = client.GatewayV1().HTTPRoutes(ns).Update(ctx, httpRoute, metav1.UpdateOptions{})
+	_, err = client.GatewayV1().HTTPRoutes(opts.ns).Update(ctx, httpRoute, metav1.UpdateOptions{})
 	if err != nil {
 		setSpanError(span, err)
 		return err
