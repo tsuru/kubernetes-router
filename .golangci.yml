@@ -1,14 +1,24 @@
+version: "2"
+
 run:
   tests: true
 
-linters-settings:
-  gofmt:
-    simplify: true
-
 linters:
   enable:
-  - goimports
-  - gofmt
-  - misspell
+    - misspell
   disable:
-  - errcheck
+    - errcheck
+
+formatters:
+  enable:
+    - goimports
+    - gofmt
+  settings:
+    gofmt:
+      simplify: true
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
