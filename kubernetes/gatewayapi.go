@@ -86,23 +86,23 @@ func (g *GatewayAPIService) Ensure(ctx context.Context, id router.InstanceID, o 
 	span, ctx := opentracing.StartSpanFromContext(ctx, "ensureHTTPRoute")
 	defer span.Finish()
 
-	gatewayName := g.GatewayName
-	if o.Opts.GatewayName != "" {
-		gatewayName = o.Opts.GatewayName
-	}
-	gatewayNamespace := g.GatewayNamespace
-	if o.Opts.GatewayNamespace != "" {
-		gatewayNamespace = o.Opts.GatewayNamespace
-	}
-
-	if gatewayName == "" || gatewayNamespace == "" {
-		err := fmt.Errorf("gateway name and namespace must be specified via startup flags or X-Gateway-Name/X-Gateway-Namespace headers")
+	ns, err := g.getAppNamespace(ctx, id.AppName)
+	if err != nil {
 		setSpanError(span, err)
 		return err
 	}
 
-	ns, err := g.getAppNamespace(ctx, id.AppName)
-	if err != nil {
+	if o.Opts.GatewayName != "" {
+		g.GatewayName = o.Opts.GatewayName
+	}
+	if o.Opts.GatewayNamespace != "" {
+		g.GatewayNamespace = o.Opts.GatewayNamespace
+	} else {
+		g.GatewayNamespace = ns
+	}
+
+	if g.GatewayName == "" || g.GatewayNamespace == "" {
+		err := fmt.Errorf("gateway name and namespace must be specified via startup flags or X-Gateway-Name/X-Gateway-Namespace headers")
 		setSpanError(span, err)
 		return err
 	}
@@ -128,16 +128,11 @@ func (g *GatewayAPIService) Ensure(ctx context.Context, id router.InstanceID, o 
 		}
 	}
 
-	domainSuffix := g.DomainSuffix
 	if o.Opts.DomainSuffix != "" {
-		domainSuffix = o.Opts.DomainSuffix
+		g.DomainSuffix = o.Opts.DomainSuffix
 	}
 
 	rc := httpRouteContext{
-		ns:              ns,
-		gatewayName:     gatewayName,
-		gwNamespace:     gatewayv1.Namespace(gatewayNamespace),
-		domainSuffix:    domainSuffix,
 		backendTargets:  backendTargets,
 		backendServices: backendServices,
 	}
@@ -152,14 +147,14 @@ func (g *GatewayAPIService) Ensure(ctx context.Context, id router.InstanceID, o 
 	}
 
 	// Handle CNames: ListenerSets + CName HTTPRoutes
-	if len(o.CNames) > 0 || g.hasExistingCNames(ctx, client, id, rc.ns) {
-		err = g.ensureCNames(ctx, span, client, id, o, rc.ns, rc.gatewayName, gatewayNamespace, rc.backendTargets["default"])
+	if len(o.CNames) > 0 || g.hasExistingCNames(ctx, client, id, ns) {
+		err = g.ensureCNames(ctx, span, client, id, o, ns, backendTargets["default"])
 		if err != nil {
 			setSpanError(span, err)
 			return err
 		}
 		// Store CNames in annotation on the main HTTPRoute for tracking
-		g.updateCNamesAnnotation(ctx, client, id, rc.ns, o.CNames)
+		g.updateCNamesAnnotation(ctx, client, id, ns, o.CNames)
 	}
 
 	return nil
@@ -168,9 +163,6 @@ func (g *GatewayAPIService) Ensure(ctx context.Context, id router.InstanceID, o 
 // httpRouteContext holds the resolved configuration for creating/updating HTTPRoutes.
 type httpRouteContext struct {
 	ns              string
-	gatewayName     string
-	gwNamespace     gatewayv1.Namespace
-	domainSuffix    string
 	backendTargets  map[string]router.BackendTarget
 	backendServices map[string]*corev1.Service
 }
@@ -240,11 +232,12 @@ func (g *GatewayAPIService) ensureSingleHTTPRoute(
 	var rules []gatewayv1.HTTPRouteRule
 
 	for prefixString, svc := range rc.backendServices {
-		host := g.buildHTTPRouteHostname(prefixString, id, o, rc.domainSuffix)
+		host := g.buildHTTPRouteHostname(prefixString, id, o, g.DomainSuffix)
 		hostnames = append(hostnames, gatewayv1.Hostname(host))
 		rules = append(rules, g.buildHTTPRouteRule(svc))
 	}
 
+	gwNamespace := gatewayv1.Namespace(g.GatewayNamespace)
 	httpRoute := &gatewayv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      g.httpRouteName(id),
@@ -261,8 +254,8 @@ func (g *GatewayAPIService) ensureSingleHTTPRoute(
 			CommonRouteSpec: gatewayv1.CommonRouteSpec{
 				ParentRefs: []gatewayv1.ParentReference{
 					{
-						Name:      gatewayv1.ObjectName(rc.gatewayName),
-						Namespace: &rc.gwNamespace,
+						Name:      gatewayv1.ObjectName(g.GatewayName),
+						Namespace: &gwNamespace,
 					},
 				},
 			},
@@ -352,8 +345,9 @@ func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
 			}
 		}
 
-		host := g.buildHTTPRouteHostname(prefixString, id, o, rc.domainSuffix)
+		host := g.buildHTTPRouteHostname(prefixString, id, o, g.DomainSuffix)
 
+		gwNamespace := gatewayv1.Namespace(g.GatewayNamespace)
 		httpRoute := &gatewayv1.HTTPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      routeName,
@@ -370,8 +364,8 @@ func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{
 						{
-							Name:      gatewayv1.ObjectName(rc.gatewayName),
-							Namespace: &rc.gwNamespace,
+							Name:      gatewayv1.ObjectName(g.GatewayName),
+							Namespace: &gwNamespace,
 						},
 					},
 				},
@@ -610,19 +604,21 @@ func (g *GatewayAPIService) ensureCNames(
 	client gatewayclient.Interface,
 	id router.InstanceID,
 	o router.EnsureBackendOpts,
-	ns, gatewayName, gatewayNamespace string,
+	ns string,
 	defaultTarget router.BackendTarget,
 ) error {
 	// Determine existing CNames from annotation on the main HTTPRoute
 	existingCNames := g.getExistingCNames(ctx, client, id, ns)
 	_, cnamesToRemove := diffCNames(existingCNames, o.CNames)
 
-	gwNamespace := gatewayv1.Namespace(gatewayNamespace)
-
+	gwNamespace := gatewayv1.Namespace(g.GatewayNamespace)
 	if o.Opts.HTTPOnly {
 		// HTTP-only: CName HTTPRoutes connect directly to the Gateway (no TLS/ListenerSets).
 		parentRefs := []gatewayv1.ParentReference{
-			{Name: gatewayv1.ObjectName(gatewayName), Namespace: &gwNamespace},
+			{
+				Name:      gatewayv1.ObjectName(g.GatewayName),
+				Namespace: &gwNamespace,
+			},
 		}
 		for _, cname := range o.CNames {
 			err := g.ensureCNameHTTPRoute(ctx, span, client, ensureCNameHTTPRouteOpts{
@@ -663,7 +659,7 @@ func (g *GatewayAPIService) ensureCNames(
 
 	// Ensure ListenerSets and CName HTTPRoutes
 	for issuer, cnames := range cnamesByIssuer {
-		err := g.ensureListenerSet(ctx, span, client, id, o, ns, gatewayName, gatewayNamespace, issuer, cnames)
+		err := g.ensureListenerSet(ctx, span, client, id, o, ns, issuer, cnames)
 		if err != nil {
 			return err
 		}
@@ -721,11 +717,11 @@ func (g *GatewayAPIService) ensureListenerSet(
 	client gatewayclient.Interface,
 	id router.InstanceID,
 	o router.EnsureBackendOpts,
-	ns, gatewayName, gatewayNamespace, issuer string,
+	ns, issuer string,
 	cnames []string,
 ) error {
 	lsName := g.listenerSetName(id, issuer)
-	gwNamespace := gatewayv1.Namespace(gatewayNamespace)
+	gwNamespace := gatewayv1.Namespace(g.GatewayNamespace)
 
 	// Build listeners from cnames
 	var listeners []gatewayv1.ListenerEntry
@@ -765,7 +761,7 @@ func (g *GatewayAPIService) ensureListenerSet(
 		},
 		Spec: gatewayv1.ListenerSetSpec{
 			ParentRef: gatewayv1.ParentGatewayReference{
-				Name:      gatewayv1.ObjectName(gatewayName),
+				Name:      gatewayv1.ObjectName(g.GatewayName),
 				Namespace: &gwNamespace,
 			},
 			Listeners: listeners,
