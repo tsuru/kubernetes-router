@@ -23,6 +23,7 @@ import (
 )
 
 const (
+	labelIsGatewayHTTPs   = "router.tsuru.io/is-https"
 	labelCNameHTTPRoute   = "router.tsuru.io/is-cname"
 	labelCertIssuer       = "router.tsuru.io/cert-issuer"
 	annotationCNames      = "router.tsuru.io/cnames"
@@ -478,10 +479,19 @@ func (g *GatewayAPIService) GetAddresses(ctx context.Context, id router.Instance
 		return nil, err
 	}
 
+	gw, err := client.GatewayV1().Gateways(g.GatewayNamespace).Get(ctx, g.GatewayName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	schema := "http"
+	if gw.Labels[labelIsGatewayHTTPs] == "true" {
+		schema = "https"
+	}
+
 	var addresses []string
 	for _, route := range routes {
 		for _, hostname := range route.Spec.Hostnames {
-			addresses = append(addresses, string(hostname))
+			addresses = append(addresses, fmt.Sprintf("%s://%s", schema, hostname))
 		}
 	}
 
@@ -495,7 +505,7 @@ func (g *GatewayAPIService) GetAddresses(ctx context.Context, id router.Instance
 			return nil, err
 		}
 		for _, hostname := range httpRoute.Spec.Hostnames {
-			addresses = append(addresses, string(hostname))
+			addresses = append(addresses, fmt.Sprintf("%s://%s", schema, hostname))
 		}
 		//TODO: handle https addresses
 	}
@@ -651,10 +661,9 @@ func (g *GatewayAPIService) ensureCNames(
 		if issuer == "" {
 			issuer = g.AcmeIssuer
 		}
-		if issuer == "" {
-			issuer = "default"
+		if issuer != "" {
+			cnamesByIssuer[issuer] = append(cnamesByIssuer[issuer], cname)
 		}
-		cnamesByIssuer[issuer] = append(cnamesByIssuer[issuer], cname)
 	}
 
 	// Ensure ListenerSets and CName HTTPRoutes
