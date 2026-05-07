@@ -133,29 +133,46 @@ func (g *GatewayAPIService) Ensure(ctx context.Context, id router.InstanceID, o 
 		domainSuffix = o.Opts.DomainSuffix
 	}
 
-	gwNamespace := gatewayv1.Namespace(gatewayNamespace)
+	rc := httpRouteContext{
+		ns:              ns,
+		gatewayName:     gatewayName,
+		gwNamespace:     gatewayv1.Namespace(gatewayNamespace),
+		domainSuffix:    domainSuffix,
+		backendTargets:  backendTargets,
+		backendServices: backendServices,
+	}
 
 	if o.Opts.ExposeAllServices {
-		err = g.ensurePerPrefixHTTPRoutes(ctx, span, client, id, o, ns, gatewayName, gwNamespace, domainSuffix, backendTargets, backendServices)
+		err = g.ensurePerPrefixHTTPRoutes(ctx, span, client, id, o, rc)
 	} else {
-		err = g.ensureSingleHTTPRoute(ctx, span, client, id, o, ns, gatewayName, gwNamespace, domainSuffix, backendTargets, backendServices)
+		err = g.ensureSingleHTTPRoute(ctx, span, client, id, o, rc)
 	}
 	if err != nil {
 		return err
 	}
 
 	// Handle CNames: ListenerSets + CName HTTPRoutes
-	if len(o.CNames) > 0 || g.hasExistingCNames(ctx, client, id, ns) {
-		err = g.ensureCNames(ctx, span, client, id, o, ns, gatewayName, gatewayNamespace, backendTargets["default"])
+	if len(o.CNames) > 0 || g.hasExistingCNames(ctx, client, id, rc.ns) {
+		err = g.ensureCNames(ctx, span, client, id, o, rc.ns, rc.gatewayName, gatewayNamespace, rc.backendTargets["default"])
 		if err != nil {
 			setSpanError(span, err)
 			return err
 		}
 		// Store CNames in annotation on the main HTTPRoute for tracking
-		g.updateCNamesAnnotation(ctx, client, id, ns, o.CNames)
+		g.updateCNamesAnnotation(ctx, client, id, rc.ns, o.CNames)
 	}
 
 	return nil
+}
+
+// httpRouteContext holds the resolved configuration for creating/updating HTTPRoutes.
+type httpRouteContext struct {
+	ns              string
+	gatewayName     string
+	gwNamespace     gatewayv1.Namespace
+	domainSuffix    string
+	backendTargets  map[string]router.BackendTarget
+	backendServices map[string]*corev1.Service
 }
 
 func (g *GatewayAPIService) buildHTTPRouteHostname(prefixString string, id router.InstanceID, o router.EnsureBackendOpts, domainSuffix string) string {
@@ -197,16 +214,12 @@ func (g *GatewayAPIService) ensureSingleHTTPRoute(
 	client gatewayclient.Interface,
 	id router.InstanceID,
 	o router.EnsureBackendOpts,
-	ns, gatewayName string,
-	gwNamespace gatewayv1.Namespace,
-	domainSuffix string,
-	backendTargets map[string]router.BackendTarget,
-	backendServices map[string]*corev1.Service,
+	rc httpRouteContext,
 ) error {
 	routeName := g.httpRouteName(id)
 
 	isNew := false
-	existingHTTPRoute, err := client.GatewayV1().HTTPRoutes(ns).Get(ctx, routeName, metav1.GetOptions{})
+	existingHTTPRoute, err := client.GatewayV1().HTTPRoutes(rc.ns).Get(ctx, routeName, metav1.GetOptions{})
 	if err != nil {
 		if !k8sErrors.IsNotFound(err) {
 			setSpanError(span, err)
@@ -226,8 +239,8 @@ func (g *GatewayAPIService) ensureSingleHTTPRoute(
 	var hostnames []gatewayv1.Hostname
 	var rules []gatewayv1.HTTPRouteRule
 
-	for prefixString, svc := range backendServices {
-		host := g.buildHTTPRouteHostname(prefixString, id, o, domainSuffix)
+	for prefixString, svc := range rc.backendServices {
+		host := g.buildHTTPRouteHostname(prefixString, id, o, rc.domainSuffix)
 		hostnames = append(hostnames, gatewayv1.Hostname(host))
 		rules = append(rules, g.buildHTTPRouteRule(svc))
 	}
@@ -235,21 +248,21 @@ func (g *GatewayAPIService) ensureSingleHTTPRoute(
 	httpRoute := &gatewayv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      g.httpRouteName(id),
-			Namespace: ns,
+			Namespace: rc.ns,
 			Labels: map[string]string{
 				appLabel:                     id.AppName,
 				teamLabel:                    o.Team,
 				routerInstanceLabel:          id.InstanceName,
-				appBaseServiceNamespaceLabel: backendTargets["default"].Namespace,
-				appBaseServiceNameLabel:      backendTargets["default"].Service,
+				appBaseServiceNamespaceLabel: rc.backendTargets["default"].Namespace,
+				appBaseServiceNameLabel:      rc.backendTargets["default"].Service,
 			},
 		},
 		Spec: gatewayv1.HTTPRouteSpec{
 			CommonRouteSpec: gatewayv1.CommonRouteSpec{
 				ParentRefs: []gatewayv1.ParentReference{
 					{
-						Name:      gatewayv1.ObjectName(gatewayName),
-						Namespace: &gwNamespace,
+						Name:      gatewayv1.ObjectName(rc.gatewayName),
+						Namespace: &rc.gwNamespace,
 					},
 				},
 			},
@@ -259,7 +272,7 @@ func (g *GatewayAPIService) ensureSingleHTTPRoute(
 	}
 
 	if isNew {
-		_, err = client.GatewayV1().HTTPRoutes(ns).Create(ctx, httpRoute, metav1.CreateOptions{})
+		_, err = client.GatewayV1().HTTPRoutes(rc.ns).Create(ctx, httpRoute, metav1.CreateOptions{})
 		if err != nil {
 			setSpanError(span, err)
 			return err
@@ -270,7 +283,7 @@ func (g *GatewayAPIService) ensureSingleHTTPRoute(
 		if existingHTTPRoute.Annotations != nil {
 			httpRoute.Annotations = existingHTTPRoute.Annotations
 		}
-		_, err = client.GatewayV1().HTTPRoutes(ns).Update(ctx, httpRoute, metav1.UpdateOptions{})
+		_, err = client.GatewayV1().HTTPRoutes(rc.ns).Update(ctx, httpRoute, metav1.UpdateOptions{})
 		if err != nil {
 			setSpanError(span, err)
 			return err
@@ -278,14 +291,14 @@ func (g *GatewayAPIService) ensureSingleHTTPRoute(
 	}
 
 	// Clean up any per-prefix HTTPRoutes left over from a previous all-prefixes=true run
-	existingRoutes, err := g.listHTTPRoutesForApp(ctx, client, ns, id)
+	existingRoutes, err := g.listHTTPRoutesForApp(ctx, client, rc.ns, id)
 	if err != nil {
 		setSpanError(span, err)
 		return err
 	}
 	for _, route := range existingRoutes {
 		if route.Name != routeName && route.Annotations[AnnotationFreeze] != "true" && route.Labels[labelCNameHTTPRoute] != "true" {
-			err = client.GatewayV1().HTTPRoutes(ns).Delete(ctx, route.Name, metav1.DeleteOptions{})
+			err = client.GatewayV1().HTTPRoutes(rc.ns).Delete(ctx, route.Name, metav1.DeleteOptions{})
 			if err != nil && !k8sErrors.IsNotFound(err) {
 				setSpanError(span, err)
 				return err
@@ -303,30 +316,26 @@ func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
 	client gatewayclient.Interface,
 	id router.InstanceID,
 	o router.EnsureBackendOpts,
-	ns, gatewayName string,
-	gwNamespace gatewayv1.Namespace,
-	domainSuffix string,
-	backendTargets map[string]router.BackendTarget,
-	backendServices map[string]*corev1.Service,
+	rc httpRouteContext,
 ) error {
 	desiredRouteNames := map[string]bool{}
 
 	// Sort prefixes for deterministic ordering
-	prefixes := make([]string, 0, len(backendServices))
-	for prefixString := range backendServices {
+	prefixes := make([]string, 0, len(rc.backendServices))
+	for prefixString := range rc.backendServices {
 		prefixes = append(prefixes, prefixString)
 	}
 	sort.Strings(prefixes)
 
 	for _, prefixString := range prefixes {
-		svc := backendServices[prefixString]
-		target := backendTargets[prefixString]
+		svc := rc.backendServices[prefixString]
+		target := rc.backendTargets[prefixString]
 
 		routeName := g.httpRouteNameForPrefix(id, prefixString)
 		desiredRouteNames[routeName] = true
 
 		isNew := false
-		existingHTTPRoute, err := client.GatewayV1().HTTPRoutes(ns).Get(ctx, routeName, metav1.GetOptions{})
+		existingHTTPRoute, err := client.GatewayV1().HTTPRoutes(rc.ns).Get(ctx, routeName, metav1.GetOptions{})
 		if err != nil {
 			if !k8sErrors.IsNotFound(err) {
 				setSpanError(span, err)
@@ -343,12 +352,12 @@ func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
 			}
 		}
 
-		host := g.buildHTTPRouteHostname(prefixString, id, o, domainSuffix)
+		host := g.buildHTTPRouteHostname(prefixString, id, o, rc.domainSuffix)
 
 		httpRoute := &gatewayv1.HTTPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      routeName,
-				Namespace: ns,
+				Namespace: rc.ns,
 				Labels: map[string]string{
 					appLabel:                     id.AppName,
 					teamLabel:                    o.Team,
@@ -361,8 +370,8 @@ func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{
 						{
-							Name:      gatewayv1.ObjectName(gatewayName),
-							Namespace: &gwNamespace,
+							Name:      gatewayv1.ObjectName(rc.gatewayName),
+							Namespace: &rc.gwNamespace,
 						},
 					},
 				},
@@ -372,13 +381,13 @@ func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
 		}
 
 		if isNew {
-			_, err = client.GatewayV1().HTTPRoutes(ns).Create(ctx, httpRoute, metav1.CreateOptions{})
+			_, err = client.GatewayV1().HTTPRoutes(rc.ns).Create(ctx, httpRoute, metav1.CreateOptions{})
 		} else {
 			httpRoute.ResourceVersion = existingHTTPRoute.ResourceVersion
 			if existingHTTPRoute.Annotations != nil {
 				httpRoute.Annotations = existingHTTPRoute.Annotations
 			}
-			_, err = client.GatewayV1().HTTPRoutes(ns).Update(ctx, httpRoute, metav1.UpdateOptions{})
+			_, err = client.GatewayV1().HTTPRoutes(rc.ns).Update(ctx, httpRoute, metav1.UpdateOptions{})
 		}
 
 		if err != nil {
@@ -389,14 +398,14 @@ func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
 	}
 
 	// Clean up HTTPRoutes that are no longer needed (e.g., removed prefixes)
-	existingRoutes, err := g.listHTTPRoutesForApp(ctx, client, ns, id)
+	existingRoutes, err := g.listHTTPRoutesForApp(ctx, client, rc.ns, id)
 	if err != nil {
 		setSpanError(span, err)
 		return err
 	}
 	for _, route := range existingRoutes {
 		if !desiredRouteNames[route.Name] && route.Annotations[AnnotationFreeze] != "true" && route.Labels[labelCNameHTTPRoute] != "true" {
-			err = client.GatewayV1().HTTPRoutes(ns).Delete(ctx, route.Name, metav1.DeleteOptions{})
+			err = client.GatewayV1().HTTPRoutes(rc.ns).Delete(ctx, route.Name, metav1.DeleteOptions{})
 			if err != nil && !k8sErrors.IsNotFound(err) {
 				setSpanError(span, err)
 				return err
