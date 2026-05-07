@@ -612,6 +612,9 @@ func (g *GatewayAPIService) ensureCNames(
 
 	if o.Opts.HTTPOnly {
 		// HTTP-only: CName HTTPRoutes connect directly to the Gateway (no TLS/ListenerSets).
+		parentRefs := []gatewayv1.ParentReference{
+			{Name: gatewayv1.ObjectName(gatewayName), Namespace: &gwNamespace},
+		}
 		for _, cname := range o.CNames {
 			err := g.ensureCNameHTTPRoute(ctx, span, client, ensureCNameHTTPRouteOpts{
 				id:            id,
@@ -619,9 +622,7 @@ func (g *GatewayAPIService) ensureCNames(
 				cname:         cname,
 				team:          o.Team,
 				defaultTarget: defaultTarget,
-				routerOpts:    o.Opts,
-				gatewayName:   gatewayName,
-				gwNamespace:   gwNamespace,
+				parentRefs:    parentRefs,
 			})
 			if err != nil {
 				return err
@@ -659,16 +660,27 @@ func (g *GatewayAPIService) ensureCNames(
 		}
 
 		for _, cname := range cnames {
+			lsNamespace := gatewayv1.Namespace(ns)
+			lsGroup := gatewayv1.Group("gateway.networking.k8s.io")
+			lsKind := gatewayv1.Kind("ListenerSet")
+			sectionName := listenerEntryName(cname)
+			parentRefs := []gatewayv1.ParentReference{
+				{
+					Group:       &lsGroup,
+					Kind:        &lsKind,
+					Name:        gatewayv1.ObjectName(g.listenerSetName(id, issuer)),
+					Namespace:   &lsNamespace,
+					SectionName: &sectionName,
+				},
+			}
+
 			err := g.ensureCNameHTTPRoute(ctx, span, client, ensureCNameHTTPRouteOpts{
 				id:            id,
 				ns:            ns,
 				cname:         cname,
 				team:          o.Team,
 				defaultTarget: defaultTarget,
-				routerOpts:    o.Opts,
-				gatewayName:   gatewayName,
-				gwNamespace:   gwNamespace,
-				issuer:        issuer,
+				parentRefs:    parentRefs,
 			})
 			if err != nil {
 				return err
@@ -783,15 +795,11 @@ type ensureCNameHTTPRouteOpts struct {
 	cname         string
 	team          string
 	defaultTarget router.BackendTarget
-	routerOpts    router.Opts
-	gatewayName   string
-	gwNamespace   gatewayv1.Namespace
-	issuer        string // empty when HTTP-only
+	parentRefs    []gatewayv1.ParentReference
 }
 
 // ensureCNameHTTPRoute creates or updates an HTTPRoute for a specific CName.
-// When HTTPOnly is set, the route connects directly to the Gateway.
-// Otherwise, it connects to the ListenerSet for the given issuer.
+// The caller is responsible for building the appropriate parentRefs based on the routing mode.
 func (g *GatewayAPIService) ensureCNameHTTPRoute(
 	ctx context.Context,
 	span opentracing.Span,
@@ -799,30 +807,6 @@ func (g *GatewayAPIService) ensureCNameHTTPRoute(
 	opts ensureCNameHTTPRouteOpts,
 ) error {
 	routeName := g.httpRouteCNameName(opts.id, opts.cname)
-
-	var parentRefs []gatewayv1.ParentReference
-	if opts.routerOpts.HTTPOnly {
-		parentRefs = []gatewayv1.ParentReference{
-			{
-				Name:      gatewayv1.ObjectName(opts.gatewayName),
-				Namespace: &opts.gwNamespace,
-			},
-		}
-	} else {
-		lsNamespace := gatewayv1.Namespace(opts.ns)
-		lsGroup := gatewayv1.Group("gateway.networking.k8s.io")
-		lsKind := gatewayv1.Kind("ListenerSet")
-		sectionName := listenerEntryName(opts.cname)
-		parentRefs = []gatewayv1.ParentReference{
-			{
-				Group:       &lsGroup,
-				Kind:        &lsKind,
-				Name:        gatewayv1.ObjectName(g.listenerSetName(opts.id, opts.issuer)),
-				Namespace:   &lsNamespace,
-				SectionName: &sectionName,
-			},
-		}
-	}
 
 	svc, err := g.getWebService(ctx, opts.id.AppName, opts.defaultTarget)
 	if err != nil {
@@ -848,7 +832,7 @@ func (g *GatewayAPIService) ensureCNameHTTPRoute(
 		},
 		Spec: gatewayv1.HTTPRouteSpec{
 			CommonRouteSpec: gatewayv1.CommonRouteSpec{
-				ParentRefs: parentRefs,
+				ParentRefs: opts.parentRefs,
 			},
 			Hostnames: []gatewayv1.Hostname{gatewayv1.Hostname(opts.cname)},
 			Rules: []gatewayv1.HTTPRouteRule{
