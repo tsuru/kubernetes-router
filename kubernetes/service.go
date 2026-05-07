@@ -46,12 +46,12 @@ const (
 
 	externalDNSHostnameLabel = "external-dns.alpha.kubernetes.io/hostname"
 
-	defaultServicePort = 8888
-	appLabel           = "tsuru.io/app-name"
-	teamLabel          = "tsuru.io/app-team"
-	domainLabel        = "tsuru.io/domain-name"
-	processLabel       = "tsuru.io/app-process"
-	appPoolLabel       = "tsuru.io/app-pool"
+	defaultServicePort  = 8888
+	appLabel            = "tsuru.io/app-name"
+	teamLabel           = "tsuru.io/app-team"
+	domainLabel         = "tsuru.io/domain-name"
+	processLabel        = "tsuru.io/app-process"
+	appPoolLabel        = "tsuru.io/app-pool"
 	routerInstanceLabel = "router.tsuru.io/instance"
 
 	customTagPrefixLabel = "tsuru.io/custom-tag-"
