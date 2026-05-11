@@ -82,7 +82,7 @@ func (g *GatewayAPIService) listHTTPRoutesForApp(ctx context.Context, client gat
 }
 
 // Ensure creates or updates HTTPRoute resources to route traffic to the app's backend service.
-// When ExposeAllServices is true, a separate HTTPRoute is created for each prefix/version.
+// One HTTPRoute is created per prefix. When ExposeAllServices is false, only the "default" prefix is used.
 func (g *GatewayAPIService) Ensure(ctx context.Context, id router.InstanceID, o router.EnsureBackendOpts) error {
 	span, ctx := opentracing.StartSpanFromContext(ctx, "ensureHTTPRoute")
 	defer span.Finish()
@@ -140,11 +140,21 @@ func (g *GatewayAPIService) Ensure(ctx context.Context, id router.InstanceID, o 
 		isHTTPOnly:      o.Opts.HTTPOnly,
 	}
 
-	if o.Opts.ExposeAllServices {
-		err = g.ensurePerPrefixHTTPRoutes(ctx, span, client, id, o, rc)
-	} else {
-		err = g.ensureSingleHTTPRoute(ctx, span, client, id, o, rc)
+	// Build prefix list from resolved backends (already filtered by getBackendTargets).
+	prefixes := make([]string, 0, len(rc.backendServices))
+	for prefixString := range rc.backendServices {
+		prefixes = append(prefixes, prefixString)
 	}
+	sort.Strings(prefixes)
+
+	// Ensure HTTPRoutes for all prefixes
+	desiredRouteNames, err := g.ensureHTTPRoutes(ctx, span, client, id, o, rc, prefixes)
+	if err != nil {
+		return err
+	}
+
+	// Clean up obsolete routes
+	err = g.cleanupHTTPRoutes(ctx, span, client, rc.ns, id, desiredRouteNames)
 	if err != nil {
 		return err
 	}
@@ -249,107 +259,30 @@ func (g *GatewayAPIService) cleanupHTTPRoutes(ctx context.Context, span opentrac
 	}
 
 	for _, route := range existingRoutes {
-		if desiredRouteNames[route.Name] || isFrozenHTTPRoute(&route) || route.Labels[labelCNameHTTPRoute] == "true" {
-			continue
-		}
-
-		err = client.GatewayV1().HTTPRoutes(ns).Delete(ctx, route.Name, metav1.DeleteOptions{})
-		if err != nil && !k8sErrors.IsNotFound(err) {
-			setSpanError(span, err)
-			return err
+		if !desiredRouteNames[route.Name] && !isFrozenHTTPRoute(&route) && route.Labels[labelCNameHTTPRoute] != "true" {
+			err = client.GatewayV1().HTTPRoutes(ns).Delete(ctx, route.Name, metav1.DeleteOptions{})
+			if err != nil && !k8sErrors.IsNotFound(err) {
+				setSpanError(span, err)
+				return err
+			}
 		}
 	}
 
 	return nil
 }
 
-func (g *GatewayAPIService) ensureSingleHTTPRoute(
+// ensureHTTPRoutes creates or updates HTTPRoutes.
+// Returns the map of desired route names for cleanup.
+func (g *GatewayAPIService) ensureHTTPRoutes(
 	ctx context.Context,
 	span opentracing.Span,
 	client gatewayclient.Interface,
 	id router.InstanceID,
 	o router.EnsureBackendOpts,
 	rc httpRouteContext,
-) error {
-	routeName := g.httpRouteName(id)
-
-	existingHTTPRoute, err := g.getExistingHTTPRoute(ctx, span, client, rc.ns, routeName)
-	if err != nil {
-		return err
-	}
-
-	if isFrozenHTTPRoute(existingHTTPRoute) {
-		log.Printf("HTTPRoute is frozen, skipping: %s/%s", existingHTTPRoute.Namespace, existingHTTPRoute.Name)
-		return nil
-	}
-
-	var hostnames []gatewayv1.Hostname
-	var rules []gatewayv1.HTTPRouteRule
-
-	for prefixString, svc := range rc.backendServices {
-		host := g.buildHTTPRouteHostname(prefixString, id, o, g.DomainSuffix)
-		hostnames = append(hostnames, gatewayv1.Hostname(host))
-		rules = append(rules, g.buildHTTPRouteRule(svc))
-	}
-
-	gwNamespace := gatewayv1.Namespace(g.GatewayNamespace)
-	httpRoute := &gatewayv1.HTTPRoute{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      g.httpRouteName(id),
-			Namespace: rc.ns,
-			Labels: map[string]string{
-				appLabel:                     id.AppName,
-				teamLabel:                    o.Team,
-				routerInstanceLabel:          id.InstanceName,
-				appBaseServiceNamespaceLabel: rc.backendTargets["default"].Namespace,
-				appBaseServiceNameLabel:      rc.backendTargets["default"].Service,
-				labelHTTPRouteHTTPOnly:       fmt.Sprintf("%t", rc.isHTTPOnly),
-			},
-		},
-		Spec: gatewayv1.HTTPRouteSpec{
-			CommonRouteSpec: gatewayv1.CommonRouteSpec{
-				ParentRefs: []gatewayv1.ParentReference{
-					{
-						Name:      gatewayv1.ObjectName(g.GatewayName),
-						Namespace: &gwNamespace,
-					},
-				},
-			},
-			Hostnames: hostnames,
-			Rules:     rules,
-		},
-	}
-
-	err = g.upsertHTTPRoute(ctx, span, client, rc.ns, httpRoute, existingHTTPRoute)
-	if err != nil {
-		return err
-	}
-
-	// Clean up any per-prefix HTTPRoutes left over from a previous all-prefixes=true run
-	err = g.cleanupHTTPRoutes(ctx, span, client, rc.ns, id, map[string]bool{routeName: true})
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
-	ctx context.Context,
-	span opentracing.Span,
-	client gatewayclient.Interface,
-	id router.InstanceID,
-	o router.EnsureBackendOpts,
-	rc httpRouteContext,
-) error {
+	prefixes []string,
+) (map[string]bool, error) {
 	desiredRouteNames := map[string]bool{}
-
-	// Sort prefixes for deterministic ordering
-	prefixes := make([]string, 0, len(rc.backendServices))
-	for prefixString := range rc.backendServices {
-		prefixes = append(prefixes, prefixString)
-	}
-	sort.Strings(prefixes)
 
 	for _, prefixString := range prefixes {
 		svc := rc.backendServices[prefixString]
@@ -360,7 +293,7 @@ func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
 
 		existingHTTPRoute, err := g.getExistingHTTPRoute(ctx, span, client, rc.ns, routeName)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if isFrozenHTTPRoute(existingHTTPRoute) {
@@ -400,18 +333,11 @@ func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
 
 		err = g.upsertHTTPRoute(ctx, span, client, rc.ns, httpRoute, existingHTTPRoute)
 		if err != nil {
-			return err
+			return nil, err
 		}
-
 	}
 
-	// Clean up HTTPRoutes that are no longer needed (e.g., removed prefixes)
-	err := g.cleanupHTTPRoutes(ctx, span, client, rc.ns, id, desiredRouteNames)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return desiredRouteNames, nil
 }
 
 // Remove deletes all HTTPRoute resources for the given app (both single and per-prefix).
