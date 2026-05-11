@@ -102,8 +102,8 @@ func (g *GatewayAPIService) Ensure(ctx context.Context, id router.InstanceID, o 
 		g.GatewayNamespace = ns
 	}
 
-	if g.GatewayName == "" || g.GatewayNamespace == "" {
-		err := fmt.Errorf("gateway name and namespace must be specified via startup flags or X-Gateway-Name/X-Gateway-Namespace headers")
+	if g.GatewayName == "" {
+		err := fmt.Errorf("gateway name must be specified via startup flags or X-Gateway-Name header")
 		setSpanError(span, err)
 		return err
 	}
@@ -204,6 +204,65 @@ func (g *GatewayAPIService) buildHTTPRouteRule(svc *corev1.Service) gatewayv1.HT
 	}
 }
 
+func isFrozenHTTPRoute(httpRoute *gatewayv1.HTTPRoute) bool {
+	if httpRoute == nil {
+		return false
+	}
+	return httpRoute.Annotations[AnnotationFreeze] == "true"
+}
+
+func (g *GatewayAPIService) getExistingHTTPRoute(ctx context.Context, span opentracing.Span, client gatewayclient.Interface, ns, routeName string) (*gatewayv1.HTTPRoute, error) {
+	existingHTTPRoute, err := client.GatewayV1().HTTPRoutes(ns).Get(ctx, routeName, metav1.GetOptions{})
+	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return nil, nil
+		}
+		setSpanError(span, err)
+		return nil, err
+	}
+	return existingHTTPRoute, nil
+}
+
+func (g *GatewayAPIService) upsertHTTPRoute(ctx context.Context, span opentracing.Span, client gatewayclient.Interface, ns string, httpRoute, existingHTTPRoute *gatewayv1.HTTPRoute) error {
+	var err error
+	if existingHTTPRoute == nil {
+		_, err = client.GatewayV1().HTTPRoutes(ns).Create(ctx, httpRoute, metav1.CreateOptions{})
+	} else {
+		httpRoute.ResourceVersion = existingHTTPRoute.ResourceVersion
+		if existingHTTPRoute.Annotations != nil {
+			httpRoute.Annotations = existingHTTPRoute.Annotations
+		}
+		_, err = client.GatewayV1().HTTPRoutes(ns).Update(ctx, httpRoute, metav1.UpdateOptions{})
+	}
+	if err != nil {
+		setSpanError(span, err)
+		return err
+	}
+	return nil
+}
+
+func (g *GatewayAPIService) cleanupHTTPRoutes(ctx context.Context, span opentracing.Span, client gatewayclient.Interface, ns string, id router.InstanceID, desiredRouteNames map[string]bool) error {
+	existingRoutes, err := g.listHTTPRoutesForApp(ctx, client, ns, id)
+	if err != nil {
+		setSpanError(span, err)
+		return err
+	}
+
+	for _, route := range existingRoutes {
+		if desiredRouteNames[route.Name] || isFrozenHTTPRoute(&route) || route.Labels[labelCNameHTTPRoute] == "true" {
+			continue
+		}
+
+		err = client.GatewayV1().HTTPRoutes(ns).Delete(ctx, route.Name, metav1.DeleteOptions{})
+		if err != nil && !k8sErrors.IsNotFound(err) {
+			setSpanError(span, err)
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (g *GatewayAPIService) ensureSingleHTTPRoute(
 	ctx context.Context,
 	span opentracing.Span,
@@ -214,22 +273,14 @@ func (g *GatewayAPIService) ensureSingleHTTPRoute(
 ) error {
 	routeName := g.httpRouteName(id)
 
-	isNew := false
-	existingHTTPRoute, err := client.GatewayV1().HTTPRoutes(rc.ns).Get(ctx, routeName, metav1.GetOptions{})
+	existingHTTPRoute, err := g.getExistingHTTPRoute(ctx, span, client, rc.ns, routeName)
 	if err != nil {
-		if !k8sErrors.IsNotFound(err) {
-			setSpanError(span, err)
-			return err
-		}
-		isNew = true
-		existingHTTPRoute = nil
+		return err
 	}
 
-	if !isNew && existingHTTPRoute != nil {
-		if existingHTTPRoute.Annotations[AnnotationFreeze] == "true" {
-			log.Printf("HTTPRoute is frozen, skipping: %s/%s", existingHTTPRoute.Namespace, existingHTTPRoute.Name)
-			return nil
-		}
+	if isFrozenHTTPRoute(existingHTTPRoute) {
+		log.Printf("HTTPRoute is frozen, skipping: %s/%s", existingHTTPRoute.Namespace, existingHTTPRoute.Name)
+		return nil
 	}
 
 	var hostnames []gatewayv1.Hostname
@@ -269,40 +320,15 @@ func (g *GatewayAPIService) ensureSingleHTTPRoute(
 		},
 	}
 
-	if isNew {
-		_, err = client.GatewayV1().HTTPRoutes(rc.ns).Create(ctx, httpRoute, metav1.CreateOptions{})
-		if err != nil {
-			setSpanError(span, err)
-			return err
-		}
-	} else {
-		httpRoute.ResourceVersion = existingHTTPRoute.ResourceVersion
-		// Preserve existing annotations (e.g. CNames tracking)
-		if existingHTTPRoute.Annotations != nil {
-			httpRoute.Annotations = existingHTTPRoute.Annotations
-		}
-		_, err = client.GatewayV1().HTTPRoutes(rc.ns).Update(ctx, httpRoute, metav1.UpdateOptions{})
-		if err != nil {
-			setSpanError(span, err)
-			return err
-		}
+	err = g.upsertHTTPRoute(ctx, span, client, rc.ns, httpRoute, existingHTTPRoute)
+	if err != nil {
+		return err
 	}
 
 	// Clean up any per-prefix HTTPRoutes left over from a previous all-prefixes=true run
-	existingRoutes, err := g.listHTTPRoutesForApp(ctx, client, rc.ns, id)
+	err = g.cleanupHTTPRoutes(ctx, span, client, rc.ns, id, map[string]bool{routeName: true})
 	if err != nil {
-		setSpanError(span, err)
 		return err
-	}
-	for _, route := range existingRoutes {
-		if route.Name != routeName && route.Annotations[AnnotationFreeze] != "true" && route.Labels[labelCNameHTTPRoute] != "true" {
-			err = client.GatewayV1().HTTPRoutes(rc.ns).Delete(ctx, route.Name, metav1.DeleteOptions{})
-			if err != nil && !k8sErrors.IsNotFound(err) {
-				setSpanError(span, err)
-				return err
-			}
-
-		}
 	}
 
 	return nil
@@ -332,22 +358,14 @@ func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
 		routeName := g.httpRouteNameForPrefix(id, prefixString)
 		desiredRouteNames[routeName] = true
 
-		isNew := false
-		existingHTTPRoute, err := client.GatewayV1().HTTPRoutes(rc.ns).Get(ctx, routeName, metav1.GetOptions{})
+		existingHTTPRoute, err := g.getExistingHTTPRoute(ctx, span, client, rc.ns, routeName)
 		if err != nil {
-			if !k8sErrors.IsNotFound(err) {
-				setSpanError(span, err)
-				return err
-			}
-			isNew = true
-			existingHTTPRoute = nil
+			return err
 		}
 
-		if !isNew && existingHTTPRoute != nil {
-			if existingHTTPRoute.Annotations[AnnotationFreeze] == "true" {
-				log.Printf("HTTPRoute is frozen, skipping: %s/%s", existingHTTPRoute.Namespace, existingHTTPRoute.Name)
-				continue
-			}
+		if isFrozenHTTPRoute(existingHTTPRoute) {
+			log.Printf("HTTPRoute is frozen, skipping: %s/%s", existingHTTPRoute.Namespace, existingHTTPRoute.Name)
+			continue
 		}
 
 		host := g.buildHTTPRouteHostname(prefixString, id, o, g.DomainSuffix)
@@ -380,37 +398,17 @@ func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
 			},
 		}
 
-		if isNew {
-			_, err = client.GatewayV1().HTTPRoutes(rc.ns).Create(ctx, httpRoute, metav1.CreateOptions{})
-		} else {
-			httpRoute.ResourceVersion = existingHTTPRoute.ResourceVersion
-			if existingHTTPRoute.Annotations != nil {
-				httpRoute.Annotations = existingHTTPRoute.Annotations
-			}
-			_, err = client.GatewayV1().HTTPRoutes(rc.ns).Update(ctx, httpRoute, metav1.UpdateOptions{})
-		}
-
+		err = g.upsertHTTPRoute(ctx, span, client, rc.ns, httpRoute, existingHTTPRoute)
 		if err != nil {
-			setSpanError(span, err)
 			return err
 		}
 
 	}
 
 	// Clean up HTTPRoutes that are no longer needed (e.g., removed prefixes)
-	existingRoutes, err := g.listHTTPRoutesForApp(ctx, client, rc.ns, id)
+	err := g.cleanupHTTPRoutes(ctx, span, client, rc.ns, id, desiredRouteNames)
 	if err != nil {
-		setSpanError(span, err)
 		return err
-	}
-	for _, route := range existingRoutes {
-		if !desiredRouteNames[route.Name] && route.Annotations[AnnotationFreeze] != "true" && route.Labels[labelCNameHTTPRoute] != "true" {
-			err = client.GatewayV1().HTTPRoutes(rc.ns).Delete(ctx, route.Name, metav1.DeleteOptions{})
-			if err != nil && !k8sErrors.IsNotFound(err) {
-				setSpanError(span, err)
-				return err
-			}
-		}
 	}
 
 	return nil
