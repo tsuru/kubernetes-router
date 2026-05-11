@@ -23,11 +23,11 @@ import (
 )
 
 const (
-	labelIsGatewayHTTPs   = "router.tsuru.io/is-https"
-	labelCNameHTTPRoute   = "router.tsuru.io/is-cname"
-	labelCertIssuer       = "router.tsuru.io/cert-issuer"
-	annotationCNames      = "router.tsuru.io/cnames"
-	annotationCertIssuers = "router.tsuru.io/cert-issuers"
+	labelHTTPRouteHTTPOnly = "router.tsuru.io/http-only"
+	labelCNameHTTPRoute    = "router.tsuru.io/is-cname"
+	labelCertIssuer        = "router.tsuru.io/cert-issuer"
+	annotationCNames       = "router.tsuru.io/cnames"
+	annotationCertIssuers  = "router.tsuru.io/cert-issuers"
 )
 
 var (
@@ -134,8 +134,10 @@ func (g *GatewayAPIService) Ensure(ctx context.Context, id router.InstanceID, o 
 	}
 
 	rc := httpRouteContext{
+		ns:              ns,
 		backendTargets:  backendTargets,
 		backendServices: backendServices,
+		isHTTPOnly:      o.Opts.HTTPOnly,
 	}
 
 	if o.Opts.ExposeAllServices {
@@ -166,6 +168,7 @@ type httpRouteContext struct {
 	ns              string
 	backendTargets  map[string]router.BackendTarget
 	backendServices map[string]*corev1.Service
+	isHTTPOnly      bool
 }
 
 func (g *GatewayAPIService) buildHTTPRouteHostname(prefixString string, id router.InstanceID, o router.EnsureBackendOpts, domainSuffix string) string {
@@ -249,6 +252,7 @@ func (g *GatewayAPIService) ensureSingleHTTPRoute(
 				routerInstanceLabel:          id.InstanceName,
 				appBaseServiceNamespaceLabel: rc.backendTargets["default"].Namespace,
 				appBaseServiceNameLabel:      rc.backendTargets["default"].Service,
+				labelHTTPRouteHTTPOnly:       fmt.Sprintf("%t", rc.isHTTPOnly),
 			},
 		},
 		Spec: gatewayv1.HTTPRouteSpec{
@@ -359,6 +363,7 @@ func (g *GatewayAPIService) ensurePerPrefixHTTPRoutes(
 					routerInstanceLabel:          id.InstanceName,
 					appBaseServiceNamespaceLabel: target.Namespace,
 					appBaseServiceNameLabel:      target.Service,
+					labelHTTPRouteHTTPOnly:       fmt.Sprintf("%t", rc.isHTTPOnly),
 				},
 			},
 			Spec: gatewayv1.HTTPRouteSpec{
@@ -479,12 +484,8 @@ func (g *GatewayAPIService) GetAddresses(ctx context.Context, id router.Instance
 		return nil, err
 	}
 
-	gw, err := client.GatewayV1().Gateways(g.GatewayNamespace).Get(ctx, g.GatewayName, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
 	schema := "http"
-	if gw.Labels[labelIsGatewayHTTPs] == "true" {
+	if routes[0].Labels[labelHTTPRouteHTTPOnly] != "true" {
 		schema = "https"
 	}
 
