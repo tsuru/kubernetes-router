@@ -489,6 +489,7 @@ func (g *GatewayAPIService) httpRouteStatus(ctx context.Context, ns string, http
 
 // SupportedOptions returns the options supported by this router.
 func (g *GatewayAPIService) SupportedOptions(ctx context.Context) map[string]string {
+	// TODO: map and add the list of options
 	return nil
 }
 
