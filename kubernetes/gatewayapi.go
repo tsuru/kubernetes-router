@@ -409,7 +409,7 @@ func (g *GatewayAPIService) GetAddresses(ctx context.Context, id router.Instance
 	}
 
 	schema := "http"
-	if routes[0].Labels[labelHTTPRouteHTTPOnly] != "true" {
+	if len(routes) > 0 && routes[0].Labels[labelHTTPRouteHTTPOnly] != "true" {
 		schema = "https"
 	}
 
@@ -418,21 +418,6 @@ func (g *GatewayAPIService) GetAddresses(ctx context.Context, id router.Instance
 		for _, hostname := range route.Spec.Hostnames {
 			addresses = append(addresses, fmt.Sprintf("%s://%s", schema, hostname))
 		}
-	}
-
-	if len(addresses) == 0 {
-		// Fallback: try fetching by the single-mode name
-		httpRoute, err := client.GatewayV1().HTTPRoutes(ns).Get(ctx, g.httpRouteName(id), metav1.GetOptions{})
-		if err != nil {
-			if k8sErrors.IsNotFound(err) {
-				return nil, nil
-			}
-			return nil, err
-		}
-		for _, hostname := range httpRoute.Spec.Hostnames {
-			addresses = append(addresses, fmt.Sprintf("%s://%s", schema, hostname))
-		}
-		//TODO: handle https addresses
 	}
 
 	return addresses, nil
@@ -504,7 +489,7 @@ func (g *GatewayAPIService) httpRouteStatus(ctx context.Context, ns string, http
 
 // SupportedOptions returns the options supported by this router.
 func (g *GatewayAPIService) SupportedOptions(ctx context.Context) map[string]string {
-	return router.DescribedOptions()
+	return nil
 }
 
 // listenerSetName generates a deterministic name for a ListenerSet based on app + issuer.
