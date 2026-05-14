@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/util/validation"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
@@ -239,8 +240,16 @@ func (g *GatewayAPIService) upsertHTTPRoute(ctx context.Context, span opentracin
 		_, err = client.GatewayV1().HTTPRoutes(ns).Create(ctx, httpRoute, metav1.CreateOptions{})
 	} else {
 		httpRoute.ResourceVersion = existingHTTPRoute.ResourceVersion
+		// Merge annotations: preserve existing annotations not set by the new route
 		if existingHTTPRoute.Annotations != nil {
-			httpRoute.Annotations = existingHTTPRoute.Annotations
+			if httpRoute.Annotations == nil {
+				httpRoute.Annotations = make(map[string]string)
+			}
+			for k, v := range existingHTTPRoute.Annotations {
+				if _, exists := httpRoute.Annotations[k]; !exists {
+					httpRoute.Annotations[k] = v
+				}
+			}
 		}
 		_, err = client.GatewayV1().HTTPRoutes(ns).Update(ctx, httpRoute, metav1.UpdateOptions{})
 	}
@@ -304,18 +313,24 @@ func (g *GatewayAPIService) ensureHTTPRoutes(
 		host := g.buildHTTPRouteHostname(prefixString, id, o, g.DomainSuffix)
 
 		gwNamespace := gatewayv1.Namespace(g.GatewayNamespace)
+		labels, annotations := g.buildHTTPRouteLabelsAndAnnotations(
+			map[string]string{
+				routerInstanceLabel:          id.InstanceName,
+				appBaseServiceNamespaceLabel: target.Namespace,
+				appBaseServiceNameLabel:      target.Service,
+				labelHTTPRouteHTTPOnly:       fmt.Sprintf("%t", rc.isHTTPOnly),
+			},
+			o.Opts,
+			id,
+			o.Team,
+			o.Tags,
+		)
 		httpRoute := &gatewayv1.HTTPRoute{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      routeName,
-				Namespace: rc.ns,
-				Labels: map[string]string{
-					appLabel:                     id.AppName,
-					teamLabel:                    o.Team,
-					routerInstanceLabel:          id.InstanceName,
-					appBaseServiceNamespaceLabel: target.Namespace,
-					appBaseServiceNameLabel:      target.Service,
-					labelHTTPRouteHTTPOnly:       fmt.Sprintf("%t", rc.isHTTPOnly),
-				},
+				Name:        routeName,
+				Namespace:   rc.ns,
+				Labels:      labels,
+				Annotations: annotations,
 			},
 			Spec: gatewayv1.HTTPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
@@ -493,6 +508,52 @@ func (g *GatewayAPIService) SupportedOptions(ctx context.Context) map[string]str
 	return nil
 }
 
+func (g *GatewayAPIService) buildHTTPRouteLabelsAndAnnotations(baseLabels map[string]string, routerOpts router.Opts, id router.InstanceID, team string, tags []string) (map[string]string, map[string]string) {
+	labels := map[string]string{}
+	annotations := map[string]string{}
+	for k, v := range baseLabels {
+		labels[k] = v
+	}
+	for k, v := range g.Labels {
+		labels[k] = v
+	}
+	for k, v := range g.Annotations {
+		annotations[k] = v
+	}
+	labels[appLabel] = id.AppName
+	labels[teamLabel] = team
+
+	for optName, optValue := range routerOpts.AdditionalOpts {
+		if !strings.Contains(optName, "/") {
+			continue
+		}
+		if strings.HasSuffix(optName, "-") {
+			delete(annotations, strings.TrimSuffix(optName, "-"))
+		} else {
+			annotations[optName] = optValue
+		}
+	}
+
+	for _, tag := range tags {
+		parts := strings.SplitN(tag, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := parts[0]
+		value := parts[1]
+		if key == "" {
+			continue
+		}
+		labelName := customTagPrefixLabel + key
+		if len(validation.IsQualifiedName(labelName)) > 0 {
+			continue
+		}
+		labels[labelName] = value
+	}
+
+	return labels, annotations
+}
+
 // listenerSetName generates a deterministic name for a ListenerSet based on app + issuer.
 func (g *GatewayAPIService) listenerSetName(id router.InstanceID, issuer string) string {
 	base := fmt.Sprintf("kubernetes-router-%s-%s-ls", id.AppName, issuer)
@@ -549,6 +610,8 @@ func (g *GatewayAPIService) ensureCNames(
 				team:          o.Team,
 				defaultTarget: defaultTarget,
 				parentRefs:    parentRefs,
+				routerOpts:    o.Opts,
+				tags:          o.Tags,
 			})
 			if err != nil {
 				return err
@@ -606,6 +669,8 @@ func (g *GatewayAPIService) ensureCNames(
 				team:          o.Team,
 				defaultTarget: defaultTarget,
 				parentRefs:    parentRefs,
+				routerOpts:    o.Opts,
+				tags:          o.Tags,
 			})
 			if err != nil {
 				return err
@@ -721,6 +786,8 @@ type ensureCNameHTTPRouteOpts struct {
 	team          string
 	defaultTarget router.BackendTarget
 	parentRefs    []gatewayv1.ParentReference
+	routerOpts    router.Opts
+	tags          []string
 }
 
 // ensureCNameHTTPRoute creates or updates an HTTPRoute for a specific CName.
@@ -744,16 +811,22 @@ func (g *GatewayAPIService) ensureCNameHTTPRoute(
 		port = gatewayv1.PortNumber(svc.Spec.Ports[0].Port)
 	}
 
+	labels, annotations := g.buildHTTPRouteLabelsAndAnnotations(
+		map[string]string{
+			routerInstanceLabel: opts.id.InstanceName,
+			labelCNameHTTPRoute: "true",
+		},
+		opts.routerOpts,
+		opts.id,
+		opts.team,
+		opts.tags,
+	)
 	httpRoute := &gatewayv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      routeName,
-			Namespace: opts.ns,
-			Labels: map[string]string{
-				appLabel:            opts.id.AppName,
-				teamLabel:           opts.team,
-				routerInstanceLabel: opts.id.InstanceName,
-				labelCNameHTTPRoute: "true",
-			},
+			Name:        routeName,
+			Namespace:   opts.ns,
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: gatewayv1.HTTPRouteSpec{
 			CommonRouteSpec: gatewayv1.CommonRouteSpec{
