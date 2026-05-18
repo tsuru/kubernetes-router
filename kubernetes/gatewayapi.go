@@ -215,6 +215,22 @@ func (g *GatewayAPIService) buildHTTPRouteRule(svc *corev1.Service) gatewayv1.HT
 	}
 }
 
+// mergeAnnotations preserves existing annotations not set by the new object.
+func mergeAnnotations(dst, src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return dst
+	}
+	if dst == nil {
+		dst = make(map[string]string)
+	}
+	for k, v := range src {
+		if _, exists := dst[k]; !exists {
+			dst[k] = v
+		}
+	}
+	return dst
+}
+
 func isFrozenHTTPRoute(httpRoute *gatewayv1.HTTPRoute) bool {
 	if httpRoute == nil {
 		return false
@@ -240,17 +256,7 @@ func (g *GatewayAPIService) upsertHTTPRoute(ctx context.Context, span opentracin
 		_, err = client.GatewayV1().HTTPRoutes(ns).Create(ctx, httpRoute, metav1.CreateOptions{})
 	} else {
 		httpRoute.ResourceVersion = existingHTTPRoute.ResourceVersion
-		// Merge annotations: preserve existing annotations not set by the new route
-		if existingHTTPRoute.Annotations != nil {
-			if httpRoute.Annotations == nil {
-				httpRoute.Annotations = make(map[string]string)
-			}
-			for k, v := range existingHTTPRoute.Annotations {
-				if _, exists := httpRoute.Annotations[k]; !exists {
-					httpRoute.Annotations[k] = v
-				}
-			}
-		}
+		httpRoute.Annotations = mergeAnnotations(httpRoute.Annotations, existingHTTPRoute.Annotations)
 		_, err = client.GatewayV1().HTTPRoutes(ns).Update(ctx, httpRoute, metav1.UpdateOptions{})
 	}
 	if err != nil {
@@ -870,6 +876,7 @@ func (g *GatewayAPIService) ensureCNameHTTPRoute(
 	}
 
 	httpRoute.ResourceVersion = existing.ResourceVersion
+	httpRoute.Annotations = mergeAnnotations(httpRoute.Annotations, existing.Annotations)
 	_, err = client.GatewayV1().HTTPRoutes(opts.ns).Update(ctx, httpRoute, metav1.UpdateOptions{})
 	if err != nil {
 		setSpanError(span, err)
