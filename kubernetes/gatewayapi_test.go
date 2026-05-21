@@ -10,22 +10,22 @@ import (
 	faketsuru "github.com/tsuru/tsuru/provision/kubernetes/pkg/client/clientset/versioned/fake"
 	corev1 "k8s.io/api/core/v1"
 	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
-	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayfake "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/fake"
 )
 
 func newFakeGatewayAPIService() (*GatewayAPIService, *gatewayfake.Clientset) {
 	// Creates a GatewayAPIService wired with fake Kubernetes and Gateway API clients.
-	gwClient := gatewayfake.NewSimpleClientset()
+	gwClient := gatewayfake.NewClientset()
 	return &GatewayAPIService{
 		BaseService: &BaseService{
 			Namespace:        "default",
-			Client:           k8sfake.NewSimpleClientset(),
+			Client:           k8sfake.NewClientset(),
 			TsuruClient:      faketsuru.NewSimpleClientset(),
-			ExtensionsClient: fakeapiextensions.NewSimpleClientset(),
+			ExtensionsClient: fakeapiextensions.NewClientset(),
 		},
 		GatewayName:      "main-gw",
 		GatewayNamespace: "default",
@@ -142,6 +142,14 @@ func TestGatewayAPIServiceListenerSetCertManagerAnnotations(t *testing.T) {
 			},
 		},
 		{
+			name:       "falls back to cluster issuer for partial external format",
+			acmeIssuer: "",
+			issuer:     "foo.MyIssuer",
+			expected: map[string]string{
+				certManagerClusterIssuerKey: "foo.MyIssuer",
+			},
+		},
+		{
 			name:       "returns nil when both issuer and acmeIssuer are empty",
 			acmeIssuer: "",
 			issuer:     "",
@@ -177,6 +185,7 @@ func TestGatewayAPIServiceEnsureCreatesHTTPRoute(t *testing.T) {
 	// Assert: verify route shape and linkage to the configured Gateway.
 	routeName := svc.httpRouteName(idForApp("myapp"))
 	route, err := gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, routeName, metav1.GetOptions{})
+
 	require.NoError(t, err)
 	require.Len(t, route.Spec.Hostnames, 1)
 	assert.Equal(t, gatewayv1.Hostname("myapp.local"), route.Spec.Hostnames[0])
@@ -731,4 +740,364 @@ func TestGatewayAPIServiceEnsureCNameFrozenSkipped(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, route.Spec.Hostnames, 1)
 	assert.Equal(t, gatewayv1.Hostname("frozen.example.com"), route.Spec.Hostnames[0])
+}
+
+func TestGatewayAPIServiceUpdateCNamesAnnotationRemovesWhenEmpty(t *testing.T) {
+	// updateCNamesAnnotation should remove the annotation key when no CNames remain.
+	svc, gwClient := newFakeGatewayAPIService()
+	id := idForApp("myapp")
+	routeName := svc.httpRouteName(id)
+
+	_, err := gwClient.GatewayV1().HTTPRoutes("default").Create(ctx, &gatewayv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      routeName,
+			Namespace: "default",
+			Annotations: map[string]string{
+				annotationCNames: "old.example.com",
+			},
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	svc.updateCNamesAnnotation(ctx, gwClient, id, "default", nil)
+
+	route, err := gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, routeName, metav1.GetOptions{})
+	require.NoError(t, err)
+	_, found := route.Annotations[annotationCNames]
+	assert.False(t, found)
+}
+
+func TestGatewayAPIServiceEnsureListenerSetUpdatesExisting(t *testing.T) {
+	// ensureListenerSet should update an existing ListenerSet when called again with the same issuer.
+	svc, gwClient := newFakeGatewayAPIService()
+	id := idForApp("myapp")
+	span := opentracing.NoopTracer{}.StartSpan("test")
+	defer span.Finish()
+
+	err := svc.ensureListenerSet(ctx, span, gwClient, id, router.EnsureBackendOpts{}, "ns-default", "custom-issuer", []string{"a.example.com", "b.example.com"})
+	require.NoError(t, err)
+
+	err = svc.ensureListenerSet(ctx, span, gwClient, id, router.EnsureBackendOpts{}, "ns-default", "custom-issuer", []string{"a.example.com"})
+	require.NoError(t, err)
+
+	ls, err := gwClient.GatewayV1().ListenerSets("ns-default").Get(ctx, svc.listenerSetName(id, "custom-issuer"), metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Len(t, ls.Spec.Listeners, 1)
+	require.NotNil(t, ls.Spec.Listeners[0].Hostname)
+	assert.Equal(t, gatewayv1.Hostname("a.example.com"), *ls.Spec.Listeners[0].Hostname)
+	assert.Equal(t, "custom-issuer", ls.Labels[labelCertIssuer])
+}
+
+func TestGatewayAPIServiceEnsureFailsWithoutBackendTargets(t *testing.T) {
+	// Ensure should fail with ErrNoBackendTarget when no prefixes are provided.
+	svc, _ := newFakeGatewayAPIService()
+	err := createAppWebService(svc.Client, svc.Namespace, "myapp")
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+		Opts: router.Opts{GatewayName: "main-gw", GatewayNamespace: "default"},
+	})
+
+	assert.ErrorIs(t, err, ErrNoBackendTarget)
+}
+
+func TestGatewayAPIServiceEnsureFailsWhenBackendServiceMissing(t *testing.T) {
+	// Ensure should return an error if the backend service referenced by target does not exist.
+	svc, _ := newFakeGatewayAPIService()
+	err := createAppWebService(svc.Client, svc.Namespace, "myapp")
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+		Opts: router.Opts{GatewayName: "main-gw", GatewayNamespace: "default"},
+		Prefixes: []router.BackendPrefix{
+			{Target: router.BackendTarget{Service: "service-that-does-not-exist", Namespace: "default"}},
+		},
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "service-that-does-not-exist")
+}
+
+func TestGatewayAPIServiceEnsureUsesAppNamespaceAsGatewayNamespace(t *testing.T) {
+	// When opts.GatewayNamespace is empty, ParentRef namespace should default to app namespace.
+	svc, gwClient := newFakeGatewayAPIService()
+	svc.Namespace = "router-system"
+	err := createAppWebService(svc.Client, svc.Namespace, "myapp")
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+		Opts: router.Opts{GatewayName: "main-gw"},
+		Prefixes: []router.BackendPrefix{
+			{Target: router.BackendTarget{Service: "myapp-web", Namespace: "router-system"}},
+		},
+	})
+	require.NoError(t, err)
+
+	routeName := svc.httpRouteName(idForApp("myapp"))
+	route, err := gwClient.GatewayV1().HTTPRoutes("router-system").Get(ctx, routeName, metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Len(t, route.Spec.ParentRefs, 1)
+	require.NotNil(t, route.Spec.ParentRefs[0].Namespace)
+	assert.Equal(t, gatewayv1.Namespace("router-system"), *route.Spec.ParentRefs[0].Namespace)
+}
+
+func TestGatewayAPIServiceBuildHTTPRouteLabelsAndAnnotations(t *testing.T) {
+	tests := []struct {
+		name               string
+		baseLabels         map[string]string
+		routerOpts         router.Opts
+		team               string
+		tags               []string
+		svcLabels          map[string]string
+		svcAnnotations     map[string]string
+		expectedLabels     map[string]string
+		expectedAnnotation map[string]string
+	}{
+		{
+			name:       "adds AdditionalOpts as annotations when key contains slash",
+			baseLabels: map[string]string{"base": "label"},
+			routerOpts: router.Opts{
+				AdditionalOpts: map[string]string{
+					"example.com/my-annotation": "value1",
+					"another.io/config":         "value2",
+				},
+			},
+			team: "my-team",
+			expectedLabels: map[string]string{
+				"base":    "label",
+				appLabel:  "myapp",
+				teamLabel: "my-team",
+			},
+			expectedAnnotation: map[string]string{
+				"example.com/my-annotation": "value1",
+				"another.io/config":         "value2",
+			},
+		},
+		{
+			name:       "ignores AdditionalOpts without slash",
+			baseLabels: map[string]string{},
+			routerOpts: router.Opts{
+				AdditionalOpts: map[string]string{
+					"no-slash-key": "ignored",
+				},
+			},
+			team: "my-team",
+			expectedLabels: map[string]string{
+				appLabel:  "myapp",
+				teamLabel: "my-team",
+			},
+			expectedAnnotation: map[string]string{},
+		},
+		{
+			name:       "removes annotation via suffix dash",
+			baseLabels: map[string]string{},
+			routerOpts: router.Opts{
+				AdditionalOpts: map[string]string{
+					"example.com/remove-me-": "",
+				},
+			},
+			team:           "my-team",
+			svcAnnotations: map[string]string{"example.com/remove-me": "old-value"},
+			expectedLabels: map[string]string{
+				appLabel:  "myapp",
+				teamLabel: "my-team",
+			},
+			expectedAnnotation: map[string]string{},
+		},
+		{
+			name:       "adds valid tags as custom labels",
+			baseLabels: map[string]string{},
+			routerOpts: router.Opts{},
+			team:       "my-team",
+			tags:       []string{"env=production", "tier=frontend"},
+			expectedLabels: map[string]string{
+				appLabel:                      "myapp",
+				teamLabel:                     "my-team",
+				customTagPrefixLabel + "env":  "production",
+				customTagPrefixLabel + "tier": "frontend",
+			},
+			expectedAnnotation: map[string]string{},
+		},
+		{
+			name:       "skips invalid tags",
+			baseLabels: map[string]string{},
+			routerOpts: router.Opts{},
+			team:       "my-team",
+			tags:       []string{"no-equals-sign", "=empty-key", "valid=ok"},
+			expectedLabels: map[string]string{
+				appLabel:                       "myapp",
+				teamLabel:                      "my-team",
+				customTagPrefixLabel + "valid": "ok",
+			},
+			expectedAnnotation: map[string]string{},
+		},
+		{
+			name:           "merges service-level Labels and Annotations",
+			baseLabels:     map[string]string{"base": "val"},
+			routerOpts:     router.Opts{},
+			team:           "my-team",
+			svcLabels:      map[string]string{"svc-label": "svc-value"},
+			svcAnnotations: map[string]string{"svc-ann": "ann-value"},
+			expectedLabels: map[string]string{
+				"base":      "val",
+				"svc-label": "svc-value",
+				appLabel:    "myapp",
+				teamLabel:   "my-team",
+			},
+			expectedAnnotation: map[string]string{
+				"svc-ann": "ann-value",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _ := newFakeGatewayAPIService()
+			svc.Labels = tt.svcLabels
+			svc.Annotations = tt.svcAnnotations
+
+			id := idForApp("myapp")
+			labels, annotations := svc.buildHTTPRouteLabelsAndAnnotations(tt.baseLabels, tt.routerOpts, id, tt.team, tt.tags)
+
+			for k, v := range tt.expectedLabels {
+				assert.Equal(t, v, labels[k], "label %s mismatch", k)
+			}
+			for k, v := range tt.expectedAnnotation {
+				assert.Equal(t, v, annotations[k], "annotation %s mismatch", k)
+			}
+			// Verify removed annotations are not present
+			if tt.routerOpts.AdditionalOpts != nil {
+				for optName := range tt.routerOpts.AdditionalOpts {
+					if len(optName) > 0 && optName[len(optName)-1] == '-' {
+						stripped := optName[:len(optName)-1]
+						_, found := annotations[stripped]
+						assert.False(t, found, "annotation %s should have been removed", stripped)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestGatewayAPIServiceRemoveDeletesMultipleRoutes(t *testing.T) {
+	// Remove should delete all labeled routes (multiple prefixes) and CName resources.
+	svc, gwClient := newFakeGatewayAPIService()
+	svc.AcmeIssuer = "letsencrypt"
+	err := createAppWebService(svc.Client, svc.Namespace, "myapp")
+	require.NoError(t, err)
+
+	id := idForApp("myapp")
+
+	// Arrange: Ensure with multiple prefixes and CNames.
+	err = svc.Ensure(ctx, id, router.EnsureBackendOpts{
+		Opts:   router.Opts{GatewayName: "main-gw", GatewayNamespace: "default", ExposeAllServices: true},
+		Team:   "my-team",
+		CNames: []string{"c1.example.com", "c2.example.com"},
+		Prefixes: []router.BackendPrefix{
+			{Target: router.BackendTarget{Service: "myapp-web", Namespace: "default"}},
+			{Prefix: "api", Target: router.BackendTarget{Service: "myapp-web", Namespace: "default"}},
+		},
+	})
+	require.NoError(t, err)
+
+	// Verify routes exist.
+	defaultRoute := svc.httpRouteNameForPrefix(id, "default")
+	apiRoute := svc.httpRouteNameForPrefix(id, "api")
+	cnameRoute1 := svc.httpRouteCNameName(id, "c1.example.com")
+	cnameRoute2 := svc.httpRouteCNameName(id, "c2.example.com")
+
+	_, err = gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, defaultRoute, metav1.GetOptions{})
+	require.NoError(t, err)
+	_, err = gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, apiRoute, metav1.GetOptions{})
+	require.NoError(t, err)
+
+	// Act
+	err = svc.Remove(ctx, id)
+	require.NoError(t, err)
+
+	// Assert: all routes and resources are gone.
+	_, err = gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, defaultRoute, metav1.GetOptions{})
+	assert.True(t, k8sErrors.IsNotFound(err))
+	_, err = gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, apiRoute, metav1.GetOptions{})
+	assert.True(t, k8sErrors.IsNotFound(err))
+	_, err = gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, cnameRoute1, metav1.GetOptions{})
+	assert.True(t, k8sErrors.IsNotFound(err))
+	_, err = gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, cnameRoute2, metav1.GetOptions{})
+	assert.True(t, k8sErrors.IsNotFound(err))
+}
+
+func TestGatewayAPIServiceEnsureWithExposeAllServices(t *testing.T) {
+	// With ExposeAllServices=true, Ensure should create one HTTPRoute per prefix with distinct hostnames.
+	svc, gwClient := newFakeGatewayAPIService()
+	err := createAppWebService(svc.Client, svc.Namespace, "myapp")
+	require.NoError(t, err)
+
+	id := idForApp("myapp")
+
+	// Act: Ensure with multiple prefixes and ExposeAllServices.
+	err = svc.Ensure(ctx, id, router.EnsureBackendOpts{
+		Opts: router.Opts{GatewayName: "main-gw", GatewayNamespace: "default", ExposeAllServices: true},
+		Team: "my-team",
+		Prefixes: []router.BackendPrefix{
+			{Target: router.BackendTarget{Service: "myapp-web", Namespace: "default"}},
+			{Prefix: "api", Target: router.BackendTarget{Service: "myapp-web", Namespace: "default"}},
+			{Prefix: "worker", Target: router.BackendTarget{Service: "myapp-web", Namespace: "default"}},
+		},
+	})
+	require.NoError(t, err)
+
+	// Assert: default route uses app hostname.
+	defaultRoute, err := gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, svc.httpRouteNameForPrefix(id, "default"), metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Len(t, defaultRoute.Spec.Hostnames, 1)
+	assert.Equal(t, gatewayv1.Hostname("myapp.local"), defaultRoute.Spec.Hostnames[0])
+
+	// Assert: api route uses prefix as subdomain.
+	apiRoute, err := gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, svc.httpRouteNameForPrefix(id, "api"), metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Len(t, apiRoute.Spec.Hostnames, 1)
+	assert.Equal(t, gatewayv1.Hostname("api.myapp.local"), apiRoute.Spec.Hostnames[0])
+
+	// Assert: worker route uses prefix as subdomain.
+	workerRoute, err := gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, svc.httpRouteNameForPrefix(id, "worker"), metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Len(t, workerRoute.Spec.Hostnames, 1)
+	assert.Equal(t, gatewayv1.Hostname("worker.myapp.local"), workerRoute.Spec.Hostnames[0])
+}
+
+func TestGatewayAPIServiceTlsSecretName(t *testing.T) {
+	tests := []struct {
+		name     string
+		appName  string
+		cname    string
+		expected string
+	}{
+		{
+			name:     "replaces dots with dashes",
+			appName:  "myapp",
+			cname:    "alias.example.com",
+			expected: "myapp-alias-example-com-tls",
+		},
+		{
+			name:     "replaces wildcard with literal",
+			appName:  "myapp",
+			cname:    "*.example.com",
+			expected: "myapp-wildcard-example-com-tls",
+		},
+		{
+			name:     "simple cname",
+			appName:  "myapp",
+			cname:    "simple",
+			expected: "myapp-simple-tls",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _ := newFakeGatewayAPIService()
+			id := idForApp(tt.appName)
+			result := svc.tlsSecretName(id, tt.cname)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
