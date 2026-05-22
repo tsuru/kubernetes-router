@@ -113,10 +113,10 @@ func TestGatewayAPIServiceListenerSetName(t *testing.T) {
 	id := idForApp("myapp")
 
 	tests := []struct {
-		name     string
-		id       router.InstanceID
-		issuer   string
-		want     string
+		name   string
+		id     router.InstanceID
+		issuer string
+		want   string
 	}{
 		{"globo-ca", id, "globo-ca.CertifyProvider.certify.globoi.com", "kubernetes-router-myapp-globo-ca-ls"},
 		{"lets-encrypt", id, "lets-encrypt.CertifyProvider.certify.globoi.com", "kubernetes-router-myapp-lets-encrypt-ls"},
