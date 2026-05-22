@@ -107,6 +107,35 @@ func TestListenerEntryName(t *testing.T) {
 	assert.Len(t, string(name), 63)
 }
 
+func TestGatewayAPIServiceListenerSetName(t *testing.T) {
+	// Only the part of the issuer before the first dot should appear in the name.
+	svc, _ := newFakeGatewayAPIService()
+	id := idForApp("myapp")
+
+	tests := []struct {
+		name     string
+		id       router.InstanceID
+		issuer   string
+		want     string
+	}{
+		{"globo-ca", id, "globo-ca.CertifyProvider.certify.globoi.com", "kubernetes-router-myapp-globo-ca-ls"},
+		{"lets-encrypt", id, "lets-encrypt.CertifyProvider.certify.globoi.com", "kubernetes-router-myapp-lets-encrypt-ls"},
+		{"lets-encrypt-wildcard", id, "lets-encrypt-wildcard.CertifyProvider.certify.globoi.com", "kubernetes-router-myapp-lets-encrypt-wildcard-ls"},
+		{"plain issuer without dots", id, "letsencrypt", "kubernetes-router-myapp-letsencrypt-ls"},
+		{
+			"with router instance name appended",
+			router.InstanceID{AppName: "jojo-app", InstanceName: "lab-https-gateway"},
+			"globo-ca.CertifyProvider.certify.globoi.com",
+			"kubernetes-router-jojo-app-globo-ca-ls-lab-https-gateway",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, svc.listenerSetName(tt.id, tt.issuer))
+		})
+	}
+}
+
 func TestGatewayAPIServiceListenerSetCertManagerAnnotations(t *testing.T) {
 	// Covers annotation generation for default, cluster, and external issuer formats.
 	tests := []struct {

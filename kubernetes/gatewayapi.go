@@ -562,7 +562,8 @@ func (g *GatewayAPIService) buildHTTPRouteLabelsAndAnnotations(baseLabels map[st
 
 // listenerSetName generates a deterministic name for a ListenerSet based on app + issuer.
 func (g *GatewayAPIService) listenerSetName(id router.InstanceID, issuer string) string {
-	base := fmt.Sprintf("kubernetes-router-%s-%s-ls", id.AppName, issuer)
+	issuerName, _, _ := strings.Cut(issuer, ".")
+	base := fmt.Sprintf("kubernetes-router-%s-%s-ls", id.AppName, issuerName)
 	return g.hashedResourceName(id, base, 253)
 }
 
