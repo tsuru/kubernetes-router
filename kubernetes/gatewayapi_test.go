@@ -817,6 +817,47 @@ func TestGatewayAPIServiceEnsureListenerSetUpdatesExisting(t *testing.T) {
 	assert.Equal(t, "custom-issuer", ls.Labels[labelCertIssuer])
 }
 
+func TestGatewayAPIServiceEnsureListenerSetPropagatesLabels(t *testing.T) {
+	svc, gwClient := newFakeGatewayAPIService()
+	svc.Labels = map[string]string{"svc-label": "svc-value"}
+	svc.Annotations = map[string]string{"svc-ann": "ann-value"}
+
+	id := idForApp("jojo-app")
+	span := opentracing.NoopTracer{}.StartSpan("test")
+	defer span.Finish()
+
+	o := router.EnsureBackendOpts{
+		Team: "my-team",
+		Tags: []string{"product=tsuru"},
+		Opts: router.Opts{
+			AdditionalOpts: map[string]string{
+				"example.com/extra": "extra-value",
+			},
+		},
+	}
+
+	err := svc.ensureListenerSet(ctx, span, gwClient, id, o, "ns-default", "custom-issuer", []string{"a.example.com"})
+	require.NoError(t, err)
+
+	ls, err := gwClient.GatewayV1().ListenerSets("ns-default").Get(ctx, svc.listenerSetName(id, "custom-issuer"), metav1.GetOptions{})
+	require.NoError(t, err)
+
+	// Labels: base (issuer + router-instance) + app + team + tag-derived + service-level.
+	assert.Equal(t, "jojo-app", ls.Labels[appLabel])
+	assert.Equal(t, "my-team", ls.Labels[teamLabel])
+	assert.Equal(t, "custom-issuer", ls.Labels[labelCertIssuer])
+	assert.Equal(t, id.InstanceName, ls.Labels[routerInstanceLabel])
+	assert.Equal(t, "tsuru", ls.Labels[customTagPrefixLabel+"product"])
+	assert.Equal(t, "svc-value", ls.Labels["svc-label"])
+
+	// Annotations: only the cert-manager issuer annotation
+	assert.Equal(t, "custom-issuer", ls.Annotations[certManagerClusterIssuerKey])
+	_, hasSvcAnn := ls.Annotations["svc-ann"]
+	assert.False(t, hasSvcAnn, "service-level annotations must not propagate to ListenerSet")
+	_, hasExtra := ls.Annotations["example.com/extra"]
+	assert.False(t, hasExtra, "AdditionalOpts annotations must not propagate to ListenerSet")
+}
+
 func TestGatewayAPIServiceEnsureFailsWithoutBackendTargets(t *testing.T) {
 	// Ensure should fail with ErrNoBackendTarget when no prefixes are provided.
 	svc, _ := newFakeGatewayAPIService()

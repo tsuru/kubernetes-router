@@ -515,19 +515,19 @@ func (g *GatewayAPIService) SupportedOptions(ctx context.Context) map[string]str
 }
 
 func (g *GatewayAPIService) buildHTTPRouteLabelsAndAnnotations(baseLabels map[string]string, routerOpts router.Opts, id router.InstanceID, team string, tags []string) (map[string]string, map[string]string) {
-	labels := map[string]string{}
+	labels := g.buildLabels(baseLabels, routerOpts, id, team, tags)
+	annotations := g.buildAnnotations(routerOpts, id, team, tags)
+
+	return labels, annotations
+}
+
+// buildLabelsAndAnnotations merges base labels/annotations with router-level Labels/Annotations,
+func (g *GatewayAPIService) buildAnnotations(routerOpts router.Opts, id router.InstanceID, team string, tags []string) map[string]string {
 	annotations := map[string]string{}
-	for k, v := range baseLabels {
-		labels[k] = v
-	}
-	for k, v := range g.Labels {
-		labels[k] = v
-	}
+
 	for k, v := range g.Annotations {
 		annotations[k] = v
 	}
-	labels[appLabel] = id.AppName
-	labels[teamLabel] = team
 
 	for optName, optValue := range routerOpts.AdditionalOpts {
 		if !strings.Contains(optName, "/") {
@@ -539,6 +539,22 @@ func (g *GatewayAPIService) buildHTTPRouteLabelsAndAnnotations(baseLabels map[st
 			annotations[optName] = optValue
 		}
 	}
+
+	return annotations
+}
+
+func (g *GatewayAPIService) buildLabels(baseLabels map[string]string, routerOpts router.Opts, id router.InstanceID, team string, tags []string) map[string]string {
+	labels := map[string]string{}
+
+	for k, v := range baseLabels {
+		labels[k] = v
+	}
+	for k, v := range g.Labels {
+		labels[k] = v
+	}
+
+	labels[appLabel] = id.AppName
+	labels[teamLabel] = team
 
 	for _, tag := range tags {
 		parts := strings.SplitN(tag, "=", 2)
@@ -556,8 +572,7 @@ func (g *GatewayAPIService) buildHTTPRouteLabelsAndAnnotations(baseLabels map[st
 		}
 		labels[labelName] = value
 	}
-
-	return labels, annotations
+	return labels
 }
 
 // listenerSetName generates a deterministic name for a ListenerSet based on app + issuer.
@@ -740,15 +755,17 @@ func (g *GatewayAPIService) ensureListenerSet(
 		listeners = append(listeners, listener)
 	}
 
+	baseLabels := map[string]string{
+		routerInstanceLabel: id.InstanceName,
+		labelCertIssuer:     issuer,
+	}
+	labels := g.buildLabels(baseLabels, o.Opts, id, o.Team, o.Tags)
+
 	listenerSet := &gatewayv1.ListenerSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      lsName,
-			Namespace: ns,
-			Labels: map[string]string{
-				appLabel:            id.AppName,
-				routerInstanceLabel: id.InstanceName,
-				labelCertIssuer:     issuer,
-			},
+			Name:        lsName,
+			Namespace:   ns,
+			Labels:      labels,
 			Annotations: g.listenerSetCertManagerAnnotations(issuer),
 		},
 		Spec: gatewayv1.ListenerSetSpec{
