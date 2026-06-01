@@ -618,10 +618,11 @@ func (g *GatewayAPIService) buildLabels(baseLabels map[string]string, routerOpts
 	return labels
 }
 
-// listenerSetName generates a deterministic name for a ListenerSet based on app + issuer.
-func (g *GatewayAPIService) listenerSetName(id router.InstanceID, issuer string) string {
-	issuerName, _, _ := strings.Cut(issuer, ".")
-	base := fmt.Sprintf("kubernetes-router-%s-%s-ls", id.AppName, issuerName)
+// One ListenerSet is created per CName so each can carry its own cert-manager.io/common-name.
+func (g *GatewayAPIService) listenerSetName(id router.InstanceID, cname string) string {
+	sanitized := strings.ReplaceAll(cname, ".", "-")
+	sanitized = strings.ReplaceAll(sanitized, "*", "wildcard")
+	base := fmt.Sprintf("kubernetes-router-%s-%s-ls", id.AppName, sanitized)
 	return g.hashedResourceName(id, base, 253)
 }
 
@@ -642,7 +643,7 @@ func listenerEntryName(cname string) gatewayv1.SectionName {
 }
 
 // ensureCNames handles CName creation/removal for the GatewayAPI workflow.
-// It creates ListenerSets (one per app+issuer) and CName HTTPRoutes.
+// It creates one ListenerSet per CName plus a CName HTTPRoute for each.
 // When HTTP-only mode is enabled, CName HTTPRoutes connect directly to the Gateway
 // without creating ListenerSets or TLS configuration.
 func (g *GatewayAPIService) ensureCNames(
@@ -690,56 +691,51 @@ func (g *GatewayAPIService) ensureCNames(
 		}
 
 		// Clean up any ListenerSets that may exist from a previous non-HTTP-only run
-		return g.cleanupOrphanedListenerSets(ctx, client, id, ns, nil, nil)
+		return g.cleanupOrphanedListenerSets(ctx, client, id, ns, nil)
 	}
 
-	// Group CNames by issuer
-	cnamesByIssuer := map[string][]string{}
+	// One ListenerSet per CName so cert-manager can set a per-certificate common-name.
 	for _, cname := range o.CNames {
 		issuer := o.CertIssuers[cname]
 		if issuer == "" {
 			issuer = g.AcmeIssuer
 		}
-		if issuer != "" {
-			cnamesByIssuer[issuer] = append(cnamesByIssuer[issuer], cname)
+		if issuer == "" {
+			// Without an issuer there is no TLS certificate to provision, so skip.
+			continue
 		}
-	}
 
-	// Ensure ListenerSets and CName HTTPRoutes
-	for issuer, cnames := range cnamesByIssuer {
-		err := g.ensureListenerSet(ctx, span, client, id, o, ns, issuer, cnames)
+		err := g.ensureListenerSet(ctx, span, client, id, o, ns, issuer, cname)
 		if err != nil {
 			return err
 		}
 
-		for _, cname := range cnames {
-			lsNamespace := gatewayv1.Namespace(ns)
-			lsGroup := gatewayv1.Group("gateway.networking.k8s.io")
-			lsKind := gatewayv1.Kind("ListenerSet")
-			sectionName := listenerEntryName(cname)
-			parentRefs := []gatewayv1.ParentReference{
-				{
-					Group:       &lsGroup,
-					Kind:        &lsKind,
-					Name:        gatewayv1.ObjectName(g.listenerSetName(id, issuer)),
-					Namespace:   &lsNamespace,
-					SectionName: &sectionName,
-				},
-			}
+		lsNamespace := gatewayv1.Namespace(ns)
+		lsGroup := gatewayv1.Group("gateway.networking.k8s.io")
+		lsKind := gatewayv1.Kind("ListenerSet")
+		sectionName := listenerEntryName(cname)
+		parentRefs := []gatewayv1.ParentReference{
+			{
+				Group:       &lsGroup,
+				Kind:        &lsKind,
+				Name:        gatewayv1.ObjectName(g.listenerSetName(id, cname)),
+				Namespace:   &lsNamespace,
+				SectionName: &sectionName,
+			},
+		}
 
-			err := g.ensureCNameHTTPRoute(ctx, span, client, ensureCNameHTTPRouteOpts{
-				id:            id,
-				ns:            ns,
-				cname:         cname,
-				team:          o.Team,
-				defaultTarget: defaultTarget,
-				parentRefs:    parentRefs,
-				routerOpts:    o.Opts,
-				tags:          o.Tags,
-			})
-			if err != nil {
-				return err
-			}
+		err = g.ensureCNameHTTPRoute(ctx, span, client, ensureCNameHTTPRouteOpts{
+			id:            id,
+			ns:            ns,
+			cname:         cname,
+			team:          o.Team,
+			defaultTarget: defaultTarget,
+			parentRefs:    parentRefs,
+			routerOpts:    o.Opts,
+			tags:          o.Tags,
+		})
+		if err != nil {
+			return err
 		}
 	}
 
@@ -751,8 +747,8 @@ func (g *GatewayAPIService) ensureCNames(
 		}
 	}
 
-	// Clean up ListenerSets that have no listeners left
-	err := g.cleanupOrphanedListenerSets(ctx, client, id, ns, o.CNames, o.CertIssuers)
+	// Clean up ListenerSets whose CName is no longer desired
+	err := g.cleanupOrphanedListenerSets(ctx, client, id, ns, o.CNames)
 	if err != nil {
 		return err
 	}
@@ -760,42 +756,38 @@ func (g *GatewayAPIService) ensureCNames(
 	return nil
 }
 
-// ensureListenerSet creates or updates a ListenerSet for a given app+issuer combination.
+// ensureListenerSet creates or updates the ListenerSet that holds the single TLS
+// listener for a given CName. Keeping one CName per ListenerSet lets each one be
+// annotated with its own cert-manager.io/common-name.
 func (g *GatewayAPIService) ensureListenerSet(
 	ctx context.Context,
 	span opentracing.Span,
 	client gatewayclient.Interface,
 	id router.InstanceID,
 	o router.EnsureBackendOpts,
-	ns, issuer string,
-	cnames []string,
+	ns, issuer, cname string,
 ) error {
-	lsName := g.listenerSetName(id, issuer)
+	lsName := g.listenerSetName(id, cname)
 	gwNamespace := gatewayv1.Namespace(g.GatewayNamespace)
 
-	// Build listeners from cnames
-	var listeners []gatewayv1.ListenerEntry
-	for _, cname := range cnames {
-		hostname := gatewayv1.Hostname(cname)
-		port := gatewayv1.PortNumber(443)
-		tlsMode := gatewayv1.TLSModeTerminate
-		secretName := g.tlsSecretName(id, cname)
+	hostname := gatewayv1.Hostname(cname)
+	port := gatewayv1.PortNumber(443)
+	tlsMode := gatewayv1.TLSModeTerminate
+	secretName := g.tlsSecretName(id, cname)
 
-		listener := gatewayv1.ListenerEntry{
-			Name:     listenerEntryName(cname),
-			Hostname: &hostname,
-			Port:     port,
-			Protocol: gatewayv1.HTTPSProtocolType,
-			TLS: &gatewayv1.ListenerTLSConfig{
-				Mode: &tlsMode,
-				CertificateRefs: []gatewayv1.SecretObjectReference{
-					{
-						Name: gatewayv1.ObjectName(secretName),
-					},
+	listener := gatewayv1.ListenerEntry{
+		Name:     listenerEntryName(cname),
+		Hostname: &hostname,
+		Port:     port,
+		Protocol: gatewayv1.HTTPSProtocolType,
+		TLS: &gatewayv1.ListenerTLSConfig{
+			Mode: &tlsMode,
+			CertificateRefs: []gatewayv1.SecretObjectReference{
+				{
+					Name: gatewayv1.ObjectName(secretName),
 				},
 			},
-		}
-		listeners = append(listeners, listener)
+		},
 	}
 
 	baseLabels := map[string]string{
@@ -809,14 +801,14 @@ func (g *GatewayAPIService) ensureListenerSet(
 			Name:        lsName,
 			Namespace:   ns,
 			Labels:      labels,
-			Annotations: g.listenerSetCertManagerAnnotations(issuer),
+			Annotations: g.listenerSetCertManagerAnnotations(issuer, cname),
 		},
 		Spec: gatewayv1.ListenerSetSpec{
 			ParentRef: gatewayv1.ParentGatewayReference{
 				Name:      gatewayv1.ObjectName(g.GatewayName),
 				Namespace: &gwNamespace,
 			},
-			Listeners: listeners,
+			Listeners: []gatewayv1.ListenerEntry{listener},
 		},
 	}
 
@@ -956,43 +948,34 @@ func (g *GatewayAPIService) removeCNameHTTPRoute(ctx context.Context, client gat
 	return nil
 }
 
-// cleanupOrphanedListenerSets removes ListenerSets for issuers that no longer have any CNames.
+// cleanupOrphanedListenerSets removes ListenerSets whose CName is no longer desired.
 func (g *GatewayAPIService) cleanupOrphanedListenerSets(
 	ctx context.Context,
 	client gatewayclient.Interface,
 	id router.InstanceID,
 	ns string,
-	currentCNames []string,
-	certIssuers map[string]string,
+	requestedCNames []string,
 ) error {
 	selector := labels.Set{
 		appLabel:            id.AppName,
 		routerInstanceLabel: id.InstanceName,
 	}.AsSelector()
 
-	listenerSets, err := client.GatewayV1().ListenerSets(ns).List(ctx, metav1.ListOptions{
+	existingListenerSets, err := client.GatewayV1().ListenerSets(ns).List(ctx, metav1.ListOptions{
 		LabelSelector: selector.String(),
 	})
 	if err != nil {
 		return err
 	}
 
-	// Build a set of active issuers
-	activeIssuers := map[string]bool{}
-	for _, cname := range currentCNames {
-		issuer := certIssuers[cname]
-		if issuer == "" {
-			issuer = g.AcmeIssuer
-		}
-		if issuer == "" {
-			issuer = "default"
-		}
-		activeIssuers[issuer] = true
+	// Build the set of ListenerSet names that should still exist.
+	desired := map[string]bool{}
+	for _, cname := range requestedCNames {
+		desired[g.listenerSetName(id, cname)] = true
 	}
 
-	for _, ls := range listenerSets.Items {
-		issuer := ls.Labels[labelCertIssuer]
-		if !activeIssuers[issuer] {
+	for _, ls := range existingListenerSets.Items {
+		if !desired[ls.Name] {
 			err = client.GatewayV1().ListenerSets(ns).Delete(ctx, ls.Name, metav1.DeleteOptions{})
 			if err != nil && !k8sErrors.IsNotFound(err) {
 				return err
@@ -1098,28 +1081,25 @@ func (g *GatewayAPIService) updateCNamesAnnotation(ctx context.Context, client g
 }
 
 // listenerSetCertManagerAnnotations returns the cert-manager annotations for a ListenerSet.
-func (g *GatewayAPIService) listenerSetCertManagerAnnotations(issuer string) map[string]string {
-	if issuer == "" || issuer == "default" {
-		if g.AcmeIssuer != "" {
-			return map[string]string{
-				certManagerClusterIssuerKey: g.AcmeIssuer,
-			}
-		}
-		return nil
-	}
+// The caller only invokes this with a non-empty issuer and CName. Because each ListenerSet
+// holds a single CName, cert-manager.io/common-name is set to that CName so the issued
+// Certificate carries the correct CN.
+func (g *GatewayAPIService) listenerSetCertManagerAnnotations(issuer, cname string) map[string]string {
+	var annotations map[string]string
 
-	if strings.Contains(issuer, ".") {
-		parts := strings.SplitN(issuer, ".", 3)
-		if len(parts) == 3 {
-			return map[string]string{
-				certManagerIssuerKey:      parts[0],
-				certManagerIssuerKindKey:  parts[1],
-				certManagerIssuerGroupKey: parts[2],
-			}
+	if parts := strings.SplitN(issuer, ".", 3); len(parts) == 3 {
+		annotations = map[string]string{
+			certManagerIssuerKey:      parts[0],
+			certManagerIssuerKindKey:  parts[1],
+			certManagerIssuerGroupKey: parts[2],
+		}
+	} else {
+		annotations = map[string]string{
+			certManagerClusterIssuerKey: issuer,
 		}
 	}
 
-	return map[string]string{
-		certManagerClusterIssuerKey: issuer,
-	}
+	annotations[certManagerCommonName] = cname
+
+	return annotations
 }

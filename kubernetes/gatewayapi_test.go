@@ -108,89 +108,77 @@ func TestListenerEntryName(t *testing.T) {
 }
 
 func TestGatewayAPIServiceListenerSetName(t *testing.T) {
-	// Only the part of the issuer before the first dot should appear in the name.
+	// The CName drives the name, with dots and wildcards sanitized for k8s.
 	svc, _ := newFakeGatewayAPIService()
 	id := idForApp("myapp")
 
 	tests := []struct {
-		name   string
-		id     router.InstanceID
-		issuer string
-		want   string
+		name  string
+		id    router.InstanceID
+		cname string
+		want  string
 	}{
-		{"globo-ca", id, "globo-ca.CertifyProvider.certify.globoi.com", "kubernetes-router-myapp-globo-ca-ls"},
-		{"lets-encrypt", id, "lets-encrypt.CertifyProvider.certify.globoi.com", "kubernetes-router-myapp-lets-encrypt-ls"},
-		{"lets-encrypt-wildcard", id, "lets-encrypt-wildcard.CertifyProvider.certify.globoi.com", "kubernetes-router-myapp-lets-encrypt-wildcard-ls"},
-		{"plain issuer without dots", id, "letsencrypt", "kubernetes-router-myapp-letsencrypt-ls"},
+		{"simple cname", id, "app.example.com", "kubernetes-router-myapp-app-example-com-ls"},
+		{"wildcard cname", id, "*.example.com", "kubernetes-router-myapp-wildcard-example-com-ls"},
 		{
 			"with router instance name appended",
 			router.InstanceID{AppName: "jojo-app", InstanceName: "lab-https-gateway"},
-			"globo-ca.CertifyProvider.certify.globoi.com",
-			"kubernetes-router-jojo-app-globo-ca-ls-lab-https-gateway",
+			"app.example.com",
+			"kubernetes-router-jojo-app-app-example-com-ls-lab-https-gateway",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, svc.listenerSetName(tt.id, tt.issuer))
+			assert.Equal(t, tt.want, svc.listenerSetName(tt.id, tt.cname))
 		})
 	}
 }
 
 func TestGatewayAPIServiceListenerSetCertManagerAnnotations(t *testing.T) {
-	// Covers annotation generation for default, cluster, and external issuer formats.
+	// Covers annotation generation for cluster and external issuer formats. The caller
+	// always resolves a non-empty issuer before invoking this, and every ListenerSet
+	// gets a per-CName common-name annotation.
 	tests := []struct {
-		name       string
-		acmeIssuer string
-		issuer     string
-		expected   map[string]string
+		name     string
+		issuer   string
+		cname    string
+		expected map[string]string
 	}{
 		{
-			name:       "uses acme issuer for empty issuer",
-			acmeIssuer: "letsencrypt",
-			issuer:     "",
-			expected: map[string]string{
-				certManagerClusterIssuerKey: "letsencrypt",
-			},
-		},
-		{
-			name:       "uses explicit cluster issuer",
-			acmeIssuer: "",
-			issuer:     "my-cluster-issuer",
+			name:   "uses explicit cluster issuer",
+			issuer: "my-cluster-issuer",
+			cname:  "app.example.com",
 			expected: map[string]string{
 				certManagerClusterIssuerKey: "my-cluster-issuer",
+				certManagerCommonName:       "app.example.com",
 			},
 		},
 		{
-			name:       "uses external issuer format",
-			acmeIssuer: "",
-			issuer:     "foo.MyIssuer.my-group.io",
+			name:   "uses external issuer format",
+			issuer: "foo.MyIssuer.my-group.io",
+			cname:  "app.example.com",
 			expected: map[string]string{
 				certManagerIssuerKey:      "foo",
 				certManagerIssuerKindKey:  "MyIssuer",
 				certManagerIssuerGroupKey: "my-group.io",
+				certManagerCommonName:     "app.example.com",
 			},
 		},
 		{
-			name:       "falls back to cluster issuer for partial external format",
-			acmeIssuer: "",
-			issuer:     "foo.MyIssuer",
+			name:   "falls back to cluster issuer for partial external format",
+			issuer: "foo.MyIssuer",
+			cname:  "app.example.com",
 			expected: map[string]string{
 				certManagerClusterIssuerKey: "foo.MyIssuer",
+				certManagerCommonName:       "app.example.com",
 			},
-		},
-		{
-			name:       "returns nil when both issuer and acmeIssuer are empty",
-			acmeIssuer: "",
-			issuer:     "",
-			expected:   nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc, _ := newFakeGatewayAPIService()
-			svc.AcmeIssuer = tt.acmeIssuer
-			assert.Equal(t, tt.expected, svc.listenerSetCertManagerAnnotations(tt.issuer))
+			assert.Equal(t, tt.expected, svc.listenerSetCertManagerAnnotations(tt.issuer, tt.cname))
 		})
 	}
 }
@@ -350,8 +338,9 @@ func TestGatewayAPIServiceEnsureCNamesHTTPOnly(t *testing.T) {
 	assert.True(t, k8sErrors.IsNotFound(err), "stale CName route should have been removed")
 }
 
-func TestGatewayAPIServiceEnsureCNamesWithIssuerGroups(t *testing.T) {
-	// Non HTTP-only mode groups CNames by issuer and creates one ListenerSet per issuer group.
+func TestGatewayAPIServiceEnsureCNamesPerCNameListenerSets(t *testing.T) {
+	// Non HTTP-only mode creates one ListenerSet per CName, each carrying its own
+	// cert-manager.io/common-name and resolved issuer.
 	svc, gwClient := newFakeGatewayAPIService()
 	svc.AcmeIssuer = "letsencrypt"
 	err := createAppWebService(svc.Client, svc.Namespace, "myapp")
@@ -361,7 +350,7 @@ func TestGatewayAPIServiceEnsureCNamesWithIssuerGroups(t *testing.T) {
 	span := opentracing.NoopTracer{}.StartSpan("test")
 	defer span.Finish()
 
-	// Act: run CName reconciliation with a mix of default issuer and explicit cluster and external issuers.
+	// Act: reconcile two CNames, one with an explicit issuer and one falling back to Acme.
 	err = svc.ensureCNames(ctx, span, gwClient, id, router.EnsureBackendOpts{
 		CNames: []string{"a.example.com", "b.example.com"},
 		CertIssuers: map[string]string{
@@ -371,18 +360,25 @@ func TestGatewayAPIServiceEnsureCNamesWithIssuerGroups(t *testing.T) {
 	}, "default", router.BackendTarget{Service: "myapp-web", Namespace: "default"})
 	require.NoError(t, err)
 
-	// Assert: one ListenerSet for explicit issuer and another for default Acme issuer.
-	_, err = gwClient.GatewayV1().ListenerSets("default").Get(ctx, svc.listenerSetName(id, "custom-issuer"), metav1.GetOptions{})
+	// Assert: a dedicated ListenerSet exists per CName, each with a single listener and
+	// its own common-name annotation.
+	lsA, err := gwClient.GatewayV1().ListenerSets("default").Get(ctx, svc.listenerSetName(id, "a.example.com"), metav1.GetOptions{})
 	require.NoError(t, err)
+	require.Len(t, lsA.Spec.Listeners, 1)
+	assert.Equal(t, "a.example.com", lsA.Annotations[certManagerCommonName])
+	assert.Equal(t, "custom-issuer", lsA.Annotations[certManagerClusterIssuerKey])
 
-	_, err = gwClient.GatewayV1().ListenerSets("default").Get(ctx, svc.listenerSetName(id, "letsencrypt"), metav1.GetOptions{})
+	lsB, err := gwClient.GatewayV1().ListenerSets("default").Get(ctx, svc.listenerSetName(id, "b.example.com"), metav1.GetOptions{})
 	require.NoError(t, err)
+	require.Len(t, lsB.Spec.Listeners, 1)
+	assert.Equal(t, "b.example.com", lsB.Annotations[certManagerCommonName])
+	assert.Equal(t, "letsencrypt", lsB.Annotations[certManagerClusterIssuerKey])
 
-	// Assert: CName route references the correct ListenerSet parent.
+	// Assert: CName route references its own ListenerSet parent.
 	aRoute, err := gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, svc.httpRouteCNameName(id, "a.example.com"), metav1.GetOptions{})
 	require.NoError(t, err)
 	require.Len(t, aRoute.Spec.ParentRefs, 1)
-	assert.Equal(t, gatewayv1.ObjectName(svc.listenerSetName(id, "custom-issuer")), aRoute.Spec.ParentRefs[0].Name)
+	assert.Equal(t, gatewayv1.ObjectName(svc.listenerSetName(id, "a.example.com")), aRoute.Spec.ParentRefs[0].Name)
 }
 
 func TestGatewayAPIServiceGetAddresses(t *testing.T) {
@@ -797,24 +793,27 @@ func TestGatewayAPIServiceUpdateCNamesAnnotationRemovesWhenEmpty(t *testing.T) {
 }
 
 func TestGatewayAPIServiceEnsureListenerSetUpdatesExisting(t *testing.T) {
-	// ensureListenerSet should update an existing ListenerSet when called again with the same issuer.
+	// ensureListenerSet should update an existing ListenerSet when called again for the same CName.
 	svc, gwClient := newFakeGatewayAPIService()
 	id := idForApp("myapp")
 	span := opentracing.NoopTracer{}.StartSpan("test")
 	defer span.Finish()
 
-	err := svc.ensureListenerSet(ctx, span, gwClient, id, router.EnsureBackendOpts{}, "ns-default", "custom-issuer", []string{"a.example.com", "b.example.com"})
+	err := svc.ensureListenerSet(ctx, span, gwClient, id, router.EnsureBackendOpts{}, "ns-default", "custom-issuer", "a.example.com")
 	require.NoError(t, err)
 
-	err = svc.ensureListenerSet(ctx, span, gwClient, id, router.EnsureBackendOpts{}, "ns-default", "custom-issuer", []string{"a.example.com"})
+	err = svc.ensureListenerSet(ctx, span, gwClient, id, router.EnsureBackendOpts{}, "ns-default", "other-issuer", "a.example.com")
 	require.NoError(t, err)
 
-	ls, err := gwClient.GatewayV1().ListenerSets("ns-default").Get(ctx, svc.listenerSetName(id, "custom-issuer"), metav1.GetOptions{})
+	ls, err := gwClient.GatewayV1().ListenerSets("ns-default").Get(ctx, svc.listenerSetName(id, "a.example.com"), metav1.GetOptions{})
 	require.NoError(t, err)
 	require.Len(t, ls.Spec.Listeners, 1)
 	require.NotNil(t, ls.Spec.Listeners[0].Hostname)
 	assert.Equal(t, gatewayv1.Hostname("a.example.com"), *ls.Spec.Listeners[0].Hostname)
-	assert.Equal(t, "custom-issuer", ls.Labels[labelCertIssuer])
+	// Update reflects the latest issuer and common-name.
+	assert.Equal(t, "other-issuer", ls.Labels[labelCertIssuer])
+	assert.Equal(t, "other-issuer", ls.Annotations[certManagerClusterIssuerKey])
+	assert.Equal(t, "a.example.com", ls.Annotations[certManagerCommonName])
 }
 
 func TestGatewayAPIServiceEnsureListenerSetPropagatesLabels(t *testing.T) {
@@ -836,10 +835,10 @@ func TestGatewayAPIServiceEnsureListenerSetPropagatesLabels(t *testing.T) {
 		},
 	}
 
-	err := svc.ensureListenerSet(ctx, span, gwClient, id, o, "ns-default", "custom-issuer", []string{"a.example.com"})
+	err := svc.ensureListenerSet(ctx, span, gwClient, id, o, "ns-default", "custom-issuer", "a.example.com")
 	require.NoError(t, err)
 
-	ls, err := gwClient.GatewayV1().ListenerSets("ns-default").Get(ctx, svc.listenerSetName(id, "custom-issuer"), metav1.GetOptions{})
+	ls, err := gwClient.GatewayV1().ListenerSets("ns-default").Get(ctx, svc.listenerSetName(id, "a.example.com"), metav1.GetOptions{})
 	require.NoError(t, err)
 
 	// Labels: base (issuer + router-instance) + app + team + tag-derived + service-level.
