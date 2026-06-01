@@ -34,16 +34,21 @@ const (
 var (
 	_ router.Router       = &GatewayAPIService{}
 	_ router.RouterStatus = &GatewayAPIService{}
+
+	defaultGatewayOptsAsAnnotations     = map[string]string{}
+	defaultGatewayOptsAsAnnotationsDocs = map[string]string{}
 )
 
 // GatewayAPIService manages HTTPRoute resources using the Kubernetes Gateway API.
 type GatewayAPIService struct {
 	*BaseService
-	GatewayName      string
-	GatewayNamespace string
-	DomainSuffix     string
-	AcmeIssuer       string
-	GatewayClient    gatewayclient.Interface
+	GatewayName           string
+	GatewayNamespace      string
+	DomainSuffix          string
+	AcmeIssuer            string
+	GatewayClient         gatewayclient.Interface
+	OptsAsAnnotations     map[string]string
+	OptsAsAnnotationsDocs map[string]string
 }
 
 func (g *GatewayAPIService) getGatewayClient() (gatewayclient.Interface, error) {
@@ -196,12 +201,24 @@ func (g *GatewayAPIService) buildHTTPRouteHostname(prefixString string, id route
 	return fmt.Sprintf("%s%s.%s.%s", prefix, o.Opts.DomainPrefix, id.AppName, domainSuffix)
 }
 
-func (g *GatewayAPIService) buildHTTPRouteRule(svc *corev1.Service) gatewayv1.HTTPRouteRule {
+func (g *GatewayAPIService) buildHTTPRouteRule(path string, svc *corev1.Service) gatewayv1.HTTPRouteRule {
 	port := gatewayv1.PortNumber(defaultServicePort)
 	if len(svc.Spec.Ports) > 0 {
 		port = gatewayv1.PortNumber(svc.Spec.Ports[0].Port)
 	}
+
+	pathType := gatewayv1.PathMatchPathPrefix
+
 	return gatewayv1.HTTPRouteRule{
+
+		Matches: []gatewayv1.HTTPRouteMatch{
+			{
+				Path: &gatewayv1.HTTPPathMatch{
+					Type:  &pathType,
+					Value: &path,
+				},
+			},
+		},
 		BackendRefs: []gatewayv1.HTTPBackendRef{
 			{
 				BackendRef: gatewayv1.BackendRef{
@@ -299,6 +316,11 @@ func (g *GatewayAPIService) ensureHTTPRoutes(
 ) (map[string]bool, error) {
 	desiredRouteNames := map[string]bool{}
 
+	path := o.Opts.Route
+	if path == "" {
+		path = "/"
+	}
+
 	for _, prefixString := range prefixes {
 		svc := rc.backendServices[prefixString]
 		target := rc.backendTargets[prefixString]
@@ -348,7 +370,7 @@ func (g *GatewayAPIService) ensureHTTPRoutes(
 					},
 				},
 				Hostnames: []gatewayv1.Hostname{gatewayv1.Hostname(host)},
-				Rules:     []gatewayv1.HTTPRouteRule{g.buildHTTPRouteRule(svc)},
+				Rules:     []gatewayv1.HTTPRouteRule{g.buildHTTPRouteRule(path, svc)},
 			},
 		}
 
@@ -510,8 +532,24 @@ func (g *GatewayAPIService) httpRouteStatus(ctx context.Context, ns string, http
 
 // SupportedOptions returns the options supported by this router.
 func (g *GatewayAPIService) SupportedOptions(ctx context.Context) map[string]string {
-	// TODO: map and add the list of options
-	return nil
+	opts := map[string]string{
+		router.Domain:      "Domain used on router.",
+		router.Route:       "Path used on router rule.",
+		router.AllPrefixes: "",
+	}
+	docs := mergeMaps(defaultGatewayOptsAsAnnotationsDocs, g.OptsAsAnnotationsDocs)
+	for _, k := range []string{router.Domain, router.Route, router.AllPrefixes} {
+		if docs[k] != "" {
+			opts[k] = docs[k]
+		}
+	}
+	for k, v := range mergeMaps(defaultGatewayOptsAsAnnotations, g.OptsAsAnnotations) {
+		opts[k] = v
+		if docs[k] != "" {
+			opts[k] = docs[k]
+		}
+	}
+	return opts
 }
 
 func (g *GatewayAPIService) buildHTTPRouteLabelsAndAnnotations(baseLabels map[string]string, routerOpts router.Opts, id router.InstanceID, team string, tags []string) (map[string]string, map[string]string) {
@@ -529,14 +567,19 @@ func (g *GatewayAPIService) buildAnnotations(routerOpts router.Opts, id router.I
 		annotations[k] = v
 	}
 
+	optsAsAnnotations := mergeMaps(defaultGatewayOptsAsAnnotations, g.OptsAsAnnotations)
 	for optName, optValue := range routerOpts.AdditionalOpts {
-		if !strings.Contains(optName, "/") {
-			continue
+		annotationName, ok := optsAsAnnotations[optName]
+		if !ok {
+			if !strings.Contains(optName, "/") {
+				continue
+			}
+			annotationName = optName
 		}
-		if strings.HasSuffix(optName, "-") {
-			delete(annotations, strings.TrimSuffix(optName, "-"))
+		if strings.HasSuffix(annotationName, "-") {
+			delete(annotations, strings.TrimSuffix(annotationName, "-"))
 		} else {
-			annotations[optName] = optValue
+			annotations[annotationName] = optValue
 		}
 	}
 

@@ -454,7 +454,7 @@ func TestGatewayAPIServiceGetStatusReady(t *testing.T) {
 func TestGatewayAPIServiceBuildHTTPRouteRuleDefaultPort(t *testing.T) {
 	// Route backend ref should default to the service default port when no explicit port exists.
 	svc, _ := newFakeGatewayAPIService()
-	rule := svc.buildHTTPRouteRule(&corev1.Service{
+	rule := svc.buildHTTPRouteRule("/", &corev1.Service{
 		Spec: corev1.ServiceSpec{},
 	})
 
@@ -468,7 +468,7 @@ func TestGatewayAPIServiceBuildHTTPRouteRuleWithPort(t *testing.T) {
 	svc, _ := newFakeGatewayAPIService()
 
 	// Arrange: service with an explicit port declaration.
-	rule := svc.buildHTTPRouteRule(&corev1.Service{
+	rule := svc.buildHTTPRouteRule("/", &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "mysvc"},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{{Port: 1234}},
@@ -959,6 +959,24 @@ func TestGatewayAPIServiceBuildHTTPRouteLabelsAndAnnotations(t *testing.T) {
 			expectedAnnotation: map[string]string{},
 		},
 		{
+			name:       "maps AdditionalOpts using OptsAsAnnotations",
+			baseLabels: map[string]string{},
+			routerOpts: router.Opts{
+				AdditionalOpts: map[string]string{
+					"custom-opt": "mapped-value",
+				},
+			},
+			team:           "my-team",
+			svcAnnotations: map[string]string{},
+			expectedLabels: map[string]string{
+				appLabel:  "myapp",
+				teamLabel: "my-team",
+			},
+			expectedAnnotation: map[string]string{
+				"example.com/my-annotation": "mapped-value",
+			},
+		},
+		{
 			name:       "removes annotation via suffix dash",
 			baseLabels: map[string]string{},
 			routerOpts: router.Opts{
@@ -1025,6 +1043,7 @@ func TestGatewayAPIServiceBuildHTTPRouteLabelsAndAnnotations(t *testing.T) {
 			svc, _ := newFakeGatewayAPIService()
 			svc.Labels = tt.svcLabels
 			svc.Annotations = tt.svcAnnotations
+			svc.OptsAsAnnotations = map[string]string{"custom-opt": "example.com/my-annotation"}
 
 			id := idForApp("myapp")
 			labels, annotations := svc.buildHTTPRouteLabelsAndAnnotations(tt.baseLabels, tt.routerOpts, id, tt.team, tt.tags)
@@ -1047,6 +1066,27 @@ func TestGatewayAPIServiceBuildHTTPRouteLabelsAndAnnotations(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGatewayAPIServiceSupportedOptions(t *testing.T) {
+	svc, _ := newFakeGatewayAPIService()
+	svc.OptsAsAnnotations = map[string]string{
+		"my-opt":  "example.com/my-opt",
+		"my-opt2": "example.com/my-opt2",
+	}
+	svc.OptsAsAnnotationsDocs = map[string]string{
+		"my-opt2": "User friendly option description.",
+	}
+
+	options := svc.SupportedOptions(ctx)
+	expectedOptions := map[string]string{
+		router.Domain:      "Domain used on router.",
+		router.Route:       "Path used on router rule.",
+		router.AllPrefixes: "",
+		"my-opt":           "example.com/my-opt",
+		"my-opt2":          "User friendly option description.",
+	}
+	assert.Equal(t, expectedOptions, options)
 }
 
 func TestGatewayAPIServiceRemoveDeletesMultipleRoutes(t *testing.T) {
