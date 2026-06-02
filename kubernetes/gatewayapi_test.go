@@ -118,13 +118,13 @@ func TestGatewayAPIServiceListenerSetName(t *testing.T) {
 		cname string
 		want  string
 	}{
-		{"simple cname", id, "app.example.com", "kubernetes-router-myapp-app-example-com-ls"},
-		{"wildcard cname", id, "*.example.com", "kubernetes-router-myapp-wildcard-example-com-ls"},
+		{"simple cname", id, "app.example.com", "kube-router-myapp-app-example-com"},
+		{"wildcard cname", id, "*.example.com", "kube-router-myapp-wildcard-example-com"},
 		{
 			"with router instance name appended",
 			router.InstanceID{AppName: "jojo-app", InstanceName: "lab-https-gateway"},
 			"app.example.com",
-			"kubernetes-router-jojo-app-app-example-com-ls-lab-https-gateway",
+			"kube-router-jojo-app-app-example-com-lab-https-gateway",
 		},
 	}
 	for _, tt := range tests {

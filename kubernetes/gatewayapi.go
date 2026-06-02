@@ -64,14 +64,14 @@ func (g *GatewayAPIService) getGatewayClient() (gatewayclient.Interface, error) 
 }
 
 func (g *GatewayAPIService) httpRouteName(id router.InstanceID) string {
-	return g.hashedResourceName(id, "kubernetes-router-"+id.AppName+"-httproute", 253)
+	return g.hashedResourceName(id, "kube-router-"+id.AppName, 253)
 }
 
 func (g *GatewayAPIService) httpRouteNameForPrefix(id router.InstanceID, prefix string) string {
 	if prefix == "default" {
 		return g.httpRouteName(id)
 	}
-	return g.hashedResourceName(id, "kubernetes-router-"+id.AppName+"-"+prefix+"-httproute", 253)
+	return g.hashedResourceName(id, "kube-router-"+id.AppName+"-"+prefix, 253)
 }
 
 // listHTTPRoutesForApp lists all HTTPRoutes labeled for the given app in the namespace.
@@ -622,13 +622,13 @@ func (g *GatewayAPIService) buildLabels(baseLabels map[string]string, routerOpts
 func (g *GatewayAPIService) listenerSetName(id router.InstanceID, cname string) string {
 	sanitized := strings.ReplaceAll(cname, ".", "-")
 	sanitized = strings.ReplaceAll(sanitized, "*", "wildcard")
-	base := fmt.Sprintf("kubernetes-router-%s-%s-ls", id.AppName, sanitized)
+	base := fmt.Sprintf("kube-router-%s-%s", id.AppName, sanitized)
 	return g.hashedResourceName(id, base, 253)
 }
 
 // httpRouteCNameName generates a deterministic name for an HTTPRoute for a CName.
 func (g *GatewayAPIService) httpRouteCNameName(id router.InstanceID, cname string) string {
-	base := fmt.Sprintf("kubernetes-router-%s-%s-cname", id.AppName, cname)
+	base := fmt.Sprintf("kube-router-%s-%s-cname", id.AppName, cname)
 	return g.hashedResourceName(id, base, 253)
 }
 
