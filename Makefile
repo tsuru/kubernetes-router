@@ -43,6 +43,6 @@ lint:
 .PHONY: minikube
 minikube:
 	make IMAGE=$(LOCAL_REGISTRY)/$(BINARY) push
-	kubectl delete -f deployments/local.yml || true
+	sed 's~NAMESPACE~$(NAMESPACE)~g' deployments/local.yml | kubectl delete -f - || true
 	cat deployments/rbac.yml | sed 's~NAMESPACE~$(NAMESPACE)~g' | kubectl apply -f -
 	cat deployments/local.yml | sed 's~IMAGE~$(LOCAL_REGISTRY)/$(BINARY)~g' | sed 's~NAMESPACE~$(NAMESPACE)~g' | kubectl apply -f -

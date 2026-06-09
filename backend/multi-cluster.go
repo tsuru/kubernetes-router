@@ -132,6 +132,12 @@ func (m *MultiCluster) Router(ctx context.Context, mode string, headers http.Hea
 		}, nil
 	}
 
+	if mode == "gateway-api" {
+		return &kubernetes.GatewayAPIService{
+			BaseService: baseService,
+		}, nil
+	}
+
 	return nil, errors.New("Mode not found")
 }
 

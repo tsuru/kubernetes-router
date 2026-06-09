@@ -53,6 +53,10 @@ func main() {
 
 	ingressClass := flag.String("ingress-class", "", "Default class used for ingress objects")
 
+	gatewayName := flag.String("gateway-name", "", "Name of the Gateway resource to attach HTTPRoutes to (gateway-api mode)")
+	gatewayNamespace := flag.String("gateway-namespace", "", "Namespace of the Gateway resource (gateway-api mode)")
+	acmeIssuer := flag.String("acme-issuer", "", "Default cert-manager ClusterIssuer name to use when tls-acme=true (gateway-api mode)")
+
 	useIngressClassName := flag.Bool("use-ingress-class-name", false, "If true, the ingress.spec.ingressClassName will be used instead of the ingress.class annotation")
 
 	ingressAnnotationsPrefix := flag.String("ingress-annotations-prefix", "", "Default prefix for annotations based on options")
@@ -86,6 +90,14 @@ func main() {
 
 	for _, mode := range runModes {
 		switch mode {
+		case "gateway-api":
+			localBackend.Routers[mode] = &kubernetes.GatewayAPIService{
+				BaseService:      base,
+				DomainSuffix:     *ingressDomain,
+				GatewayName:      *gatewayName,
+				GatewayNamespace: *gatewayNamespace,
+				AcmeIssuer:       *acmeIssuer,
+			}
 		case "istio-gateway":
 			localBackend.Routers[mode] = &kubernetes.IstioGateway{
 				BaseService:     base,

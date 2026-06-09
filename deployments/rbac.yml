@@ -16,46 +16,54 @@ kind: ClusterRole
 metadata:
   name: kubernetes-router
 rules:
-  - apiGroups:
-      - ""
-    resources:
-      - "services"
-      - "secrets"
-      - "events"
-    verbs:
-      - "*"
-  - apiGroups:
-      - ""
-    resources:
-      - "nodes"
-    verbs:
-      - "list"
-  - apiGroups:
-      - "apiextensions.k8s.io"
-    resources:
-      - "customresourcedefinitions"
-    verbs:
-      - "get"
-  - apiGroups:
-      - "tsuru.io"
-    resources:
-      - "apps"
-    verbs:
-      - "get"
-  - apiGroups:
-      - "networking.k8s.io"
-    resources:
-      - "ingresses"
-    verbs:
-      - "*"
-  - apiGroups:
-      - "cert-manager.io"
-    resources:
-      - "issuers"
-      - "clusterissuers"
-    verbs:
-      - "get"
-      - "list"
+- apiGroups:
+  - ""
+  resources:
+  - "services"
+  - "secrets"
+  - "events"
+  verbs:
+  - "*"
+- apiGroups:
+  - "gateway.networking.k8s.io"
+  resources:
+  - "httproutes"
+  - "gateways"
+  - "listenersets"
+  verbs:
+  - "*"
+- apiGroups:
+  - ""
+  resources:
+  - "nodes"
+  verbs:
+  - "list"
+- apiGroups:
+  - "apiextensions.k8s.io"
+  resources:
+  - "customresourcedefinitions"
+  verbs:
+  - "get"
+- apiGroups:
+  - "tsuru.io"
+  resources:
+  - "apps"
+  verbs:
+  - "get"
+- apiGroups:
+  - "networking.k8s.io"
+  resources:
+  - "ingresses"
+  verbs:
+  - "*"
+- apiGroups:
+  - "cert-manager.io"
+  resources:
+    - "issuers"
+    - "clusterissuers"
+  verbs:
+    - "get"
+    - "list"
 ---
 apiVersion: v1
 kind: ServiceAccount

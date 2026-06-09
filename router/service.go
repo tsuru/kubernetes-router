@@ -102,6 +102,8 @@ type Opts struct {
 	HTTPOnly              bool              `json:",omitempty"`
 	AcmeCName             bool              `json:",omitempty"`
 	ExposeAllServices     bool              `json:",omitempty"`
+	GatewayName           string            `json:",omitempty"`
+	GatewayNamespace      string            `json:",omitempty"`
 }
 
 // CertData user when adding certificates
