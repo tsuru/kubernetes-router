@@ -433,6 +433,7 @@ func TestGatewayAPIServiceGetStatusReady(t *testing.T) {
 					{
 						Conditions: []metav1.Condition{
 							{Type: "Accepted", Status: metav1.ConditionTrue},
+							{Type: "ResolvedRefs", Status: metav1.ConditionTrue},
 						},
 					},
 				},
@@ -705,6 +706,142 @@ func TestGatewayAPIServiceGetStatusNotReady(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, router.BackendStatusNotReady, status)
 	assert.Equal(t, "no matching listener", detail)
+}
+
+func TestGatewayAPIServiceGetStatusNotReadyResolvedRefsMessage(t *testing.T) {
+	// A route with ResolvedRefs=False should be reported as not-ready with the condition message.
+	svc, gwClient := newFakeGatewayAPIService()
+	id := idForApp("myapp")
+
+	_, err := gwClient.GatewayV1().HTTPRoutes("default").Create(ctx, &gatewayv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svc.httpRouteName(id),
+			Namespace: "default",
+			Labels: map[string]string{
+				appLabel:            "myapp",
+				routerInstanceLabel: "",
+			},
+		},
+		Status: gatewayv1.HTTPRouteStatus{
+			RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{
+					{
+						Conditions: []metav1.Condition{
+							{Type: "Accepted", Status: metav1.ConditionTrue},
+							{Type: "ResolvedRefs", Status: metav1.ConditionFalse, Message: "backend service not found"},
+						},
+					},
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	status, detail, err := svc.GetStatus(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, router.BackendStatusNotReady, status)
+	assert.Equal(t, "backend service not found", detail)
+}
+
+func TestGatewayAPIServiceGetStatusNotReadyResolvedRefsReasonFallback(t *testing.T) {
+	// If ResolvedRefs=False has no message, detail should fall back to the reason.
+	svc, gwClient := newFakeGatewayAPIService()
+	id := idForApp("myapp")
+
+	_, err := gwClient.GatewayV1().HTTPRoutes("default").Create(ctx, &gatewayv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svc.httpRouteName(id),
+			Namespace: "default",
+			Labels: map[string]string{
+				appLabel:            "myapp",
+				routerInstanceLabel: "",
+			},
+		},
+		Status: gatewayv1.HTTPRouteStatus{
+			RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{
+					{
+						Conditions: []metav1.Condition{
+							{Type: "Accepted", Status: metav1.ConditionTrue},
+							{Type: "ResolvedRefs", Status: metav1.ConditionFalse, Reason: "BackendNotFound"},
+						},
+					},
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	status, detail, err := svc.GetStatus(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, router.BackendStatusNotReady, status)
+	assert.Equal(t, "BackendNotFound", detail)
+}
+
+func TestGatewayAPIServiceGetStatusNotReadyAcceptedReasonFallback(t *testing.T) {
+	// If Accepted=False has no message, detail should fall back to the reason.
+	svc, gwClient := newFakeGatewayAPIService()
+	id := idForApp("myapp")
+
+	_, err := gwClient.GatewayV1().HTTPRoutes("default").Create(ctx, &gatewayv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svc.httpRouteName(id),
+			Namespace: "default",
+			Labels: map[string]string{
+				appLabel:            "myapp",
+				routerInstanceLabel: "",
+			},
+		},
+		Status: gatewayv1.HTTPRouteStatus{
+			RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{
+					{
+						Conditions: []metav1.Condition{
+							{Type: "Accepted", Status: metav1.ConditionFalse, Reason: "NoMatchingListener"},
+						},
+					},
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	status, detail, err := svc.GetStatus(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, router.BackendStatusNotReady, status)
+	assert.Equal(t, "NoMatchingListener", detail)
+}
+
+func TestGatewayAPIServiceGetStatusNotReadyWhenResolvedRefsMissing(t *testing.T) {
+	// Accepted=True without ResolvedRefs should not report ready.
+	svc, gwClient := newFakeGatewayAPIService()
+	id := idForApp("myapp")
+
+	_, err := gwClient.GatewayV1().HTTPRoutes("default").Create(ctx, &gatewayv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svc.httpRouteName(id),
+			Namespace: "default",
+			Labels: map[string]string{
+				appLabel:            "myapp",
+				routerInstanceLabel: "",
+			},
+		},
+		Status: gatewayv1.HTTPRouteStatus{
+			RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{
+					{
+						Conditions: []metav1.Condition{{Type: "Accepted", Status: metav1.ConditionTrue}},
+					},
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	status, detail, err := svc.GetStatus(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, router.BackendStatusNotReady, status)
+	assert.Equal(t, "", detail)
 }
 
 func TestGatewayAPIServiceGetStatusWaitingForDeploy(t *testing.T) {

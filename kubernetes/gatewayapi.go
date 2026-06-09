@@ -511,15 +511,39 @@ func (g *GatewayAPIService) GetStatus(ctx context.Context, id router.InstanceID)
 	return router.BackendStatusReady, "", nil
 }
 
+func conditionDetail(condition metav1.Condition, fallbackMessage string) string {
+	if condition.Message != "" {
+		return condition.Message
+	}
+	if condition.Reason != "" {
+		return condition.Reason
+	}
+	return fallbackMessage
+}
+
 func (g *GatewayAPIService) httpRouteStatus(ctx context.Context, ns string, httpRoute *gatewayv1.HTTPRoute) (router.BackendStatus, string, error) {
-	for _, parent := range httpRoute.Status.Parents {
+	if len(httpRoute.Status.Parents) > 0 {
+
+		parent := httpRoute.Status.Parents[0]
+		var accepted, resolvedRefs bool
+
 		for _, cond := range parent.Conditions {
-			if cond.Type == "Accepted" {
-				if cond.Status == "True" {
-					return router.BackendStatusReady, "", nil
+			switch cond.Type {
+			case "Accepted":
+				if cond.Status != metav1.ConditionTrue {
+					return router.BackendStatusNotReady, conditionDetail(cond, "HTTPRoute not accepted by gateway"), nil
 				}
-				return router.BackendStatusNotReady, cond.Message, nil
+				accepted = true
+			case "ResolvedRefs":
+				if cond.Status != metav1.ConditionTrue {
+					return router.BackendStatusNotReady, conditionDetail(cond, "HTTPRoute has unresolved backend references"), nil
+				}
+				resolvedRefs = true
 			}
+		}
+
+		if accepted && resolvedRefs {
+			return router.BackendStatusReady, "", nil
 		}
 	}
 
