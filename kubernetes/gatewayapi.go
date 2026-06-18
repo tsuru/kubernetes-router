@@ -353,6 +353,13 @@ func (g *GatewayAPIService) ensureHTTPRoutes(
 			o.Team,
 			o.Tags,
 		)
+
+		var sectionName *gatewayv1.SectionName
+		if !rc.isHTTPOnly {
+			httpsSectionName := gatewayv1.SectionName("https")
+			sectionName = &httpsSectionName
+		}
+
 		httpRoute := &gatewayv1.HTTPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        routeName,
@@ -364,8 +371,9 @@ func (g *GatewayAPIService) ensureHTTPRoutes(
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{
 						{
-							Name:      gatewayv1.ObjectName(g.GatewayName),
-							Namespace: &gwNamespace,
+							Name:        gatewayv1.ObjectName(g.GatewayName),
+							Namespace:   &gwNamespace,
+							SectionName: sectionName,
 						},
 					},
 				},

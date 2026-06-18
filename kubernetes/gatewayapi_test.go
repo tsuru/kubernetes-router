@@ -211,6 +211,8 @@ func TestGatewayAPIServiceEnsureCreatesHTTPRoute(t *testing.T) {
 	assert.Equal(t, gatewayv1.ObjectName("main-gw"), route.Spec.ParentRefs[0].Name)
 	require.NotNil(t, route.Spec.ParentRefs[0].Namespace)
 	assert.Equal(t, gatewayv1.Namespace("default"), *route.Spec.ParentRefs[0].Namespace)
+	require.NotNil(t, route.Spec.ParentRefs[0].SectionName)
+	assert.Equal(t, gatewayv1.SectionName("https"), *route.Spec.ParentRefs[0].SectionName)
 
 	// Assert: backend ref targets the app service on the expected port.
 	require.Len(t, route.Spec.Rules, 1)
@@ -218,6 +220,30 @@ func TestGatewayAPIServiceEnsureCreatesHTTPRoute(t *testing.T) {
 	assert.Equal(t, gatewayv1.ObjectName("myapp-web"), route.Spec.Rules[0].BackendRefs[0].Name)
 	require.NotNil(t, route.Spec.Rules[0].BackendRefs[0].Port)
 	assert.Equal(t, gatewayv1.PortNumber(defaultServicePort), *route.Spec.Rules[0].BackendRefs[0].Port)
+}
+
+func TestGatewayAPIServiceEnsureCreatesHTTPRouteHTTPOnly(t *testing.T) {
+	// Ensures HTTP-only routes do not bind to the HTTPS listener section.
+	svc, gwClient := newFakeGatewayAPIService()
+	err := createAppWebService(svc.Client, svc.Namespace, "myapp")
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+		Opts: router.Opts{GatewayName: "main-gw", GatewayNamespace: "default", HTTPOnly: true},
+		Team: "my-team",
+		Prefixes: []router.BackendPrefix{
+			{Target: router.BackendTarget{Service: "myapp-web", Namespace: "default"}},
+		},
+	})
+	require.NoError(t, err)
+
+	routeName := svc.httpRouteName(idForApp("myapp"))
+	route, err := gwClient.GatewayV1().HTTPRoutes("default").Get(ctx, routeName, metav1.GetOptions{})
+	require.NoError(t, err)
+
+	require.Len(t, route.Spec.ParentRefs, 1)
+	assert.Nil(t, route.Spec.ParentRefs[0].SectionName)
+	assert.Equal(t, "true", route.Labels[labelHTTPRouteHTTPOnly])
 }
 
 func TestGatewayAPIServiceEnsureSkipsFrozenHTTPRoute(t *testing.T) {
