@@ -132,6 +132,12 @@ func (m *MultiCluster) Router(ctx context.Context, mode string, headers http.Hea
 		}, nil
 	}
 
+	if mode == "istio-virtualservice" {
+		return &kubernetes.IstioVirtualService{
+			BaseService: baseService,
+		}, nil
+	}
+
 	if mode == "gateway-api" {
 		return &kubernetes.GatewayAPIService{
 			BaseService: baseService,

@@ -434,3 +434,32 @@ func TestMultiClusterIstioGateway(t *testing.T) {
 	assert.Equal(t, "https://mycluster.com", istioGateway.BaseService.RestConfig.Host)
 	assert.Equal(t, "my-token", istioGateway.BaseService.RestConfig.BearerToken)
 }
+
+func TestMultiClusterIstioVirtualService(t *testing.T) {
+	backend := &MultiCluster{
+		Namespace: "tsuru-test",
+		Fallback:  &fakeBackend{},
+		Clusters: []ClusterConfig{
+			{
+				Name:    "default-token",
+				Token:   "my-token",
+				Default: true,
+			},
+		},
+	}
+	router, err := backend.Router(ctx, "istio-virtualservice", http.Header{
+		"X-Tsuru-Cluster-Name": []string{
+			"my-cluster",
+		},
+		"X-Tsuru-Cluster-Addresses": []string{
+			"https://mycluster.com",
+		},
+	})
+	require.NoError(t, err)
+	istioVirtualService, ok := router.(*kubernetes.IstioVirtualService)
+	require.True(t, ok)
+	assert.Equal(t, "tsuru-test", istioVirtualService.BaseService.Namespace)
+	assert.Equal(t, 10*time.Second, istioVirtualService.BaseService.Timeout)
+	assert.Equal(t, "https://mycluster.com", istioVirtualService.BaseService.RestConfig.Host)
+	assert.Equal(t, "my-token", istioVirtualService.BaseService.RestConfig.BearerToken)
+}
