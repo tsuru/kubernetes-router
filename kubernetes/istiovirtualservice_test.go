@@ -14,6 +14,7 @@ import (
 	apiNetworking "istio.io/api/networking/v1beta1"
 	istionetworking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	fakeistio "istio.io/client-go/pkg/clientset/versioned/fake"
+	v1 "k8s.io/api/core/v1"
 	fakeapiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -32,6 +33,74 @@ func fakeVirtualServiceService() (*IstioVirtualService, *fakeistio.Clientset) {
 		DomainSuffix: "my.domain",
 		GatewayName:  "shared-gateway",
 	}, client
+}
+
+func TestIstioVirtualServiceEnsureReconcilesDefaultDestination(t *testing.T) {
+	svc, client := fakeVirtualServiceService()
+	require.NoError(t, createAppWebService(svc.Client, svc.Namespace, "myapp"))
+	createTarget := func(name string) {
+		_, err := svc.Client.CoreV1().Services("default").Create(ctx, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: name}}, metav1.CreateOptions{})
+		require.NoError(t, err)
+	}
+	createTarget("service-a")
+	createTarget("service-b")
+
+	ensure := func(service string) {
+		t.Helper()
+		require.NoError(t, svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+			Prefixes: []router.BackendPrefix{{Target: router.BackendTarget{Service: service, Namespace: "default"}}},
+		}))
+	}
+	ensure("service-a")
+
+	virtualService, err := client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	virtualService.Spec.Http[0].Route = append(virtualService.Spec.Http[0].Route, &apiNetworking.HTTPRouteDestination{
+		Destination: &apiNetworking.Destination{Host: "manually-configured"},
+		Weight:      20,
+	})
+	virtualService.Spec.Http[0].Route[0].Weight = 80
+	_, err = client.NetworkingV1beta1().VirtualServices("default").Update(ctx, virtualService, metav1.UpdateOptions{})
+	require.NoError(t, err)
+
+	ensure("service-b")
+	virtualService, err = client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Len(t, virtualService.Spec.Http[0].Route, 2)
+	assert.Equal(t, "service-b", virtualService.Spec.Http[0].Route[0].Destination.Host)
+	assert.Equal(t, int32(80), virtualService.Spec.Http[0].Route[0].Weight)
+	assert.Equal(t, "manually-configured", virtualService.Spec.Http[0].Route[1].Destination.Host)
+	assert.Equal(t, int32(20), virtualService.Spec.Http[0].Route[1].Weight)
+	assert.Equal(t, "service-b", virtualService.Labels[appBaseServiceNameLabel])
+	assert.Equal(t, int32(100), virtualService.Spec.Http[0].Route[0].Weight+virtualService.Spec.Http[0].Route[1].Weight)
+}
+
+func TestIstioVirtualServiceEnsureUsesFQDNForCrossNamespaceBackend(t *testing.T) {
+	svc, client := fakeVirtualServiceService()
+	require.NoError(t, createAppWebService(svc.Client, svc.Namespace, "myapp"))
+	_, err := svc.Client.CoreV1().Services("remote").Create(ctx, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "remote-web"}}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	err = svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+		Prefixes: []router.BackendPrefix{{Target: router.BackendTarget{Service: "remote-web", Namespace: "remote"}}},
+	})
+	require.NoError(t, err)
+	virtualService, err := client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "remote-web.remote.svc.cluster.local", virtualService.Spec.Http[0].Route[0].Destination.Host)
+	assert.Contains(t, virtualService.Spec.Hosts, "remote-web.remote.svc.cluster.local")
+}
+
+func TestIstioVirtualServiceRequestGatewayOverrideKeepsConfiguredDomain(t *testing.T) {
+	svc, _ := fakeVirtualServiceService()
+	require.NoError(t, createAppWebService(svc.Client, svc.Namespace, "myapp"))
+	require.NoError(t, svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+		Opts:     router.Opts{GatewayName: "request-gateway", GatewayNamespace: "request-ns"},
+		Prefixes: []router.BackendPrefix{{Target: router.BackendTarget{Service: "myapp-web", Namespace: "default"}}},
+	}))
+	addresses, err := svc.GetAddresses(ctx, idForApp("myapp"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"myapp.my.domain"}, addresses)
 }
 
 func TestIstioVirtualServiceEnsureReferencesExistingGateway(t *testing.T) {

@@ -91,24 +91,69 @@ func (k *IstioVirtualService) updateObjectMeta(result *metav1.ObjectMeta, appNam
 	}
 }
 
-func (k *IstioVirtualService) updateVirtualService(vs *istionetworking.VirtualService, gatewayRef, host, dstHost string) {
+func (k *IstioVirtualService) updateVirtualService(vs *istionetworking.VirtualService, gatewayRef, host, dstHost string, previousDstHosts ...string) {
 	vs.Spec.Gateways = addToSet(vs.Spec.Gateways, gatewayRef)
 	vs.Spec.Hosts = addToSet(vs.Spec.Hosts, host, dstHost)
 	if len(vs.Spec.Http) == 0 {
 		vs.Spec.Http = append(vs.Spec.Http, &apiNetworking.HTTPRoute{})
 	}
 	dstIdx := -1
+	previousDstIdx := -1
 	for i, dst := range vs.Spec.Http[0].Route {
-		if dst.Destination != nil && dst.Destination.Host == dstHost {
+		if dst.Destination == nil {
+			continue
+		}
+		isPrevious := false
+		for _, previousDstHost := range previousDstHosts {
+			if previousDstHost != "" && dst.Destination.Host == previousDstHost {
+				isPrevious = true
+				break
+			}
+		}
+		if dst.Destination.Host == dstHost {
 			dstIdx = i
 			break
 		}
+		if isPrevious && previousDstIdx == -1 {
+			previousDstIdx = i
+		}
 	}
 	if dstIdx == -1 {
-		vs.Spec.Http[0].Route = append(vs.Spec.Http[0].Route, &apiNetworking.HTTPRouteDestination{})
-		dstIdx = len(vs.Spec.Http[0].Route) - 1
+		dstIdx = previousDstIdx
+		if dstIdx == -1 {
+			vs.Spec.Http[0].Route = append(vs.Spec.Http[0].Route, &apiNetworking.HTTPRouteDestination{})
+			dstIdx = len(vs.Spec.Http[0].Route) - 1
+		}
 	}
 	vs.Spec.Http[0].Route[dstIdx].Destination = &apiNetworking.Destination{Host: dstHost}
+	routes := vs.Spec.Http[0].Route[:0]
+	for _, route := range vs.Spec.Http[0].Route {
+		remove := false
+		if route.Destination != nil && route.Destination.Host != dstHost {
+			for _, previousDstHost := range previousDstHosts {
+				if previousDstHost != "" && route.Destination.Host == previousDstHost {
+					remove = true
+					break
+				}
+			}
+		}
+		if !remove {
+			routes = append(routes, route)
+		}
+	}
+	vs.Spec.Http[0].Route = routes
+	for _, previousDstHost := range previousDstHosts {
+		if previousDstHost != "" && previousDstHost != dstHost {
+			vs.Spec.Hosts = removeFromSet(vs.Spec.Hosts, previousDstHost)
+		}
+	}
+}
+
+func istioServiceHost(service, namespace, appNamespace string) string {
+	if namespace == appNamespace {
+		return service
+	}
+	return fmt.Sprintf("%s.%s.svc.cluster.local", service, namespace)
 }
 
 // Ensure creates or updates the application's VirtualService without managing
@@ -156,6 +201,14 @@ func (k *IstioVirtualService) Ensure(ctx context.Context, id router.InstanceID, 
 	if !existing {
 		virtualService = &istionetworking.VirtualService{ObjectMeta: metav1.ObjectMeta{Name: k.vsName(id)}, Spec: apiNetworking.VirtualService{Gateways: []string{"mesh"}}}
 	}
+	previousDstHosts := []string{}
+	if previousService := virtualService.Labels[appBaseServiceNameLabel]; previousService != "" {
+		previousNamespace := virtualService.Labels[appBaseServiceNamespaceLabel]
+		if previousNamespace == "" {
+			previousNamespace = appNamespace
+		}
+		previousDstHosts = append(previousDstHosts, previousService, istioServiceHost(previousService, previousNamespace, appNamespace))
+	}
 	previousRef := virtualService.Annotations[gatewayReferenceAnnotation]
 	if previousRef == "" && k.GatewayName != "" {
 		configuredNamespace := k.GatewayNamespace
@@ -169,7 +222,8 @@ func (k *IstioVirtualService) Ensure(ctx context.Context, id router.InstanceID, 
 	}
 	k.updateObjectMeta(&virtualService.ObjectMeta, id.AppName, opts.Opts)
 	virtualService.Annotations[gatewayReferenceAnnotation] = gatewayRef
-	k.updateVirtualService(virtualService, gatewayRef, k.gatewayHost(id, k.DomainSuffix), webService.Name)
+	dstHost := istioServiceHost(webService.Name, defaultTarget.Namespace, appNamespace)
+	k.updateVirtualService(virtualService, gatewayRef, k.gatewayHost(id, k.DomainSuffix), dstHost, previousDstHosts...)
 	virtualService.Labels[appBaseServiceNamespaceLabel] = defaultTarget.Namespace
 	virtualService.Labels[appBaseServiceNameLabel] = defaultTarget.Service
 

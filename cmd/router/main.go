@@ -161,11 +161,14 @@ func main() {
 		}
 
 		routerBackend = &backend.MultiCluster{
-			Namespace:  *k8sNamespace,
-			Fallback:   routerBackend,
-			K8sTimeout: k8sTimeout,
-			Modes:      runModes,
-			Clusters:   clustersFile.Clusters,
+			Namespace:             *k8sNamespace,
+			Fallback:              routerBackend,
+			K8sTimeout:            k8sTimeout,
+			Modes:                 runModes,
+			Clusters:              clustersFile.Clusters,
+			IstioGatewayName:      *istioVirtualServiceGatewayName,
+			IstioGatewayNamespace: *istioVirtualServiceGatewayNamespace,
+			DomainSuffix:          *ingressDomain,
 		}
 	}
 

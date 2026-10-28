@@ -437,8 +437,11 @@ func TestMultiClusterIstioGateway(t *testing.T) {
 
 func TestMultiClusterIstioVirtualService(t *testing.T) {
 	backend := &MultiCluster{
-		Namespace: "tsuru-test",
-		Fallback:  &fakeBackend{},
+		Namespace:             "tsuru-test",
+		Fallback:              &fakeBackend{},
+		IstioGatewayName:      "shared-gateway",
+		IstioGatewayNamespace: "edge",
+		DomainSuffix:          "apps.example.com",
 		Clusters: []ClusterConfig{
 			{
 				Name:    "default-token",
@@ -447,7 +450,7 @@ func TestMultiClusterIstioVirtualService(t *testing.T) {
 			},
 		},
 	}
-	router, err := backend.Router(ctx, "istio-virtualservice", http.Header{
+	routed, err := backend.Router(ctx, "istio-virtualservice", http.Header{
 		"X-Tsuru-Cluster-Name": []string{
 			"my-cluster",
 		},
@@ -456,10 +459,16 @@ func TestMultiClusterIstioVirtualService(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	istioVirtualService, ok := router.(*kubernetes.IstioVirtualService)
+	istioVirtualService, ok := routed.(*kubernetes.IstioVirtualService)
 	require.True(t, ok)
 	assert.Equal(t, "tsuru-test", istioVirtualService.BaseService.Namespace)
 	assert.Equal(t, 10*time.Second, istioVirtualService.BaseService.Timeout)
 	assert.Equal(t, "https://mycluster.com", istioVirtualService.BaseService.RestConfig.Host)
 	assert.Equal(t, "my-token", istioVirtualService.BaseService.RestConfig.BearerToken)
+	assert.Equal(t, "shared-gateway", istioVirtualService.GatewayName)
+	assert.Equal(t, "edge", istioVirtualService.GatewayNamespace)
+	assert.Equal(t, "apps.example.com", istioVirtualService.DomainSuffix)
+	addresses, err := istioVirtualService.GetAddresses(ctx, router.InstanceID{AppName: "myapp"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"myapp.apps.example.com"}, addresses)
 }
