@@ -57,6 +57,14 @@ rules:
   verbs:
   - "*"
 - apiGroups:
+  - "networking.istio.io"
+  resources:
+  - "virtualservices"
+  verbs:
+  - "get"
+  - "create"
+  - "update"
+- apiGroups:
   - "cert-manager.io"
   resources:
     - "issuers"
