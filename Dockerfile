@@ -1,6 +1,6 @@
 ARG alpine_version=3.23
 ARG golang_version=1.26.2
-FROM --platform=$BUILDPLATFORM golang:${golang_version}-alpine${alpine_version} as builder
+FROM --platform=$BUILDPLATFORM golang:${golang_version}-alpine${alpine_version} AS builder
 ARG TARGETARCH
 ENV GOARCH=$TARGETARCH
 RUN apk update && apk add make
