@@ -29,12 +29,14 @@ func main() {
 	k8sAnnotations := &cmd.MapFlag{}
 	flag.Var(k8sAnnotations, "k8s-annotations", "Annotations to be added to each resource created. Expects KEY=VALUE format.")
 	runModes := cmd.StringSliceFlag{}
-	flag.Var(&runModes, "controller-modes", "Defines enabled controller running modes: service, ingress, ingress-nginx or istio-gateway.")
+	flag.Var(&runModes, "controller-modes", "Defines enabled controller running modes: service, ingress, ingress-nginx, istio-gateway or istio-virtualservice.")
 
 	ingressDomain := flag.String("ingress-domain", "local", "Default domain to be used on created vhosts, local is the default. (eg: serviceName.local)")
 
 	istioGatewaySelector := &cmd.MapFlag{}
 	flag.Var(istioGatewaySelector, "istio-gateway.gateway-selector", "Gateway selector used in gateways created for apps.")
+	istioVirtualServiceGatewayName := flag.String("istio-virtualservice.gateway-name", "", "Name of the existing Istio Gateway referenced by VirtualServices.")
+	istioVirtualServiceGatewayNamespace := flag.String("istio-virtualservice.gateway-namespace", "", "Namespace of the existing Istio Gateway (defaults to the app namespace).")
 
 	certFile := flag.String("cert-file", "", "Path to certificate used to serve https requests")
 	keyFile := flag.String("key-file", "", "Path to private key used to serve https requests")
@@ -104,6 +106,13 @@ func main() {
 				DomainSuffix:    *ingressDomain,
 				GatewaySelector: *istioGatewaySelector,
 			}
+		case "istio-virtualservice":
+			localBackend.Routers[mode] = &kubernetes.IstioVirtualService{
+				BaseService:      base,
+				DomainSuffix:     *ingressDomain,
+				GatewayName:      *istioVirtualServiceGatewayName,
+				GatewayNamespace: *istioVirtualServiceGatewayNamespace,
+			}
 		case "ingress-nginx":
 			*ingressClass = "nginx"
 			*ingressAnnotationsPrefix = "nginx.ingress.kubernetes.io"
@@ -127,7 +136,7 @@ func main() {
 				PoolLabels:       *poolLabels,
 			}
 		default:
-			log.Fatalf("fail parameters: Use one of the following modes: service, ingress, ingress-nginx or istio-gateway.")
+			log.Fatalf("fail parameters: Use one of the following modes: service, ingress, ingress-nginx, istio-gateway or istio-virtualservice.")
 		}
 	}
 
@@ -152,11 +161,14 @@ func main() {
 		}
 
 		routerBackend = &backend.MultiCluster{
-			Namespace:  *k8sNamespace,
-			Fallback:   routerBackend,
-			K8sTimeout: k8sTimeout,
-			Modes:      runModes,
-			Clusters:   clustersFile.Clusters,
+			Namespace:             *k8sNamespace,
+			Fallback:              routerBackend,
+			K8sTimeout:            k8sTimeout,
+			Modes:                 runModes,
+			Clusters:              clustersFile.Clusters,
+			IstioGatewayName:      *istioVirtualServiceGatewayName,
+			IstioGatewayNamespace: *istioVirtualServiceGatewayNamespace,
+			DomainSuffix:          *ingressDomain,
 		}
 	}
 

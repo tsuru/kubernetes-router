@@ -7,9 +7,11 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 
 - `-alsologtostderr`: log to standard error as well as files;
 - `-cert-file`: Path to certificate used to serve https requests;
-- `-controller-modes`: Defines enabled controller running modes: service, ingress, ingress-nginx or istio-gateway;
+- `-controller-modes`: Defines enabled controller running modes: service, ingress, ingress-nginx, istio-gateway or istio-virtualservice;
 - `-ingress-domain`: Default domain to be used on created vhosts, local is the default. (eg: serviceName.local) (default "local");
 - `-istio-gateway.gateway-selector`: Gateway selector used in gateways created for apps;
+- `-istio-virtualservice.gateway-name`: Name of the existing Istio Gateway referenced by VirtualServices;
+- `-istio-virtualservice.gateway-namespace`: Namespace of the existing Istio Gateway (defaults to the app namespace);
 - `-k8s-annotations`: Annotations to be added to each resource created. Expects KEY=VALUE format;
 - `-k8s-labels`: Labels to be added to each resource created. Expects KEY=VALUE format;
 - `-k8s-namespace`: Kubernetes namespace to create resources (default "default");
@@ -29,6 +31,16 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 - `-stderrthreshold`: logs at or above this threshold go to stderr;
 - `-v`: log level for V logs;
 - `-vmodule`: comma-separated list of pattern=N settings for file-filtered logging.
+
+The `istio-gateway` mode creates and manages an Istio Gateway for each app. The separate
+`istio-virtualservice` mode only creates or updates VirtualServices and references an existing
+Istio Gateway; it never creates or deletes Gateway resources. Its Gateway name is configured with
+`-istio-virtualservice.gateway-name` or the `X-Gateway-Name` request option. The optional namespace
+can be configured with `-istio-virtualservice.gateway-namespace` or `X-Gateway-Namespace`; when
+omitted, the app namespace is used. VirtualServices use a `namespace/name` Gateway reference when
+the Gateway is in a different namespace.
+The reference is recorded on the VirtualService, and Remove only detaches that recorded reference, so
+request-level Gateway overrides are detached correctly and unrelated Gateway attachments are kept.
 
 ## Envs
 
@@ -64,4 +76,3 @@ load balancer services or ingress resources on a kubernetes cluster. It expects 
 6. Create an app using the ingress-router
 
         $ tsuru app-create myapp static --router ingress-router
-

@@ -42,11 +42,14 @@ type ClustersFile struct {
 }
 
 type MultiCluster struct {
-	Namespace  string
-	Fallback   Backend
-	K8sTimeout *time.Duration
-	Modes      []string
-	Clusters   []ClusterConfig
+	Namespace             string
+	Fallback              Backend
+	K8sTimeout            *time.Duration
+	Modes                 []string
+	Clusters              []ClusterConfig
+	IstioGatewayName      string
+	IstioGatewayNamespace string
+	DomainSuffix          string
 }
 
 type TsuruKubeConfig struct {
@@ -129,6 +132,15 @@ func (m *MultiCluster) Router(ctx context.Context, mode string, headers http.Hea
 	if mode == "istio-gateway" {
 		return &kubernetes.IstioGateway{
 			BaseService: baseService,
+		}, nil
+	}
+
+	if mode == "istio-virtualservice" {
+		return &kubernetes.IstioVirtualService{
+			BaseService:      baseService,
+			GatewayName:      m.IstioGatewayName,
+			GatewayNamespace: m.IstioGatewayNamespace,
+			DomainSuffix:     m.DomainSuffix,
 		}, nil
 	}
 

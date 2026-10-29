@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -150,13 +151,32 @@ func (d *dummyAuthProvider) Login() error {
 	return nil
 }
 
-func TestMultiClusterAuthProvider(t *testing.T) {
-	newDummyProvider := func(clusterAddress string, cfg map[string]string, persister restclient.AuthProviderConfigPersister) (restclient.AuthProvider, error) {
-		return &dummyAuthProvider{}, nil
-	}
+var (
+	registerDummyAuthProvidersOnce sync.Once
+	registerDummyAuthProvidersErr  error
+)
 
-	err := restclient.RegisterAuthProviderPlugin("dummy-test", newDummyProvider)
-	require.NoError(t, err)
+// registerDummyAuthProviders registers the test auth provider plugins once per
+// process, since client-go keeps a global registry that rejects duplicates and
+// would otherwise fail repeated runs (go test -count=N).
+func registerDummyAuthProviders(t *testing.T) {
+	t.Helper()
+	registerDummyAuthProvidersOnce.Do(func() {
+		newDummyProvider := func(clusterAddress string, cfg map[string]string, persister restclient.AuthProviderConfigPersister) (restclient.AuthProvider, error) {
+			return &dummyAuthProvider{}, nil
+		}
+		for _, name := range []string{"dummy-test", "dummy-test2"} {
+			if err := restclient.RegisterAuthProviderPlugin(name, newDummyProvider); err != nil {
+				registerDummyAuthProvidersErr = err
+				return
+			}
+		}
+	})
+	require.NoError(t, registerDummyAuthProvidersErr)
+}
+
+func TestMultiClusterAuthProvider(t *testing.T) {
+	registerDummyAuthProviders(t)
 
 	backend := &MultiCluster{
 		Namespace: "tsuru-test",
@@ -236,12 +256,7 @@ func TestMultiClusterExecProvider(t *testing.T) {
 }
 
 func TestMultiClusterSetBothAuthMechanism(t *testing.T) {
-	newDummyProvider := func(clusterAddress string, cfg map[string]string, persister restclient.AuthProviderConfigPersister) (restclient.AuthProvider, error) {
-		return &dummyAuthProvider{}, nil
-	}
-
-	err := restclient.RegisterAuthProviderPlugin("dummy-test2", newDummyProvider)
-	require.NoError(t, err)
+	registerDummyAuthProviders(t)
 
 	backend := &MultiCluster{
 		Namespace: "tsuru-test",
@@ -260,7 +275,7 @@ func TestMultiClusterSetBothAuthMechanism(t *testing.T) {
 	mockTracer := mocktracer.New()
 	span := mockTracer.StartSpan("test")
 	spanCtx := opentracing.ContextWithSpan(ctx, span)
-	_, err = backend.Router(spanCtx, "service", http.Header{
+	_, err := backend.Router(spanCtx, "service", http.Header{
 		"X-Tsuru-Cluster-Name": []string{
 			"my-cluster",
 		},
@@ -433,4 +448,42 @@ func TestMultiClusterIstioGateway(t *testing.T) {
 	assert.Equal(t, 10*time.Second, istioGateway.BaseService.Timeout)
 	assert.Equal(t, "https://mycluster.com", istioGateway.BaseService.RestConfig.Host)
 	assert.Equal(t, "my-token", istioGateway.BaseService.RestConfig.BearerToken)
+}
+
+func TestMultiClusterIstioVirtualService(t *testing.T) {
+	backend := &MultiCluster{
+		Namespace:             "tsuru-test",
+		Fallback:              &fakeBackend{},
+		IstioGatewayName:      "shared-gateway",
+		IstioGatewayNamespace: "edge",
+		DomainSuffix:          "apps.example.com",
+		Clusters: []ClusterConfig{
+			{
+				Name:    "default-token",
+				Token:   "my-token",
+				Default: true,
+			},
+		},
+	}
+	routed, err := backend.Router(ctx, "istio-virtualservice", http.Header{
+		"X-Tsuru-Cluster-Name": []string{
+			"my-cluster",
+		},
+		"X-Tsuru-Cluster-Addresses": []string{
+			"https://mycluster.com",
+		},
+	})
+	require.NoError(t, err)
+	istioVirtualService, ok := routed.(*kubernetes.IstioVirtualService)
+	require.True(t, ok)
+	assert.Equal(t, "tsuru-test", istioVirtualService.BaseService.Namespace)
+	assert.Equal(t, 10*time.Second, istioVirtualService.BaseService.Timeout)
+	assert.Equal(t, "https://mycluster.com", istioVirtualService.BaseService.RestConfig.Host)
+	assert.Equal(t, "my-token", istioVirtualService.BaseService.RestConfig.BearerToken)
+	assert.Equal(t, "shared-gateway", istioVirtualService.GatewayName)
+	assert.Equal(t, "edge", istioVirtualService.GatewayNamespace)
+	assert.Equal(t, "apps.example.com", istioVirtualService.DomainSuffix)
+	addresses, err := istioVirtualService.GetAddresses(ctx, router.InstanceID{AppName: "myapp"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"myapp.apps.example.com"}, addresses)
 }
