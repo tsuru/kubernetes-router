@@ -1,0 +1,43 @@
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+name: release-please
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      major: ${{ steps.release.outputs.major }}
+      minor: ${{ steps.release.outputs.minor }}
+      prs_created: ${{ steps.release.outputs.prs_created }}
+      pr: ${{ steps.release.outputs.pr }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+
+  # GITHUB_TOKEN-created PRs and tags don't trigger go.yml, so call it explicitly.
+  validate-release-pr:
+    needs: release-please
+    if: needs.release-please.outputs.prs_created == 'true'
+    uses: ./.github/workflows/go.yml
+    with:
+      ref: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
+
+  publish-release:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/go.yml
+    with:
+      ref: ${{ needs.release-please.outputs.tag_name }}
+      docker_tags: tsuru/kubernetes-router:${{ needs.release-please.outputs.version }},tsuru/kubernetes-router:${{ needs.release-please.outputs.major }}.${{ needs.release-please.outputs.minor }},tsuru/kubernetes-router:${{ needs.release-please.outputs.major }}
+    secrets: inherit
