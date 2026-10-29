@@ -8,7 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
+	"slices"
 	"strings"
 
 	"github.com/tsuru/kubernetes-router/router"
@@ -94,19 +94,67 @@ func (k *IstioVirtualService) updateObjectMeta(result *metav1.ObjectMeta, appNam
 	}
 }
 
+// managedHTTPRoute returns the HTTP rule holding the router-managed default
+// destination. Operators may add rules around it, so it is located by content
+// rather than position: a catch-all rule routing to the managed backend is
+// preferred, then any rule routing to it, then the first catch-all. Without any
+// of those a catch-all rule is appended, after any match-specific rules.
+func managedHTTPRoute(vs *istionetworking.VirtualService, hosts ...string) *apiNetworking.HTTPRoute {
+	routesTo := func(rule *apiNetworking.HTTPRoute) bool {
+		for _, dst := range rule.Route {
+			if dst.Destination == nil {
+				continue
+			}
+			for _, host := range hosts {
+				if host != "" && dst.Destination.Host == host {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	var anyMatch, catchAll *apiNetworking.HTTPRoute
+	for _, rule := range vs.Spec.Http {
+		if rule == nil {
+			continue
+		}
+		isCatchAll := len(rule.Match) == 0
+		if routesTo(rule) {
+			if isCatchAll {
+				return rule
+			}
+			if anyMatch == nil {
+				anyMatch = rule
+			}
+		}
+		if isCatchAll && catchAll == nil {
+			catchAll = rule
+		}
+	}
+	if anyMatch != nil {
+		return anyMatch
+	}
+	if catchAll != nil {
+		return catchAll
+	}
+	rule := &apiNetworking.HTTPRoute{}
+	vs.Spec.Http = append(vs.Spec.Http, rule)
+	return rule
+}
+
 // updateVirtualService points the managed destination at dstHost. The
 // destination previously written by this mode is replaced in place, keeping its
-// weight, so unrelated weighted destinations keep their traffic share.
+// weight, so unrelated weighted destinations keep their traffic share. A
+// destination already pointing at dstHost is left untouched, keeping any
+// operator-set port or subset.
 func (k *IstioVirtualService) updateVirtualService(vs *istionetworking.VirtualService, gatewayRef, host, dstHost, previousDstHost string) {
 	vs.Spec.Gateways = addToSet(vs.Spec.Gateways, gatewayRef)
 	vs.Spec.Hosts = addToSet(vs.Spec.Hosts, host, dstHost)
-	if len(vs.Spec.Http) == 0 {
-		vs.Spec.Http = append(vs.Spec.Http, &apiNetworking.HTTPRoute{})
-	}
 	if previousDstHost == dstHost {
 		previousDstHost = ""
 	}
-	route := vs.Spec.Http[0].Route
+	rule := managedHTTPRoute(vs, previousDstHost, dstHost)
+	route := rule.Route
 	dstIdx, previousDstIdx := -1, -1
 	for i, dst := range route {
 		if dst.Destination == nil {
@@ -126,11 +174,10 @@ func (k *IstioVirtualService) updateVirtualService(vs *istionetworking.VirtualSe
 	case previousDstIdx != -1:
 		route[previousDstIdx].Destination = &apiNetworking.Destination{Host: dstHost}
 	case dstIdx != -1:
-		route[dstIdx].Destination = &apiNetworking.Destination{Host: dstHost}
 	default:
 		route = append(route, &apiNetworking.HTTPRouteDestination{Destination: &apiNetworking.Destination{Host: dstHost}})
 	}
-	vs.Spec.Http[0].Route = route
+	rule.Route = route
 	if previousDstHost != "" {
 		vs.Spec.Hosts = removeFromSet(vs.Spec.Hosts, previousDstHost)
 	}
@@ -205,11 +252,18 @@ func (k *IstioVirtualService) Ensure(ctx context.Context, id router.InstanceID, 
 	// Only detach a reference this mode recorded; a startup default does not
 	// prove ownership of an attachment on an existing VirtualService.
 	previousRef := virtualService.Annotations[gatewayReferenceAnnotation]
+	// Claim the reference only when this mode adds it or already owns it, so an
+	// attachment that existed before is never detached later.
+	ownsGatewayRef := previousRef == gatewayRef || !slices.Contains(virtualService.Spec.Gateways, gatewayRef)
 	if previousRef != "" && previousRef != gatewayRef {
 		virtualService.Spec.Gateways = removeFromSet(virtualService.Spec.Gateways, previousRef)
 	}
 	k.updateObjectMeta(&virtualService.ObjectMeta, id.AppName, opts.Opts)
-	virtualService.Annotations[gatewayReferenceAnnotation] = gatewayRef
+	if ownsGatewayRef {
+		virtualService.Annotations[gatewayReferenceAnnotation] = gatewayRef
+	} else {
+		delete(virtualService.Annotations, gatewayReferenceAnnotation)
+	}
 	dstHost := istioServiceHost(webService.Name, defaultTarget.Namespace, appNamespace)
 	k.updateVirtualService(virtualService, gatewayRef, k.gatewayHost(id, k.DomainSuffix), dstHost, previousDstHost)
 	virtualService.Labels[appBaseServiceNamespaceLabel] = defaultTarget.Namespace

@@ -361,3 +361,122 @@ func TestIstioVirtualServiceEnsureKeepsDeterministicOrder(t *testing.T) {
 		assert.Equal(t, []string{"a.example.com", "b.example.com", "c.example.com", "myapp.my.domain", "service-b"}, virtualService.Spec.Hosts)
 	}
 }
+
+func TestIstioVirtualServiceEnsureFindsManagedRuleAfterPrependedRule(t *testing.T) {
+	svc, client := fakeVirtualServiceService()
+	require.NoError(t, createAppWebService(svc.Client, svc.Namespace, "myapp"))
+	for _, name := range []string{"service-a", "service-b"} {
+		_, err := svc.Client.CoreV1().Services("default").Create(ctx, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: name}}, metav1.CreateOptions{})
+		require.NoError(t, err)
+	}
+	ensure := func(service string) {
+		t.Helper()
+		require.NoError(t, svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+			Prefixes: []router.BackendPrefix{{Target: router.BackendTarget{Service: service, Namespace: "default"}}},
+		}))
+	}
+	ensure("service-a")
+
+	virtualService, err := client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	pathRule := &apiNetworking.HTTPRoute{
+		Match: []*apiNetworking.HTTPMatchRequest{{Uri: &apiNetworking.StringMatch{MatchType: &apiNetworking.StringMatch_Prefix{Prefix: "/api"}}}},
+		Route: []*apiNetworking.HTTPRouteDestination{{Destination: &apiNetworking.Destination{Host: "api-backend"}}},
+	}
+	virtualService.Spec.Http = append([]*apiNetworking.HTTPRoute{pathRule}, virtualService.Spec.Http...)
+	_, err = client.NetworkingV1beta1().VirtualServices("default").Update(ctx, virtualService, metav1.UpdateOptions{})
+	require.NoError(t, err)
+
+	ensure("service-b")
+	virtualService, err = client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Len(t, virtualService.Spec.Http, 2)
+	require.Len(t, virtualService.Spec.Http[0].Route, 1)
+	assert.Equal(t, "api-backend", virtualService.Spec.Http[0].Route[0].Destination.Host)
+	require.Len(t, virtualService.Spec.Http[1].Route, 1)
+	assert.Equal(t, "service-b", virtualService.Spec.Http[1].Route[0].Destination.Host)
+}
+
+func TestIstioVirtualServiceEnsureAppendsCatchAllAfterMatchRules(t *testing.T) {
+	svc, client := fakeVirtualServiceService()
+	require.NoError(t, createAppWebService(svc.Client, svc.Namespace, "myapp"))
+	pathRule := &apiNetworking.HTTPRoute{
+		Match: []*apiNetworking.HTTPMatchRequest{{Uri: &apiNetworking.StringMatch{MatchType: &apiNetworking.StringMatch_Prefix{Prefix: "/api"}}}},
+		Route: []*apiNetworking.HTTPRouteDestination{{Destination: &apiNetworking.Destination{Host: "api-backend"}}},
+	}
+	_, err := client.NetworkingV1beta1().VirtualServices("default").Create(ctx, &istionetworking.VirtualService{
+		ObjectMeta: metav1.ObjectMeta{Name: "myapp"},
+		Spec:       apiNetworking.VirtualService{Http: []*apiNetworking.HTTPRoute{pathRule}},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	require.NoError(t, svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+		Prefixes: []router.BackendPrefix{{Target: router.BackendTarget{Service: "myapp-web", Namespace: "default"}}},
+	}))
+	virtualService, err := client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Len(t, virtualService.Spec.Http, 2)
+	assert.Equal(t, "api-backend", virtualService.Spec.Http[0].Route[0].Destination.Host)
+	assert.Empty(t, virtualService.Spec.Http[1].Match)
+	assert.Equal(t, "myapp-web", virtualService.Spec.Http[1].Route[0].Destination.Host)
+}
+
+func TestIstioVirtualServiceEnsureKeepsDestinationPortAndSubset(t *testing.T) {
+	svc, client := fakeVirtualServiceService()
+	require.NoError(t, createAppWebService(svc.Client, svc.Namespace, "myapp"))
+	ensure := func() {
+		t.Helper()
+		require.NoError(t, svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+			Prefixes: []router.BackendPrefix{{Target: router.BackendTarget{Service: "myapp-web", Namespace: "default"}}},
+		}))
+	}
+	ensure()
+
+	virtualService, err := client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	virtualService.Spec.Http[0].Route[0].Destination.Port = &apiNetworking.PortSelector{Number: 8080}
+	virtualService.Spec.Http[0].Route[0].Destination.Subset = "canary"
+	_, err = client.NetworkingV1beta1().VirtualServices("default").Update(ctx, virtualService, metav1.UpdateOptions{})
+	require.NoError(t, err)
+
+	ensure()
+	virtualService, err = client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	dst := virtualService.Spec.Http[0].Route[0].Destination
+	assert.Equal(t, "myapp-web", dst.Host)
+	require.NotNil(t, dst.Port)
+	assert.Equal(t, uint32(8080), dst.Port.Number)
+	assert.Equal(t, "canary", dst.Subset)
+}
+
+func TestIstioVirtualServiceEnsureDoesNotClaimPreexistingGateway(t *testing.T) {
+	svc, client := fakeVirtualServiceService()
+	require.NoError(t, createAppWebService(svc.Client, svc.Namespace, "myapp"))
+	_, err := client.NetworkingV1beta1().VirtualServices("default").Create(ctx, &istionetworking.VirtualService{
+		ObjectMeta: metav1.ObjectMeta{Name: "myapp"},
+		Spec:       apiNetworking.VirtualService{Gateways: []string{"mesh", "shared-gateway"}},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+	ensure := func(opts router.Opts) *istionetworking.VirtualService {
+		t.Helper()
+		require.NoError(t, svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+			Opts:     opts,
+			Prefixes: []router.BackendPrefix{{Target: router.BackendTarget{Service: "myapp-web", Namespace: "default"}}},
+		}))
+		virtualService, err := client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+		require.NoError(t, err)
+		return virtualService
+	}
+
+	virtualService := ensure(router.Opts{})
+	assert.NotContains(t, virtualService.Annotations, gatewayReferenceAnnotation)
+
+	virtualService = ensure(router.Opts{GatewayName: "request-gateway", GatewayNamespace: "edge"})
+	assert.ElementsMatch(t, []string{"mesh", "shared-gateway", "edge/request-gateway"}, virtualService.Spec.Gateways)
+	assert.Equal(t, "edge/request-gateway", virtualService.Annotations[gatewayReferenceAnnotation])
+
+	require.NoError(t, svc.Remove(ctx, idForApp("myapp")))
+	virtualService, err = client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"mesh", "shared-gateway"}, virtualService.Spec.Gateways)
+}
