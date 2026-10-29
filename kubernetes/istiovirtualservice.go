@@ -9,12 +9,15 @@ import (
 	"errors"
 	"fmt"
 
+	"strings"
+
 	"github.com/tsuru/kubernetes-router/router"
 	apiNetworking "istio.io/api/networking/v1beta1"
 	istionetworking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	networkingClientSet "istio.io/client-go/pkg/clientset/versioned/typed/networking/v1beta1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 var _ router.Router = &IstioVirtualService{}
@@ -162,6 +165,12 @@ func (k *IstioVirtualService) Ensure(ctx context.Context, id router.InstanceID, 
 	if gatewayNamespace == "" {
 		gatewayNamespace = appNamespace
 	}
+	if errs := validation.IsDNS1123Subdomain(gatewayName); len(errs) > 0 {
+		return fmt.Errorf("invalid gateway name %q: %s", gatewayName, strings.Join(errs, "; "))
+	}
+	if errs := validation.IsDNS1123Label(gatewayNamespace); len(errs) > 0 {
+		return fmt.Errorf("invalid gateway namespace %q: %s", gatewayNamespace, strings.Join(errs, "; "))
+	}
 	gatewayRef := k.gatewayReference(gatewayName, gatewayNamespace, appNamespace)
 
 	defaultTarget, err := k.getDefaultBackendTarget(opts.Prefixes)
@@ -231,9 +240,9 @@ func (k *IstioVirtualService) Swap(context.Context, router.InstanceID, router.In
 	return errors.New("swap is not supported, the virtualservice should be edited manually")
 }
 
-// Remove detaches the Gateway reference recorded on the VirtualService. A
-// missing annotation falls back to startup configuration; with neither source,
-// it is a no-op because Remove has no request options and must not guess.
+// Remove detaches the Gateway reference recorded on the VirtualService. Without
+// the annotation it is a no-op: the VirtualService was not attached by this mode
+// and Remove has no request options to tell which reference it owns.
 func (k *IstioVirtualService) Remove(ctx context.Context, id router.InstanceID) error {
 	appNamespace, err := k.getAppNamespace(ctx, id.AppName)
 	if err != nil {
@@ -248,13 +257,6 @@ func (k *IstioVirtualService) Remove(ctx context.Context, id router.InstanceID) 
 		return err
 	}
 	gatewayRef := virtualService.Annotations[gatewayReferenceAnnotation]
-	if gatewayRef == "" && k.GatewayName != "" {
-		gatewayNamespace := k.GatewayNamespace
-		if gatewayNamespace == "" {
-			gatewayNamespace = appNamespace
-		}
-		gatewayRef = k.gatewayReference(k.GatewayName, gatewayNamespace, appNamespace)
-	}
 	if gatewayRef == "" {
 		return nil
 	}

@@ -171,11 +171,13 @@ func TestIstioVirtualServiceRemoveDoesNotDeleteGateway(t *testing.T) {
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
 	_, err = client.NetworkingV1beta1().VirtualServices("default").Create(ctx, &istionetworking.VirtualService{
-		ObjectMeta: metav1.ObjectMeta{Name: "myapp"},
-		Spec:       apiNetworking.VirtualService{Gateways: []string{"mesh", "edge/shared-gateway", "other-gateway"}},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "myapp",
+			Annotations: map[string]string{gatewayReferenceAnnotation: "edge/shared-gateway"},
+		},
+		Spec: apiNetworking.VirtualService{Gateways: []string{"mesh", "edge/shared-gateway", "other-gateway"}},
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
-	svc.GatewayNamespace = "edge"
 
 	require.NoError(t, svc.Remove(ctx, idForApp("myapp")))
 	virtualService, err := client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
@@ -296,4 +298,40 @@ func TestIstioVirtualServiceEnsureOverrideKeepsUnrecordedConfiguredGateway(t *te
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"mesh", "shared-gateway", "edge/request-gateway"}, virtualService.Spec.Gateways)
 	assert.Equal(t, "edge/request-gateway", virtualService.Annotations[gatewayReferenceAnnotation])
+}
+
+func TestIstioVirtualServiceRemoveKeepsUnrecordedGateway(t *testing.T) {
+	svc, client := fakeVirtualServiceService()
+	_, err := client.NetworkingV1beta1().VirtualServices("default").Create(ctx, &istionetworking.VirtualService{
+		ObjectMeta: metav1.ObjectMeta{Name: "myapp"},
+		Spec:       apiNetworking.VirtualService{Gateways: []string{"mesh", "shared-gateway"}},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	require.NoError(t, svc.Remove(ctx, idForApp("myapp")))
+	virtualService, err := client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"mesh", "shared-gateway"}, virtualService.Spec.Gateways)
+	for _, action := range client.Actions() {
+		assert.NotEqual(t, "update", action.GetVerb(), "Remove must not touch a VirtualService this mode never attached")
+	}
+}
+
+func TestIstioVirtualServiceEnsureRejectsInvalidGatewayReference(t *testing.T) {
+	tests := []router.Opts{
+		{GatewayName: "kube-system/admin-gateway"},
+		{GatewayName: "request-gateway", GatewayNamespace: "edge/other"},
+		{GatewayName: "Bad_Name"},
+	}
+	for _, opts := range tests {
+		svc, client := fakeVirtualServiceService()
+		require.NoError(t, createAppWebService(svc.Client, svc.Namespace, "myapp"))
+		err := svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+			Opts:     opts,
+			Prefixes: []router.BackendPrefix{{Target: router.BackendTarget{Service: "myapp-web", Namespace: "default"}}},
+		})
+		require.Error(t, err, "%+v", opts)
+		assert.Contains(t, err.Error(), "invalid gateway")
+		assert.Empty(t, client.Actions(), "invalid Gateway reference must fail before calling Istio")
+	}
 }

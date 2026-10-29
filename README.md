@@ -39,8 +39,8 @@ Istio Gateway; it never creates or deletes Gateway resources. Its Gateway name i
 can be configured with `-istio-virtualservice.gateway-namespace` or `X-Gateway-Namespace`; when
 omitted, the app namespace is used. VirtualServices use a `namespace/name` Gateway reference when
 the Gateway is in a different namespace.
-The reference is recorded on the VirtualService so Remove can detach a request-level Gateway
-override even when the startup Gateway configuration is absent.
+The reference is recorded on the VirtualService, and Remove only detaches that recorded reference, so
+request-level Gateway overrides are detached correctly and unrelated Gateway attachments are kept.
 
 ## Envs
 
