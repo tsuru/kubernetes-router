@@ -91,61 +91,45 @@ func (k *IstioVirtualService) updateObjectMeta(result *metav1.ObjectMeta, appNam
 	}
 }
 
-func (k *IstioVirtualService) updateVirtualService(vs *istionetworking.VirtualService, gatewayRef, host, dstHost string, previousDstHosts ...string) {
+// updateVirtualService points the managed destination at dstHost. The
+// destination previously written by this mode is replaced in place, keeping its
+// weight, so unrelated weighted destinations keep their traffic share.
+func (k *IstioVirtualService) updateVirtualService(vs *istionetworking.VirtualService, gatewayRef, host, dstHost, previousDstHost string) {
 	vs.Spec.Gateways = addToSet(vs.Spec.Gateways, gatewayRef)
 	vs.Spec.Hosts = addToSet(vs.Spec.Hosts, host, dstHost)
 	if len(vs.Spec.Http) == 0 {
 		vs.Spec.Http = append(vs.Spec.Http, &apiNetworking.HTTPRoute{})
 	}
-	dstIdx := -1
-	previousDstIdx := -1
-	for i, dst := range vs.Spec.Http[0].Route {
+	if previousDstHost == dstHost {
+		previousDstHost = ""
+	}
+	route := vs.Spec.Http[0].Route
+	dstIdx, previousDstIdx := -1, -1
+	for i, dst := range route {
 		if dst.Destination == nil {
 			continue
 		}
-		isPrevious := false
-		for _, previousDstHost := range previousDstHosts {
-			if previousDstHost != "" && dst.Destination.Host == previousDstHost {
-				isPrevious = true
-				break
-			}
-		}
-		if dst.Destination.Host == dstHost {
+		if dstIdx == -1 && dst.Destination.Host == dstHost {
 			dstIdx = i
-			break
 		}
-		if isPrevious && previousDstIdx == -1 {
+		if previousDstIdx == -1 && previousDstHost != "" && dst.Destination.Host == previousDstHost {
 			previousDstIdx = i
 		}
 	}
-	if dstIdx == -1 {
-		dstIdx = previousDstIdx
-		if dstIdx == -1 {
-			vs.Spec.Http[0].Route = append(vs.Spec.Http[0].Route, &apiNetworking.HTTPRouteDestination{})
-			dstIdx = len(vs.Spec.Http[0].Route) - 1
-		}
+	switch {
+	case dstIdx != -1 && previousDstIdx != -1:
+		route[dstIdx].Weight += route[previousDstIdx].Weight
+		route = append(route[:previousDstIdx], route[previousDstIdx+1:]...)
+	case previousDstIdx != -1:
+		route[previousDstIdx].Destination = &apiNetworking.Destination{Host: dstHost}
+	case dstIdx != -1:
+		route[dstIdx].Destination = &apiNetworking.Destination{Host: dstHost}
+	default:
+		route = append(route, &apiNetworking.HTTPRouteDestination{Destination: &apiNetworking.Destination{Host: dstHost}})
 	}
-	vs.Spec.Http[0].Route[dstIdx].Destination = &apiNetworking.Destination{Host: dstHost}
-	routes := vs.Spec.Http[0].Route[:0]
-	for _, route := range vs.Spec.Http[0].Route {
-		remove := false
-		if route.Destination != nil && route.Destination.Host != dstHost {
-			for _, previousDstHost := range previousDstHosts {
-				if previousDstHost != "" && route.Destination.Host == previousDstHost {
-					remove = true
-					break
-				}
-			}
-		}
-		if !remove {
-			routes = append(routes, route)
-		}
-	}
-	vs.Spec.Http[0].Route = routes
-	for _, previousDstHost := range previousDstHosts {
-		if previousDstHost != "" && previousDstHost != dstHost {
-			vs.Spec.Hosts = removeFromSet(vs.Spec.Hosts, previousDstHost)
-		}
+	vs.Spec.Http[0].Route = route
+	if previousDstHost != "" {
+		vs.Spec.Hosts = removeFromSet(vs.Spec.Hosts, previousDstHost)
 	}
 }
 
@@ -201,29 +185,24 @@ func (k *IstioVirtualService) Ensure(ctx context.Context, id router.InstanceID, 
 	if !existing {
 		virtualService = &istionetworking.VirtualService{ObjectMeta: metav1.ObjectMeta{Name: k.vsName(id)}, Spec: apiNetworking.VirtualService{Gateways: []string{"mesh"}}}
 	}
-	previousDstHosts := []string{}
+	previousDstHost := ""
 	if previousService := virtualService.Labels[appBaseServiceNameLabel]; previousService != "" {
 		previousNamespace := virtualService.Labels[appBaseServiceNamespaceLabel]
 		if previousNamespace == "" {
 			previousNamespace = appNamespace
 		}
-		previousDstHosts = append(previousDstHosts, previousService, istioServiceHost(previousService, previousNamespace, appNamespace))
+		previousDstHost = istioServiceHost(previousService, previousNamespace, appNamespace)
 	}
+	// Only detach a reference this mode recorded; a startup default does not
+	// prove ownership of an attachment on an existing VirtualService.
 	previousRef := virtualService.Annotations[gatewayReferenceAnnotation]
-	if previousRef == "" && k.GatewayName != "" {
-		configuredNamespace := k.GatewayNamespace
-		if configuredNamespace == "" {
-			configuredNamespace = appNamespace
-		}
-		previousRef = k.gatewayReference(k.GatewayName, configuredNamespace, appNamespace)
-	}
 	if previousRef != "" && previousRef != gatewayRef {
 		virtualService.Spec.Gateways = removeFromSet(virtualService.Spec.Gateways, previousRef)
 	}
 	k.updateObjectMeta(&virtualService.ObjectMeta, id.AppName, opts.Opts)
 	virtualService.Annotations[gatewayReferenceAnnotation] = gatewayRef
 	dstHost := istioServiceHost(webService.Name, defaultTarget.Namespace, appNamespace)
-	k.updateVirtualService(virtualService, gatewayRef, k.gatewayHost(id, k.DomainSuffix), dstHost, previousDstHosts...)
+	k.updateVirtualService(virtualService, gatewayRef, k.gatewayHost(id, k.DomainSuffix), dstHost, previousDstHost)
 	virtualService.Labels[appBaseServiceNamespaceLabel] = defaultTarget.Namespace
 	virtualService.Labels[appBaseServiceNameLabel] = defaultTarget.Service
 
