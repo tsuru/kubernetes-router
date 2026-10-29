@@ -335,3 +335,29 @@ func TestIstioVirtualServiceEnsureRejectsInvalidGatewayReference(t *testing.T) {
 		assert.Empty(t, client.Actions(), "invalid Gateway reference must fail before calling Istio")
 	}
 }
+
+func TestIstioVirtualServiceEnsureKeepsDeterministicOrder(t *testing.T) {
+	svc, client := fakeVirtualServiceService()
+	require.NoError(t, createAppWebService(svc.Client, svc.Namespace, "myapp"))
+	for _, name := range []string{"service-a", "service-b"} {
+		_, err := svc.Client.CoreV1().Services("default").Create(ctx, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: name}}, metav1.CreateOptions{})
+		require.NoError(t, err)
+	}
+	ensure := func(service, gateway string) *istionetworking.VirtualService {
+		t.Helper()
+		require.NoError(t, svc.Ensure(ctx, idForApp("myapp"), router.EnsureBackendOpts{
+			Opts:     router.Opts{GatewayName: gateway, GatewayNamespace: "edge"},
+			CNames:   []string{"b.example.com", "a.example.com", "c.example.com"},
+			Prefixes: []router.BackendPrefix{{Target: router.BackendTarget{Service: service, Namespace: "default"}}},
+		}))
+		virtualService, err := client.NetworkingV1beta1().VirtualServices("default").Get(ctx, "myapp", metav1.GetOptions{})
+		require.NoError(t, err)
+		return virtualService
+	}
+	for i := 0; i < 20; i++ {
+		ensure("service-a", "gateway-a")
+		virtualService := ensure("service-b", "gateway-b")
+		assert.Equal(t, []string{"edge/gateway-b", "mesh"}, virtualService.Spec.Gateways)
+		assert.Equal(t, []string{"a.example.com", "b.example.com", "c.example.com", "myapp.my.domain", "service-b"}, virtualService.Spec.Hosts)
+	}
+}

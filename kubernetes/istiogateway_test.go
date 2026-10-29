@@ -392,3 +392,10 @@ func TestIstioGateway_CNameLifeCycle(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoveFromSetKeepsOrder(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		got := removeFromSet([]string{"e", "a", "d", "a", "c", "b"}, "d", "x")
+		assert.Equal(t, []string{"e", "a", "c", "b"}, got)
+	}
+}

@@ -111,18 +111,18 @@ func addToSet(dst []string, toAdd ...string) []string {
 }
 
 func removeFromSet(dst []string, toRemove ...string) []string {
-	existingSet := map[string]struct{}{}
-	for _, v := range dst {
-		existingSet[v] = struct{}{}
-	}
+	seen := map[string]struct{}{}
 	for _, v := range toRemove {
-		delete(existingSet, v)
+		seen[v] = struct{}{}
 	}
-	dst = dst[:0]
-	for h := range existingSet {
-		dst = append(dst, h)
+	result := dst[:0]
+	for _, v := range dst {
+		if _, in := seen[v]; !in {
+			seen[v] = struct{}{}
+			result = append(result, v)
+		}
 	}
-	return dst
+	return result
 }
 
 func hostsFromAnnotation(annotations map[string]string) []string {
