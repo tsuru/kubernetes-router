@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -790,13 +791,9 @@ func (k *IngressService) RemoveCertificate(ctx context.Context, id router.Instan
 	if err != nil {
 		return err
 	}
-	for k := range ingress.Spec.TLS {
-		for _, host := range ingress.Spec.TLS[k].Hosts {
-			if strings.Compare(certCname, host) == 0 {
-				ingress.Spec.TLS = append(ingress.Spec.TLS[:k], ingress.Spec.TLS[k+1:]...)
-			}
-		}
-	}
+	ingress.Spec.TLS = slices.DeleteFunc(ingress.Spec.TLS, func(tls networkingV1.IngressTLS) bool {
+		return slices.Contains(tls.Hosts, certCname)
+	})
 	_, err = ingressClient.Update(ctx, ingress, metav1.UpdateOptions{})
 	if err != nil {
 		return err

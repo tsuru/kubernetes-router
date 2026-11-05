@@ -1421,6 +1421,50 @@ func TestRemoveCertificate(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestRemoveCertificateWithMultipleTLSEntries(t *testing.T) {
+	svc := createFakeService(false)
+	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
+	require.NoError(t, err)
+	err = svc.Ensure(ctx, idForApp("test-blue"), router.EnsureBackendOpts{
+		Opts: router.Opts{
+			ExposeAllServices: true,
+		},
+		Prefixes: []router.BackendPrefix{
+			{
+				Target: router.BackendTarget{
+					Service:   "test-blue-web",
+					Namespace: svc.Namespace,
+				},
+			},
+			{
+				Prefix: "v1.version",
+				Target: router.BackendTarget{
+					Service:   "test-blue-web",
+					Namespace: svc.Namespace,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	cert := router.CertData{Certificate: "Certz", Key: "keyz"}
+	err = svc.AddCertificate(ctx, idForApp("test-blue"), "test-blue.mycloud.com", cert)
+	require.NoError(t, err)
+	err = svc.AddCertificate(ctx, idForApp("test-blue"), "v1.version.test-blue.mycloud.com", cert)
+	require.NoError(t, err)
+
+	err = svc.RemoveCertificate(ctx, idForApp("test-blue"), "test-blue.mycloud.com")
+	require.NoError(t, err)
+
+	ingress, err := svc.Client.NetworkingV1().Ingresses(svc.Namespace).Get(ctx, "kubernetes-router-test-blue-ingress", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []networkingV1.IngressTLS{
+		{
+			Hosts:      []string{"v1.version.test-blue.mycloud.com"},
+			SecretName: svc.secretName(idForApp("test-blue"), "v1.version.test-blue.mycloud.com"),
+		},
+	}, ingress.Spec.TLS)
+}
+
 func TestRemoveCertificateACMEHandled(t *testing.T) {
 	svc := createFakeService(false)
 	err := createAppWebService(svc.Client, svc.Namespace, "test-blue")
